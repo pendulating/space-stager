@@ -1,0 +1,720 @@
+/* Search highlight styles */
+.search-highlight {
+  background-color: #fef3c7;
+  padding: 1px 2px;
+  border-radius: 2px;
+  font-weight: 500;
+}
+
+/* Search results styling */
+.search-results {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: white;
+}
+
+.search-result {
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.search-result:last-child {
+  border-bottom: none;
+}
+
+.search-result:hover {
+  background-color: #eff6ff;
+}
+
+/* Map tooltip styles */
+.map-tooltip {
+  pointer-events: none;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.map-tooltip::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: 5px;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 5px solid white;
+}
+
+/* Active tool indicator styles */
+.active-tool-indicator {
+  animation: slideInFromTop 0.3s ease-out;
+  backdrop-filter: blur(8px);
+}
+
+@keyframes slideInFromTop {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Dropped objects animation */
+.dropped-object {
+  transition: all 0.2s ease-in-out;
+  will-change: transform;
+}
+
+.dropped-object:hover {
+  transform: scale(1.1);
+  z-index: 20 !important;
+}
+
+.dropped-object .remove-button {
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.dropped-object:hover .remove-button {
+  opacity: 1;
+}
+
+/* Map container styles */
+.map-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* Draggable object styles */
+.draggable-object {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+.draggable-object:active {
+  cursor: grabbing !important;
+}
+
+/* Layer toggle styles */
+.layer-toggle {
+  transition: all 0.2s ease-in-out;
+}
+
+.layer-toggle:hover {
+  transform: translateX(2px);
+}
+
+.layer-toggle.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Custom shapes list styles */
+.custom-shapes-list {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db #f9fafb;
+}
+
+.custom-shapes-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-shapes-list::-webkit-scrollbar-track {
+  background: #f9fafb;
+  border-radius: 3px;
+}
+
+.custom-shapes-list::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+.custom-shapes-list::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Overlap selector styles */
+.overlap-selector {
+  animation: fadeInScale 0.2s ease-out;
+}
+
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.overlap-area-button {
+  transition: all 0.15s ease-in-out;
+}
+
+.overlap-area-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+/* Loading spinner styles */
+.loading-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Focus info panel styles */
+.focus-info-panel {
+  animation: slideInFromTop 0.3s ease-out;
+}
+
+/* Export menu styles */
+.export-menu {
+  animation: fadeInScale 0.2s ease-out;
+  backdrop-filter: blur(4px);
+}
+
+.export-option {
+  transition: all 0.15s ease-in-out;
+}
+
+.export-option:hover {
+  transform: translateX(4px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Sidebar styles */
+.sidebar {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db #f9fafb;
+}
+
+.sidebar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+  background: #f9fafb;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Drawing tool button styles */
+.drawing-tool-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+.drawing-tool-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.drawing-tool-btn:hover::before {
+  left: 100%;
+}
+
+/* Placeable objects grid styles */
+.placeable-objects-grid .object-item {
+  transition: all 0.2s ease-in-out;
+}
+
+.placeable-objects-grid .object-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.placeable-objects-grid .object-item:active {
+  transform: translateY(0);
+}
+
+/* Permit area highlight styles */
+.permit-area-highlight {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Info panel styles */
+.info-panel {
+  animation: slideInFromTop 0.3s ease-out;
+}
+
+/* Header styles */
+.app-header {
+  backdrop-filter: blur(8px);
+  background-color: rgba(255, 255, 255, 0.95);
+}
+
+/* Button hover effects */
+.btn-hover {
+  transition: all 0.15s ease-in-out;
+}
+
+.btn-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Form input focus styles */
+.form-input:focus {
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: #3b82f6;
+}
+
+/* Modal backdrop styles */
+.modal-backdrop {
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Modal content styles */
+.modal-content {
+  animation: slideInFromBottom 0.3s ease-out;
+}
+
+@keyframes slideInFromBottom {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* SAPO Mode Styles */
+.sapo-mode-indicator {
+  animation: slideInFromTop 0.3s ease-out;
+  backdrop-filter: blur(8px);
+}
+
+.sapo-zone-drawing {
+  cursor: crosshair !important;
+}
+
+.sapo-zone-active {
+  position: relative;
+}
+
+.sapo-zone-active::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, transparent 48%, rgba(16, 185, 129, 0.1) 49%, rgba(16, 185, 129, 0.1) 51%, transparent 52%);
+  background-size: 20px 20px;
+  pointer-events: none;
+  animation: sapo-pattern-move 2s linear infinite;
+}
+
+@keyframes sapo-pattern-move {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 20px 20px;
+  }
+}
+
+/* SAPO drawing state */
+.sapo-drawing-active .mapboxgl-canvas {
+  cursor: crosshair !important;
+}
+
+.sapo-line-progress {
+  stroke-dasharray: 5, 5;
+  animation: dash 1s linear infinite;
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+/* SAPO zone highlight */
+.sapo-zone-highlight {
+  animation: sapo-zone-pulse 2s ease-in-out infinite;
+}
+
+@keyframes sapo-zone-pulse {
+  0%, 100% {
+    fill-opacity: 0.2;
+    stroke-opacity: 0.8;
+  }
+  50% {
+    fill-opacity: 0.3;
+    stroke-opacity: 1;
+  }
+}
+
+/* SAPO controls styling */
+.sapo-controls {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border: 1px solid #bbf7d0;
+}
+
+.sapo-control-button {
+  transition: all 0.2s ease-in-out;
+  position: relative;
+  overflow: hidden;
+}
+
+.sapo-control-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.sapo-control-button:hover::before {
+  left: 100%;
+}
+
+.sapo-control-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(16, 185, 129, 0.2);
+}
+
+.sapo-control-button:active {
+  transform: translateY(0);
+}
+
+/* SAPO status indicators */
+.sapo-status-drawing {
+  color: #059669;
+  background-color: #d1fae5;
+  border-color: #059669;
+}
+
+.sapo-status-complete {
+  color: #065f46;
+  background-color: #a7f3d0;
+  border-color: #065f46;
+}
+
+.sapo-progress-indicator {
+  position: relative;
+}
+
+.sapo-progress-indicator::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, #10b981, #34d399, #10b981);
+  background-size: 200% 100%;
+  animation: sapo-progress 2s ease-in-out infinite;
+}
+
+@keyframes sapo-progress {
+  0%, 100% {
+    background-position: 200% 0;
+  }
+  50% {
+    background-position: -200% 0;
+  }
+}
+
+/* SAPO mode transitions */
+.sapo-mode-enter {
+  animation: sapo-mode-slide-in 0.4s ease-out;
+}
+
+.sapo-mode-exit {
+  animation: sapo-mode-slide-out 0.3s ease-in;
+}
+
+@keyframes sapo-mode-slide-in {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes sapo-mode-slide-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+}
+
+/* SAPO zone boundary styling */
+.sapo-zone-boundary {
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 2px 4px rgba(16, 185, 129, 0.2));
+}
+
+/* SAPO intersection markers */
+.sapo-intersection-marker {
+  fill: #10b981;
+  stroke: #ffffff;
+  stroke-width: 2;
+  r: 6;
+  animation: sapo-marker-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes sapo-marker-pulse {
+  0%, 100% {
+    r: 6;
+    fill-opacity: 1;
+  }
+  50% {
+    r: 8;
+    fill-opacity: 0.7;
+  }
+}
+
+/* SAPO help text styling */
+.sapo-help-text {
+  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+  border-left: 4px solid #10b981;
+  position: relative;
+}
+
+.sapo-help-text::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(180deg, #10b981, #34d399, #10b981);
+  background-size: 100% 200%;
+  animation: sapo-border-flow 3s ease-in-out infinite;
+}
+
+@keyframes sapo-border-flow {
+  0%, 100% {
+    background-position: 0% 0%;
+  }
+  50% {
+    background-position: 0% 100%;
+  }
+}
+
+/* Responsive SAPO mode */
+@media (max-width: 768px) {
+  .sapo-mode-indicator {
+    margin: 5px;
+    font-size: 0.875rem;
+  }
+  
+  .sapo-controls {
+    padding: 8px;
+  }
+  
+  .sapo-control-button {
+    padding: 8px 16px;
+    font-size: 0.875rem;
+  }
+}
+
+/* High contrast mode for SAPO */
+@media (prefers-contrast: high) {
+  .sapo-zone-highlight {
+    fill: #000000;
+    fill-opacity: 0.1;
+    stroke: #000000;
+    stroke-width: 3;
+  }
+  
+  .sapo-intersection-marker {
+    fill: #000000;
+    stroke: #ffffff;
+    stroke-width: 3;
+  }
+}
+
+/* Reduced motion for SAPO */
+@media (prefers-reduced-motion: reduce) {
+  .sapo-zone-active::after,
+  .sapo-line-progress,
+  .sapo-zone-pulse,
+  .sapo-marker-pulse,
+  .sapo-progress-indicator::after,
+  .sapo-border-flow {
+    animation: none;
+  }
+}
+
+/* Utility classes */
+.text-shadow {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.backdrop-blur {
+  backdrop-filter: blur(8px);
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 100%;
+    max-height: 40vh;
+  }
+  
+  .map-container {
+    height: 60vh;
+  }
+  
+  .overlap-selector {
+    max-width: 90vw;
+    left: 5vw !important;
+  }
+  
+  .active-tool-indicator {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    width: auto;
+  }
+}
+
+/* Print styles */
+@media print {
+  .sidebar,
+  .map-controls,
+  .active-tool-indicator,
+  .overlap-selector,
+  .map-tooltip {
+    display: none !important;
+  }
+  
+  .map-container {
+    width: 100% !important;
+    height: 100vh !important;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .search-highlight {
+    background-color: #ffff00;
+    color: #000000;
+  }
+  
+  .map-tooltip {
+    border: 2px solid #000000;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Focus styles for accessibility */
+.focus-visible:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Error states */
+.error-state {
+  border-color: #ef4444;
+  background-color: #fef2f2;
+}
+
+.error-text {
+  color: #dc2626;
+}
+
+/* Success states */
+.success-state {
+  border-color: #10b981;
+  background-color: #f0fdf4;
+}
+
+.success-text {
+  color: #059669;
+}
+
+/* Warning states */
+.warning-state {
+  border-color: #f59e0b;
+  background-color: #fffbeb;
+}
+
+.warning-text {
+  color: #d97706;
+}
