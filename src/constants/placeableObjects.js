@@ -6,7 +6,7 @@ export const PLACEABLE_OBJECTS = [
     category: 'Equipment',
     icon: '🔥',
     color: '#dc2626',
-    size: { width: 40, height: 40 }
+    size: { width: 24, height: 24 }
   },
   {
     id: 'trash-bag',
@@ -14,6 +14,6 @@ export const PLACEABLE_OBJECTS = [
     category: 'Waste Management',
     icon: '🗑️',
     color: '#374151',
-    size: { width: 30, height: 30 }
+    size: { width: 20, height: 20 }
   }
 ];

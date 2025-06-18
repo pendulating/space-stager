@@ -11,14 +11,14 @@ export const INITIAL_LAYERS = {
   bikeLanes: { 
     visible: false, 
     name: 'Bike Lanes', 
-    color: '#2563eb', 
+    color: '#b2c5a5', 
     loading: false,
     loaded: false,
     endpoint: '/api/bike-lanes' // Add API endpoint
   },
   trees: { 
     visible: false, 
-    name: 'Street Trees', 
+    name: 'Trees', 
     color: '#22c55e', 
     loading: false,
     loaded: false,
@@ -39,22 +39,6 @@ export const INITIAL_LAYERS = {
     loading: false,
     loaded: false,
     endpoint: '/api/parking'
-  },
-  benches: { 
-    visible: false, 
-    name: 'Public Benches', 
-    color: '#8b5cf6', 
-    loading: false,
-    loaded: false,
-    endpoint: '/api/benches'
-  },
-  streetlights: { 
-    visible: false, 
-    name: 'Street Lights', 
-    color: '#f59e0b', 
-    loading: false,
-    loaded: false,
-    endpoint: '/api/streetlights'
   },
   busStops: { 
     visible: false, 

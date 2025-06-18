@@ -1,6 +1,8 @@
 // hooks/useDragDrop.js
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { PLACEABLE_OBJECTS } from '../constants/placeableObjects';
+
+const DEBUG = false; // Set to true to enable drag/drop debug logs
 
 export const useDragDrop = (map) => {
   const [droppedObjects, setDroppedObjects] = useState([]);
@@ -11,29 +13,17 @@ export const useDragDrop = (map) => {
   // Update objects positions when map moves
   useEffect(() => {
     if (!map) {
-      console.log('DragDrop: No map instance available');
+      if (DEBUG) console.log('DragDrop: No map instance available');
       return;
     }
     
-    console.log('DragDrop: Setting up event listeners', { 
+    if (DEBUG) console.log('DragDrop: Setting up event listeners', { 
       mapExists: !!map, 
       mapLoaded: map.loaded ? map.loaded() : 'unknown' 
     });
     
-    let rafId = null;
-    
     const updateObjectPositions = () => {
-      console.log('DragDrop: Map moved, updating positions');
-      if (rafId) {
-        cancelAnimationFrame(rafId);
-      }
-      
-      rafId = requestAnimationFrame(() => {
-        setObjectUpdateTrigger(prev => {
-          console.log('DragDrop: Updating object positions, trigger:', prev + 1);
-          return prev + 1;
-        });
-      });
+      setObjectUpdateTrigger(prev => prev + 1);
     };
     
     const events = [
@@ -43,47 +33,44 @@ export const useDragDrop = (map) => {
     const addEventListeners = () => {
       events.forEach(event => {
         map.on(event, updateObjectPositions);
-        console.log(`DragDrop: Added listener for ${event}`);
+        if (DEBUG) console.log(`DragDrop: Added listener for ${event}`);
       });
-      console.log('DragDrop: All event listeners added for object positioning');
+      if (DEBUG) console.log('DragDrop: All event listeners added for object positioning');
     };
     
     const removeEventListeners = () => {
       events.forEach(event => {
         map.off(event, updateObjectPositions);
       });
-      console.log('DragDrop: Event listeners removed');
+      if (DEBUG) console.log('DragDrop: Event listeners removed');
     };
     
     // Try multiple approaches to add event listeners
     try {
       if (map.loaded && typeof map.loaded === 'function' && map.loaded()) {
-        console.log('DragDrop: Map is already loaded, adding listeners immediately');
+        if (DEBUG) console.log('DragDrop: Map is already loaded, adding listeners immediately');
         addEventListeners();
       } else {
-        console.log('DragDrop: Map not loaded yet, waiting for load event');
+        if (DEBUG) console.log('DragDrop: Map not loaded yet, waiting for load event');
         const onLoad = () => {
-          console.log('DragDrop: Map load event fired, adding listeners');
+          if (DEBUG) console.log('DragDrop: Map load event fired, adding listeners');
           addEventListeners();
         };
         map.once('load', onLoad);
         
         // Also try adding them immediately as a fallback
         setTimeout(() => {
-          console.log('DragDrop: Fallback - adding listeners after timeout');
+          if (DEBUG) console.log('DragDrop: Fallback - adding listeners after timeout');
           addEventListeners();
         }, 1000);
       }
     } catch (error) {
-      console.error('DragDrop: Error setting up event listeners', error);
+      if (DEBUG) console.error('DragDrop: Error setting up event listeners', error);
       // Fallback: just add the listeners
       addEventListeners();
     }
     
     return () => {
-      if (rafId) {
-        cancelAnimationFrame(rafId);
-      }
       removeEventListeners();
     };
   }, [map]);
@@ -142,7 +129,7 @@ export const useDragDrop = (map) => {
     setDraggedObject(null);
     setDragOffset({ x: 0, y: 0 });
     
-    console.log('Dropped object:', newObject);
+    if (DEBUG) console.log('Dropped object:', newObject);
   }, [draggedObject, map, dragOffset]);
 
   // Remove dropped object

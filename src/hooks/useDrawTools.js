@@ -13,6 +13,16 @@ export const useDrawTools = (map) => {
     if (!map || !window.MapboxDraw) return;
 
     const initDraw = () => {
+      // Remove existing draw control if it exists
+      if (draw.current) {
+        try {
+          map.removeControl(draw.current);
+        } catch (error) {
+          console.warn('Error removing existing draw control:', error);
+        }
+        draw.current = null;
+      }
+
       const drawInstance = new window.MapboxDraw({
         displayControlsDefault: false,
         controls: {},
@@ -87,7 +97,7 @@ export const useDrawTools = (map) => {
         draw.current = null;
       }
     };
-  }, [map, customShapes]);
+  }, [map]);
 
   // Activate drawing tool
   const activateDrawingTool = useCallback((mode) => {
@@ -141,7 +151,7 @@ export const useDrawTools = (map) => {
   }, []);
 
   return {
-    draw: draw.current,
+    draw,
     activeTool,
     customShapes,
     selectedShape,

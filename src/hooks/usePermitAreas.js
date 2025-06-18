@@ -1,6 +1,61 @@
 // hooks/usePermitAreas.js
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { loadPermitAreas as loadPermitAreasService, searchPermitAreas, highlightOverlappingAreas, clearOverlapHighlights } from '../services/permitAreaService';
+import bbox from '@turf/bbox';
+
+// Minimal oriented minimum bounding box (rotating calipers) implementation
+function getOrientedMinBBox(coords) {
+  // Flatten all coordinates
+  const points = coords.flat();
+  // Convex hull (Graham scan)
+  points.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [];
+  for (const p of points) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper = [];
+  for (let i = points.length - 1; i >= 0; i--) {
+    const p = points[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  const hull = lower.slice(0, -1).concat(upper.slice(0, -1));
+  // Rotating calipers for min area rectangle
+  let minArea = Infinity, bestRect = null, bestAngle = 0;
+  for (let i = 0; i < hull.length; i++) {
+    const p1 = hull[i], p2 = hull[(i + 1) % hull.length];
+    const edgeAngle = Math.atan2(p2[1] - p1[1], p2[0] - p1[0]);
+    const cos = Math.cos(-edgeAngle), sin = Math.sin(-edgeAngle);
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [x, y] of hull) {
+      const rx = x * cos - y * sin;
+      const ry = x * sin + y * cos;
+      minX = Math.min(minX, rx);
+      minY = Math.min(minY, ry);
+      maxX = Math.max(maxX, rx);
+      maxY = Math.max(maxY, ry);
+    }
+    const area = (maxX - minX) * (maxY - minY);
+    if (area < minArea) {
+      minArea = area;
+      bestAngle = edgeAngle * 180 / Math.PI;
+      // Rectangle corners in rotated space
+      bestRect = [
+        [minX, minY],
+        [maxX, minY],
+        [maxX, maxY],
+        [minX, maxY],
+        [minX, minY]
+      ].map(([x, y]) => [
+        x * Math.cos(edgeAngle) - y * Math.sin(edgeAngle),
+        x * Math.sin(edgeAngle) + y * Math.cos(edgeAngle)
+      ]);
+    }
+  }
+  return { rect: bestRect, angle: bestAngle };
+}
 
 export const usePermitAreas = (map, mapLoaded) => {
   const [permitAreas, setPermitAreas] = useState([]);
@@ -17,6 +72,11 @@ export const usePermitAreas = (map, mapLoaded) => {
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [mode, setMode] = useState('parks'); // 'parks' or 'sapo'
+  const focusedAreaRef = useRef(focusedArea);
+
+  useEffect(() => {
+    focusedAreaRef.current = focusedArea;
+  }, [focusedArea]);
 
   // Calculate area of a geometry to determine layering order
   const calculateGeometryArea = useCallback((geometry) => {
@@ -84,43 +144,139 @@ export const usePermitAreas = (map, mapLoaded) => {
   // Function to focus on a specific permit area
   const focusOnPermitArea = useCallback((permitArea) => {
     if (!map || !permitArea) return;
-    
+    // Prevent re-focusing if already focused (use ref for latest value)
+    if (
+      focusedAreaRef.current &&
+      focusedAreaRef.current.properties &&
+      permitArea.properties &&
+      focusedAreaRef.current.properties.system === permitArea.properties.system
+    ) {
+      return;
+    }
+    // Defensive: ensure map is loaded and style is ready
+    if (!map.isStyleLoaded || (typeof map.isStyleLoaded === 'function' && !map.isStyleLoaded())) {
+      console.warn('Map style not loaded, delaying focus/zoom');
+      setTimeout(() => focusOnPermitArea(permitArea), 100);
+      return;
+    }
     console.log('Focusing on permit area:', permitArea.properties);
-    
     setFocusedArea(permitArea);
     setShowFocusInfo(true);
-    
-    const areaId = permitArea.id || permitArea.properties.id || permitArea.properties.OBJECTID;
-    
-    if (areaId) {
+    // Use the 'system' property as the unique identifier
+    const areaSystem = permitArea.properties.system;
+    console.log('Focusing on permit area with system:', areaSystem);
+    if (areaSystem) {
       if (map.getLayer('permit-areas-focused-fill')) {
-        map.setFilter('permit-areas-focused-fill', ['==', 'id', areaId]);
-        map.setFilter('permit-areas-focused-outline', ['==', 'id', areaId]);
+        map.setFilter('permit-areas-focused-fill', ['==', ['get', 'system'], areaSystem]);
+        map.setFilter('permit-areas-focused-outline', ['==', ['get', 'system'], areaSystem]);
       }
     }
-    
-    const bounds = calculateGeometryBounds(permitArea.geometry);
-    if (bounds) {
-      const padding = 50;
+    // Fit map to oriented minimum bounding box of the focused area
+    try {
+      const geom = permitArea.geometry;
+      if (!geom) throw new Error('No geometry');
+      let coords = [];
+      if (geom.type === 'Polygon') {
+        coords = geom.coordinates;
+      } else if (geom.type === 'MultiPolygon') {
+        coords = geom.coordinates.flat();
+      }
+      if (coords.length < 1) throw new Error('No coordinates');
+      const { rect, angle } = getOrientedMinBBox(coords);
+      // Compute bbox of the rectangle
+      const xs = rect.map(([x, y]) => x);
+      const ys = rect.map(([x, y]) => y);
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      const minY = Math.min(...ys), maxY = Math.max(...ys);
+      const orientedBbox = [[minX, minY], [maxX, maxY]];
       
-      try {
-        map.fitBounds(bounds, {
-          padding: padding,
-          maxZoom: 18,
-          duration: 1000
-        });
-      } catch (error) {
-        console.error('Error fitting bounds:', error);
-        if (permitArea.geometry && permitArea.geometry.type === 'Point') {
-          map.flyTo({
-            center: permitArea.geometry.coordinates,
-            zoom: 16,
-            duration: 1000
-          });
+      // Calculate the optimal zoom level to fill the viewport
+      const mapCanvas = map.getCanvas();
+      const viewportWidth = mapCanvas.width;
+      const viewportHeight = mapCanvas.height;
+      
+      // Calculate the bounding box dimensions in degrees
+      const bboxWidth = maxX - minX;
+      const bboxHeight = maxY - minY;
+      
+      // Calculate the center point
+      const centerLng = (minX + maxX) / 2;
+      const centerLat = (minY + maxY) / 2;
+      
+      // Calculate zoom levels for both width and height
+      // Use a more direct approach: calculate zoom needed to fit bbox in viewport
+      const padding = 40; // pixels of padding
+      const effectiveWidth = viewportWidth - (padding * 2);
+      const effectiveHeight = viewportHeight - (padding * 2);
+      
+      // Convert degrees to pixels at different zoom levels to find the right one
+      let optimalZoom = 14; // start with a reasonable zoom
+      
+      for (let zoom = 14; zoom <= 22; zoom++) {
+        const pixelsPerDegree = Math.pow(2, zoom) * 256 / 360;
+        const bboxWidthPixels = bboxWidth * pixelsPerDegree;
+        const bboxHeightPixels = bboxHeight * pixelsPerDegree;
+        
+        // If the bbox fits in the viewport at this zoom, use it
+        if (bboxWidthPixels <= effectiveWidth && bboxHeightPixels <= effectiveHeight) {
+          optimalZoom = zoom;
+        } else {
+          // If it doesn't fit, use the previous zoom level
+          optimalZoom = Math.max(14, zoom - 1);
+          break;
         }
       }
+      
+      console.log('Calculated optimal zoom:', {
+        bboxWidth,
+        bboxHeight,
+        viewportWidth,
+        viewportHeight,
+        effectiveWidth,
+        effectiveHeight,
+        optimalZoom
+      });
+      
+      // Use fitBounds with the calculated zoom level
+      map.fitBounds(orientedBbox, {
+        padding: 20,
+        maxZoom: optimalZoom,
+        minZoom: optimalZoom,
+        duration: 1000,
+        bearing: -angle
+      });
+      
+      setTimeout(() => {
+        if (map.getBearing && map.getBearing() !== -angle) {
+          map.rotateTo(-angle, { duration: 500 });
+        }
+      }, 1100);
+    } catch (error) {
+      console.error('Error fitting oriented bounds:', error);
+      // Fallback: fit to regular bounds with dynamic zoom calculation
+      const bounds = calculateGeometryBounds(permitArea.geometry);
+      if (bounds) {
+        const mapCanvas = map.getCanvas();
+        const viewportWidth = mapCanvas.width;
+        const viewportHeight = mapCanvas.height;
+        
+        const bboxWidth = bounds[1][0] - bounds[0][0];
+        const bboxHeight = bounds[1][1] - bounds[0][1];
+        
+        // Use the Web Mercator projection formula for zoom calculation
+        const zoomForWidth = Math.log2(viewportWidth / (bboxWidth * 256));
+        const zoomForHeight = Math.log2(viewportHeight / (bboxHeight * 256));
+        const optimalZoom = Math.min(zoomForWidth, zoomForHeight);
+        const clampedZoom = Math.max(14, Math.min(22, optimalZoom));
+        
+        map.fitBounds(bounds, { 
+          padding: 20, 
+          maxZoom: clampedZoom, 
+          minZoom: clampedZoom, 
+          duration: 1000 
+        });
+      }
     }
-    
     console.log('Permit area focused successfully');
   }, [map, calculateGeometryBounds]);
 
@@ -145,6 +301,47 @@ export const usePermitAreas = (map, mapLoaded) => {
     return fields.length > 0 ? fields : null;
   }, []);
 
+  // Helper function to check if drawing is active
+  const isDrawingActive = useCallback(() => {
+    if (!map) return false;
+    const drawControl = map.getControl && map.getControl('MapboxDraw');
+    return drawControl && drawControl.getMode && drawControl.getMode() !== 'simple_select';
+  }, [map]);
+
+  // Clear tooltip when drawing mode changes
+  useEffect(() => {
+    if (!map) return;
+    
+    const checkDrawingMode = () => {
+      if (isDrawingActive()) {
+        setTooltip(prev => ({ ...prev, visible: false }));
+      }
+    };
+
+    // Check immediately
+    checkDrawingMode();
+    
+    // Set up a listener for draw mode changes
+    const handleDrawModeChange = () => {
+      checkDrawingMode();
+    };
+
+    // Listen for draw events that indicate mode changes
+    map.on('draw.modechange', handleDrawModeChange);
+    map.on('draw.create', handleDrawModeChange);
+    map.on('draw.update', handleDrawModeChange);
+    map.on('draw.delete', handleDrawModeChange);
+    map.on('draw.selectionchange', handleDrawModeChange);
+    
+    return () => {
+      map.off('draw.modechange', handleDrawModeChange);
+      map.off('draw.create', handleDrawModeChange);
+      map.off('draw.update', handleDrawModeChange);
+      map.off('draw.delete', handleDrawModeChange);
+      map.off('draw.selectionchange', handleDrawModeChange);
+    };
+  }, [map, isDrawingActive]);
+
   // Setup tooltip event listeners for permit areas
   const setupTooltipListeners = useCallback(() => {
     if (!map) return;
@@ -152,6 +349,11 @@ export const usePermitAreas = (map, mapLoaded) => {
     console.log('Setting up permit area tooltip listeners');
     
     map.on('mouseenter', 'permit-areas-fill', () => {
+      // Check if draw tools are active - if so, don't show tooltip
+      if (isDrawingActive()) {
+        return; // Don't change cursor or show tooltip when drawing
+      }
+      
       map.getCanvas().style.cursor = 'pointer';
     });
     
@@ -162,6 +364,12 @@ export const usePermitAreas = (map, mapLoaded) => {
     
     map.on('mousemove', 'permit-areas-fill', (e) => {
       if (e.features.length === 0) return;
+      
+      // Check if draw tools are active - if so, don't show tooltip
+      if (isDrawingActive()) {
+        setTooltip(prev => ({ ...prev, visible: false }));
+        return; // Don't show tooltip when drawing
+      }
       
       const feature = e.features[0].properties;
       const tooltipContent = buildTooltipContent(feature);
@@ -175,7 +383,7 @@ export const usePermitAreas = (map, mapLoaded) => {
         });
       }
     });
-  }, [map, buildTooltipContent]);
+  }, [map, buildTooltipContent, isDrawingActive]);
 
   // Enhanced permit area click handling with overlap detection
   const setupPermitAreaClickListeners = useCallback(() => {
@@ -185,6 +393,12 @@ export const usePermitAreas = (map, mapLoaded) => {
     
     map.on('click', 'permit-areas-fill', (e) => {
       if (e.features.length === 0) return;
+      
+      // Only prevent default if we're not in a drawing mode
+      const drawControl = map.getControl && map.getControl('MapboxDraw');
+      if (drawControl && drawControl.getMode && drawControl.getMode() !== 'simple_select') {
+        return; // Let draw tools handle the click
+      }
       
       e.preventDefault();
       
@@ -220,6 +434,12 @@ export const usePermitAreas = (map, mapLoaded) => {
     map.on('dblclick', 'permit-areas-fill', (e) => {
       if (e.features.length === 0) return;
       
+      // Only prevent default if we're not in a drawing mode
+      const drawControl = map.getControl && map.getControl('MapboxDraw');
+      if (drawControl && drawControl.getMode && drawControl.getMode() !== 'simple_select') {
+        return; // Let draw tools handle the double-click
+      }
+      
       e.preventDefault();
       console.log('Double-click detected, focusing on top feature');
       const feature = e.features[0];
@@ -229,6 +449,12 @@ export const usePermitAreas = (map, mapLoaded) => {
     });
     
     map.on('click', (e) => {
+      // Only handle general clicks if we're not in a drawing mode
+      const drawControl = map.getControl && map.getControl('MapboxDraw');
+      if (drawControl && drawControl.getMode && drawControl.getMode() !== 'simple_select') {
+        return; // Let draw tools handle the click
+      }
+      
       const features = map.queryRenderedFeatures(e.point, {
         layers: ['permit-areas-fill']
       });
@@ -244,112 +470,71 @@ export const usePermitAreas = (map, mapLoaded) => {
   // Function to load permit areas using the service
   const loadPermitAreas = useCallback(async () => {
     if (!map) {
-      console.log('PermitAreas: No map instance available for loading');
+      console.log('PermitAreas: No map instance available for loading', { map });
       return;
     }
-    
+    console.log('PermitAreas: loadPermitAreas called', { mapLoaded, mapExists: !!map });
     // Check if already loaded to prevent duplicate loading
     if (map.getSource('permit-areas')) {
       console.log('PermitAreas: Already loaded, skipping');
       return;
     }
-    
     console.log('PermitAreas: Starting to load permit areas using service');
     setIsLoading(true);
     setLoadError(null);
-    
+
     const maxRetries = 3;
     let retryCount = 0;
-    
+
+    const requiredLayers = ['permit-areas-fill', 'permit-areas-outline'];
+
     const attemptLoad = async () => {
       try {
         // Add a small delay to ensure map is fully ready
         await new Promise(resolve => setTimeout(resolve, 100));
-        
         // Double-check map is still available and ready
         if (!map || !map.getStyle() || !map.loaded()) {
           throw new Error('Map not ready for layer loading');
         }
-        
+        console.log('PermitAreas: Calling loadPermitAreasService', { mapLoaded, mapExists: !!map });
         const features = await loadPermitAreasService(map);
-        
         // Verify layers were actually added and are visible
-        const requiredLayers = ['permit-areas-fill', 'permit-areas-outline'];
         for (const layerId of requiredLayers) {
           if (!map.getLayer(layerId)) {
             throw new Error(`Layer not found after service call: ${layerId}`);
           }
-          
           const visibility = map.getLayoutProperty(layerId, 'visibility');
           if (visibility !== 'visible') {
             console.log(`PermitAreas: Layer ${layerId} not visible, fixing...`);
             map.setLayoutProperty(layerId, 'visibility', 'visible');
           }
         }
-        
-        // Set up periodic visibility checks
-        const visibilityChecker = setInterval(() => {
-          if (!map || !map.getLayer) return;
-          
-          let needsRepaint = false;
-          for (const layerId of requiredLayers) {
-            if (map.getLayer(layerId)) {
-              const visibility = map.getLayoutProperty(layerId, 'visibility');
-              if (visibility !== 'visible') {
-                console.log(`PermitAreas: Restoring visibility for ${layerId}`);
-                map.setLayoutProperty(layerId, 'visibility', 'visible');
-                needsRepaint = true;
+        // Defensive polling: after 2s, check if layers are present, retry if not (up to 2 more times)
+        let pollTries = 0;
+        const pollForLayers = () => {
+          pollTries++;
+          let allPresent = requiredLayers.every(layerId => map.getLayer(layerId));
+          console.log(`PermitAreas: Polling for layers (try ${pollTries}):`, requiredLayers.map(id => ({ id, present: !!map.getLayer(id) })));
+          if (!allPresent && pollTries < 3) {
+            setTimeout(() => {
+              if (!requiredLayers.every(layerId => map.getLayer(layerId))) {
+                console.warn('PermitAreas: Defensive reload triggered');
+                attemptLoad();
               }
-            }
+            }, 2000);
           }
-          
-          if (needsRepaint) {
-            map.triggerRepaint();
-          }
-        }, 1000);
-        
-        // Clear the checker after 10 seconds
-        setTimeout(() => clearInterval(visibilityChecker), 10000);
-        
-        // Additional verification: check if we can query features
-        setTimeout(() => {
-          try {
-            const testFeatures = map.querySourceFeatures('permit-areas', {
-              sourceLayer: null
-            });
-            console.log(`PermitAreas: Verification - found ${testFeatures.length} features in source`);
-            
-            if (testFeatures.length === 0) {
-              console.warn('PermitAreas: No features found in source after loading');
-            }
-            
-            // Try to query rendered features at the center of the map
-            const center = map.getCenter();
-            const point = map.project(center);
-            const renderedFeatures = map.queryRenderedFeatures(point, {
-              layers: ['permit-areas-fill']
-            });
-            console.log(`PermitAreas: Found ${renderedFeatures.length} rendered features at map center`);
-            
-          } catch (e) {
-            console.warn('PermitAreas: Could not verify features:', e.message);
-          }
-        }, 200);
-        
+        };
+        setTimeout(pollForLayers, 2000);
         setPermitAreas(features);
         console.log(`PermitAreas: Loaded ${features.length} permit areas using service`);
-        
         // Set up event listeners after successful load
         setupTooltipListeners();
         setupPermitAreaClickListeners();
-        
         setIsLoading(false);
         console.log('PermitAreas: Loading completed successfully');
-        
       } catch (error) {
         retryCount++;
         console.warn(`PermitAreas: Load attempt ${retryCount} failed:`, error.message);
-        
         if (retryCount < maxRetries) {
           console.log(`PermitAreas: Retrying in ${retryCount * 500}ms...`);
           setTimeout(() => attemptLoad(), retryCount * 500);
@@ -360,9 +545,8 @@ export const usePermitAreas = (map, mapLoaded) => {
         }
       }
     };
-    
     await attemptLoad();
-  }, [map, setupTooltipListeners, setupPermitAreaClickListeners]);
+  }, [map, mapLoaded, setupTooltipListeners, setupPermitAreaClickListeners]);
 
   // Clear focus function
   const clearFocus = useCallback(() => {
@@ -374,8 +558,8 @@ export const usePermitAreas = (map, mapLoaded) => {
     clearOverlapHighlights(map);
     
     if (map && map.getLayer('permit-areas-focused-fill')) {
-      map.setFilter('permit-areas-focused-fill', ['==', 'id', '']);
-      map.setFilter('permit-areas-focused-outline', ['==', 'id', '']);
+      map.setFilter('permit-areas-focused-fill', ['==', ['get', 'system'], '']);
+      map.setFilter('permit-areas-focused-outline', ['==', ['get', 'system'], '']);
     }
   }, [map]);
 
@@ -397,36 +581,28 @@ export const usePermitAreas = (map, mapLoaded) => {
     return () => clearTimeout(timer);
   }, [searchQuery, permitAreas]);
 
-  // Load permit areas when map is ready with additional safety checks
-  useEffect(() => {
-    console.log('PermitAreas: Map state changed', { 
-      hasMap: !!map, 
-      mapLoaded,
-      mapLoadedInternal: map?.loaded?.(),
-      hasStyle: !!map?.getStyle?.()
-    });
-    
-    if (map && mapLoaded && map.getStyle()) {
-      console.log('PermitAreas: Map is ready, loading permit areas');
-      // Add a small delay to ensure everything is settled
-      const timer = setTimeout(() => {
-        loadPermitAreas();
-      }, 200); // Reverted back to 200ms
-      
-      return () => clearTimeout(timer);
-    }
-  }, [map, mapLoaded, loadPermitAreas]);
-
   // Function to select from overlapping areas
   const selectOverlappingArea = useCallback((index) => {
-    if (overlappingAreas[index]) {
+    const selected = overlappingAreas[index];
+    if (selected) {
       console.log('Selecting overlapping area at index:', index);
       setSelectedOverlapIndex(index);
-      focusOnPermitArea(overlappingAreas[index]);
+      // Always use the canonical area from permitAreas (by system property)
+      let canonical = null;
+      if (selected.properties && selected.properties.system) {
+        canonical = permitAreas.find(
+          a => a.properties && a.properties.system === selected.properties.system
+        );
+      }
+      if (!canonical) {
+        console.warn('Canonical area not found for system:', selected.properties?.system, 'Falling back to selected feature.');
+        canonical = selected;
+      }
+      focusOnPermitArea(canonical);
       setShowOverlapSelector(false);
       clearOverlapHighlights(map);
     }
-  }, [overlappingAreas, focusOnPermitArea, map]);
+  }, [overlappingAreas, permitAreas, focusOnPermitArea, map]);
 
   // Function to clear overlap selector
   const clearOverlapSelector = useCallback(() => {
@@ -499,6 +675,7 @@ export const usePermitAreas = (map, mapLoaded) => {
     focusOnPermitArea,
     clearFocus,
     selectOverlappingArea,
-    clearOverlapSelector
+    clearOverlapSelector,
+    loadPermitAreas
   };
 };

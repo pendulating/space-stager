@@ -20,16 +20,6 @@ export const INFRASTRUCTURE_ENDPOINTS = {
     geoField: 'location',
     isLocal: false
   },
-  benches: {
-    baseUrl: 'https://data.cityofnewyork.us/resource/hn5i-inap.geojson',
-    geoField: 'location',
-    isLocal: false
-  },
-  streetlights: {
-    baseUrl: 'https://data.cityofnewyork.us/resource/hn5i-inap.geojson',
-    geoField: 'location',
-    isLocal: false
-  },
   busStops: {
     baseUrl: '/data/static/bus_stops_nyc.geojson',
     geoField: null,

@@ -13,8 +13,6 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     trees: null,
     hydrants: null,
     parking: null,
-    benches: null,
-    streetlights: null,
     busStops: null
   });
 
@@ -45,7 +43,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     } else {
       // Clear everything when focus is removed
       if (map) {
-        ['trees', 'hydrants', 'parking', 'benches', 'streetlights', 'busStops'].forEach(layerId => {
+        ['trees', 'hydrants', 'parking', 'busStops'].forEach(layerId => {
           removeInfrastructureLayer(layerId);
         });
       }
@@ -54,8 +52,6 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
         trees: null,
         hydrants: null,
         parking: null,
-        benches: null,
-        streetlights: null,
         busStops: null
       });
       
@@ -65,8 +61,6 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
         trees: { ...prev.trees, visible: false, loading: false },
         hydrants: { ...prev.hydrants, visible: false, loading: false },
         parking: { ...prev.parking, visible: false, loading: false },
-        benches: { ...prev.benches, visible: false, loading: false },
-        streetlights: { ...prev.streetlights, visible: false, loading: false },
         busStops: { ...prev.busStops, visible: false, loading: false }
       }));
       
@@ -103,8 +97,6 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
       trees: null,
       hydrants: null,
       parking: null,
-      benches: null,
-      streetlights: null,
       busStops: null
     });
 
@@ -115,57 +107,71 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
   // Add infrastructure layer to map - move this before loadInfrastructureLayer
   const addInfrastructureLayerToMap = useCallback((layerId, data) => {
     if (!map) return;
-    
-    // Remove existing layer if it exists
     removeInfrastructureLayer(layerId);
-    
     const sourceId = `source-${layerId}`;
-    const pointLayerId = `layer-${layerId}-point`;
-    
     // Add source
     map.addSource(sourceId, {
       type: 'geojson',
       data: data
     });
-    
-    // Add layer with specialized styling
     const layerStyle = getLayerStyle(layerId, layers[layerId]);
-    
-    map.addLayer({
-      id: pointLayerId,
-      type: layerStyle.type,
-      source: sourceId,
-      paint: layerStyle.paint
-    });
-    
-    // Add hover effect
-    map.on('mouseenter', pointLayerId, () => {
-      map.getCanvas().style.cursor = 'pointer';
-    });
-    
-    map.on('mouseleave', pointLayerId, () => {
-      map.getCanvas().style.cursor = '';
-    });
-    
-    // Add click event to show details
-    map.on('click', pointLayerId, (e) => {
-      if (e.features.length === 0) return;
-      
-      const feature = e.features[0];
-      const content = createInfrastructureTooltipContent(feature.properties, layerId);
-      
-      // You might want to emit this through a callback
-      console.log('Infrastructure feature clicked:', content);
-    });
+    // Check for LineString features (for bikeLanes)
+    const hasLineString = data.features.some(f => f.geometry && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString'));
+    const hasPoint = data.features.some(f => f.geometry && f.geometry.type === 'Point');
+    if (hasLineString && layerStyle.type === 'line') {
+      const lineLayerId = `layer-${layerId}-line`;
+      map.addLayer({
+        id: lineLayerId,
+        type: 'line',
+        source: sourceId,
+        paint: layerStyle.paint
+      });
+      // Optionally add hover/click events for lines here
+    }
+    if (hasPoint && layerStyle.type === 'circle') {
+      const pointLayerId = `layer-${layerId}-point`;
+      map.addLayer({
+        id: pointLayerId,
+        type: 'circle',
+        source: sourceId,
+        paint: layerStyle.paint
+      });
+      map.on('mouseenter', pointLayerId, () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', pointLayerId, () => {
+        map.getCanvas().style.cursor = '';
+      });
+      map.on('click', pointLayerId, (e) => {
+        if (e.features.length === 0) return;
+        const feature = e.features[0];
+        const content = createInfrastructureTooltipContent(feature.properties, layerId);
+        console.log('Infrastructure feature clicked:', content);
+      });
+    }
   }, [map, layers]);
 
   // Remove infrastructure layer - move this before addInfrastructureLayerToMap
   const removeInfrastructureLayer = useCallback((layerId) => {
     if (!map) return;
     
-    const pointLayerId = `layer-${layerId}-point`;
-    const sourceId = `source-${layerId}`;
+    // Check if map has a style loaded before trying to access layers
+    try {
+      if (!map.getStyle()) {
+        console.log(`Infrastructure: Map style not loaded, skipping remove for ${layerId}`);
+        return;
+      }
+    } catch (error) {
+      console.log(`Infrastructure: Error checking map style, skipping remove for ${layerId}:`, error);
+      return;
+    }
     
+    // Remove both possible layer IDs
+    const pointLayerId = `layer-${layerId}-point`;
+    const lineLayerId = `layer-${layerId}-line`;
+    const altLayerId = `${layerId}-layer`;
+    const sourceId = layerId;
+    const altSourceId = `source-${layerId}`;
     try {
       if (map.getLayer(pointLayerId)) {
         map.off('mouseenter', pointLayerId);
@@ -173,9 +179,17 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
         map.off('click', pointLayerId);
         map.removeLayer(pointLayerId);
       }
-      
+      if (map.getLayer(lineLayerId)) {
+        map.removeLayer(lineLayerId);
+      }
+      if (map.getLayer(altLayerId)) {
+        map.removeLayer(altLayerId);
+      }
       if (map.getSource(sourceId)) {
         map.removeSource(sourceId);
+      }
+      if (map.getSource(altSourceId)) {
+        map.removeSource(altSourceId);
       }
     } catch (error) {
       console.error(`Error removing ${layerId} layer/source:`, error);
@@ -257,18 +271,38 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
   const clearLayer = useCallback((layerId) => {
     if (!map) return;
     
+    // Check if map has a style loaded before trying to access layers
+    try {
+      if (!map.getStyle()) {
+        console.log(`Infrastructure: Map style not loaded, skipping clear for ${layerId}`);
+        return;
+      }
+    } catch (error) {
+      console.log(`Infrastructure: Error checking map style, skipping clear for ${layerId}:`, error);
+      return;
+    }
+    
     const config = layers[layerId];
     if (!config) return;
-
-    // Remove source and layers if they exist
-    if (map.getLayer(`${layerId}-layer`)) {
-      map.removeLayer(`${layerId}-layer`);
+    
+    // Remove both possible layer IDs
+    try {
+      if (map.getLayer(`${layerId}-layer`)) {
+        map.removeLayer(`${layerId}-layer`);
+      }
+      if (map.getLayer(`layer-${layerId}-point`)) {
+        map.removeLayer(`layer-${layerId}-point`);
+      }
+      if (map.getSource(layerId)) {
+        map.removeSource(layerId);
+      }
+      if (map.getSource(`source-${layerId}`)) {
+        map.removeSource(`source-${layerId}`);
+      }
+      console.log(`Infrastructure: Cleared layer ${layerId}`);
+    } catch (error) {
+      console.log(`Infrastructure: Error clearing layer ${layerId}:`, error);
     }
-    if (map.getSource(layerId)) {
-      map.removeSource(layerId);
-    }
-
-    console.log(`Infrastructure: Cleared layer ${layerId}`);
   }, [map, layers]);
 
   // Load layer - use useCallback
@@ -413,7 +447,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
   // Clear focus and all infrastructure - ensure state is properly reset
   const clearFocus = useCallback(() => {
     if (map) {
-      ['trees', 'hydrants', 'parking', 'benches', 'streetlights', 'busStops'].forEach(layerId => {
+      ['trees', 'hydrants', 'parking', 'busStops'].forEach(layerId => {
         removeInfrastructureLayer(layerId);
       });
     }
@@ -440,8 +474,6 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
       trees: null,
       hydrants: null,
       parking: null,
-      benches: null,
-      streetlights: null,
       busStops: null
     });
 

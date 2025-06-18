@@ -4,7 +4,31 @@ export const MAP_CONFIG = {
   center: [-73.985, 40.758],
   zoom: 16,
   preserveDrawingBuffer: true,
-  permitAreaSource: '/data/permit-areas/nyc_20250611_122007.geojson'
+  permitAreaSource: '/data/permit-areas/nyc-permit-areas-minified.geojson'
+};
+
+export const BASEMAP_OPTIONS = {
+  carto: {
+    name: 'Carto',
+    type: 'style',
+    url: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json'
+  },
+  satellite: {
+    name: 'Satellite',
+    type: 'custom',
+    basemapType: '2018'
+  }
+};
+
+export const NYC_BASEMAPS = {
+  '2018': {
+    name: 'NYC Satellite 2018',
+    url: 'https://maps{s}.nyc.gov/xyz/1.0.0/photo/2018/{z}/{x}/{y}.png8',
+    labelUrl: 'https://maps{s}.nyc.gov/xyz/1.0.0/carto/label-lt/{z}/{x}/{y}.png8',
+    subdomains: '1234',
+    bounds: [[40.4888, -74.2759], [40.9279, -73.6896]],
+    labelBounds: [[40.0341, -74.2727], [41.2919, -71.9101]]
+  }
 };
 
 export const MAP_LIBRARIES = {

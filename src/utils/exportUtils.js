@@ -1,4 +1,5 @@
 // utils/exportUtils.js
+import { PLACEABLE_OBJECTS } from '../constants/placeableObjects';
 
 // Export event plan
 export const exportPlan = (map, draw, droppedObjects, layers, customShapes) => {
@@ -87,6 +88,31 @@ export const exportPermitAreaSiteplan = async (map, focusedArea, layers, customS
     });
 
     console.log('Map is ready for export');
+
+    // Ensure all visible infrastructure layers are loaded and visible
+    const visibleInfrastructureLayers = Object.entries(layers)
+      .filter(([layerId, config]) => layerId !== 'permitAreas' && config.visible)
+      .map(([layerId]) => layerId);
+    
+    console.log('Visible infrastructure layers for export:', visibleInfrastructureLayers);
+
+    // Ensure infrastructure layers are visible on the map
+    visibleInfrastructureLayers.forEach(layerId => {
+      try {
+        // Check if the layer exists and is visible
+        const pointLayerId = `layer-${layerId}-point`;
+        const lineLayerId = `layer-${layerId}-line`;
+        
+        if (map.getLayer(pointLayerId)) {
+          map.setLayoutProperty(pointLayerId, 'visibility', 'visible');
+        }
+        if (map.getLayer(lineLayerId)) {
+          map.setLayoutProperty(lineLayerId, 'visibility', 'visible');
+        }
+      } catch (error) {
+        console.log(`Could not ensure visibility for layer ${layerId}:`, error);
+      }
+    });
 
     // Hide UI elements that shouldn't appear in export
     const elementsToHide = [
@@ -177,11 +203,17 @@ export const exportPermitAreaSiteplan = async (map, focusedArea, layers, customS
           ctx.drawImage(img, mapArea.x, mapArea.y, mapArea.width, mapArea.height);
           console.log('Map image drawn to canvas');
           
+          // Draw dropped objects on the export canvas
+          if (droppedObjects && droppedObjects.length > 0) {
+            console.log('Drawing dropped objects:', droppedObjects.length);
+            drawDroppedObjectsOnCanvas(ctx, mapArea, map, droppedObjects);
+          }
+          
           // Add cartographic elements
           addTitle(ctx, width / scale, focusedArea);
           addLegend(ctx, mapArea, layers, customShapes, droppedObjects);
           addScaleBar(ctx, mapArea, map);
-          addNorthArrow(ctx, mapArea);
+          addCompass(ctx, mapArea);
           addMetadata(ctx, width / scale, height / scale);
           
           console.log('All elements added, creating blob...');
@@ -347,12 +379,19 @@ const addLegend = (ctx, mapArea, layers, customShapes, droppedObjects) => {
     }, {});
     
     Object.entries(objectCounts).forEach(([type, count]) => {
-      ctx.fillStyle = '#dc2626';
+      const objectType = PLACEABLE_OBJECTS.find(p => p.id === type);
+      if (!objectType) return;
+      
+      // Draw object representation
+      ctx.fillStyle = objectType.color;
       ctx.fillRect(legendX + 3, currentY - 8, 8, 8);
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(legendX + 3, currentY - 8, 8, 8);
       
       ctx.fillStyle = '#374151';
       ctx.font = '11px Arial';
-      ctx.fillText(`${type} (${count})`, legendX + 20, currentY);
+      ctx.fillText(`${objectType.name} (${count})`, legendX + 20, currentY);
       currentY += 18;
     });
   }
@@ -405,23 +444,79 @@ const addScaleBar = (ctx, mapArea, map) => {
   ctx.fillText(scaleText, scaleBarX + scaleLength / 2, scaleBarY - 10);
 };
 
-const addNorthArrow = (ctx, mapArea) => {
-  const arrowX = mapArea.x + mapArea.width - 50;
-  const arrowY = mapArea.y + 50;
+const addCompass = (ctx, mapArea) => {
+  const compassX = mapArea.x + mapArea.width - 80;
+  const compassY = mapArea.y + 80;
+  const radius = 25;
   
-  // Draw north arrow
-  ctx.fillStyle = '#000';
+  // Draw compass circle
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(arrowX, arrowY - 20);
-  ctx.lineTo(arrowX - 8, arrowY);
-  ctx.lineTo(arrowX + 8, arrowY);
+  ctx.arc(compassX, compassY, radius, 0, 2 * Math.PI);
+  ctx.stroke();
+  
+  // Draw inner circle
+  ctx.beginPath();
+  ctx.arc(compassX, compassY, radius - 8, 0, 2 * Math.PI);
+  ctx.stroke();
+  
+  // Draw north arrow (pointing up)
+  ctx.fillStyle = '#dc2626'; // Red for north
+  ctx.beginPath();
+  ctx.moveTo(compassX, compassY - radius + 5);
+  ctx.lineTo(compassX - 6, compassY - 5);
+  ctx.lineTo(compassX + 6, compassY - 5);
   ctx.closePath();
   ctx.fill();
   
-  // Add "N" label
+  // Draw south arrow (pointing down)
+  ctx.fillStyle = '#6b7280'; // Gray for south
+  ctx.beginPath();
+  ctx.moveTo(compassX, compassY + radius - 5);
+  ctx.lineTo(compassX - 4, compassY + 5);
+  ctx.lineTo(compassX + 4, compassY + 5);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Draw cardinal directions
+  ctx.fillStyle = '#000';
   ctx.font = 'bold 12px Arial';
   ctx.textAlign = 'center';
-  ctx.fillText('N', arrowX, arrowY + 15);
+  ctx.textBaseline = 'middle';
+  
+  // North
+  ctx.fillText('N', compassX, compassY - radius - 8);
+  
+  // South
+  ctx.fillText('S', compassX, compassY + radius + 12);
+  
+  // East
+  ctx.fillText('E', compassX + radius + 8, compassY);
+  
+  // West
+  ctx.fillText('W', compassX - radius - 8, compassY);
+  
+  // Add intermediate directions
+  ctx.font = '10px Arial';
+  
+  // Northeast
+  ctx.fillText('NE', compassX + radius * 0.7, compassY - radius * 0.7);
+  
+  // Northwest
+  ctx.fillText('NW', compassX - radius * 0.7, compassY - radius * 0.7);
+  
+  // Southeast
+  ctx.fillText('SE', compassX + radius * 0.7, compassY + radius * 0.7);
+  
+  // Southwest
+  ctx.fillText('SW', compassX - radius * 0.7, compassY + radius * 0.7);
+  
+  // Draw center dot
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(compassX, compassY, 2, 0, 2 * Math.PI);
+  ctx.fill();
 };
 
 const addMetadata = (ctx, width, height) => {
@@ -452,8 +547,50 @@ const downloadBlob = (blob, filename) => {
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
-  document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
   URL.revokeObjectURL(url);
+};
+
+// Draw dropped objects on the export canvas
+const drawDroppedObjectsOnCanvas = (ctx, mapArea, map, droppedObjects) => {
+  if (!droppedObjects || droppedObjects.length === 0) return;
+  
+  droppedObjects.forEach(obj => {
+    const objectType = PLACEABLE_OBJECTS.find(p => p.id === obj.type);
+    if (!objectType) return;
+    
+    try {
+      // Convert lat/lng to pixel coordinates on the export canvas
+      const pixel = map.project([obj.position.lng, obj.position.lat]);
+      
+      // Calculate position relative to the map area on the export canvas
+      const mapPixelX = mapArea.x + (pixel.x / map.getCanvas().width) * mapArea.width;
+      const mapPixelY = mapArea.y + (pixel.y / map.getCanvas().height) * mapArea.height;
+      
+      // Draw the object
+      const objWidth = objectType.size.width;
+      const objHeight = objectType.size.height;
+      const x = mapPixelX - objWidth / 2;
+      const y = mapPixelY - objHeight / 2;
+      
+      // Draw background
+      ctx.fillStyle = objectType.color;
+      ctx.fillRect(x, y, objWidth, objHeight);
+      
+      // Draw border
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, objWidth, objHeight);
+      
+      // Draw icon (simplified - just a colored rectangle for now)
+      ctx.fillStyle = 'white';
+      ctx.font = `${objHeight * 0.6}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(objectType.icon, x + objWidth / 2, y + objHeight / 2);
+      
+    } catch (error) {
+      console.error('Error drawing dropped object:', error);
+    }
+  });
 };

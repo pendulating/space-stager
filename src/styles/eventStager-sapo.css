@@ -1,0 +1,267 @@
+/* SAPO Event Stager Styles */
+
+/* SAPO Mode Styles */
+.sapo-mode-indicator {
+  animation: slideInFromTop 0.3s ease-out;
+  backdrop-filter: blur(8px);
+}
+
+.sapo-zone-drawing {
+  cursor: crosshair !important;
+}
+
+.sapo-zone-active {
+  position: relative;
+}
+
+.sapo-zone-active::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, transparent 48%, rgba(16, 185, 129, 0.1) 49%, rgba(16, 185, 129, 0.1) 51%, transparent 52%);
+  background-size: 20px 20px;
+  pointer-events: none;
+  animation: sapo-pattern-move 2s linear infinite;
+}
+
+@keyframes sapo-pattern-move {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 20px 20px;
+  }
+}
+
+.sapo-drawing-active .mapboxgl-canvas {
+  cursor: crosshair !important;
+}
+
+.sapo-line-progress {
+  stroke-dasharray: 5, 5;
+  animation: dash 1s linear infinite;
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+.sapo-zone-highlight {
+  animation: sapo-zone-pulse 2s ease-in-out infinite;
+}
+
+@keyframes sapo-zone-pulse {
+  0%, 100% {
+    fill-opacity: 0.2;
+    stroke-opacity: 0.8;
+  }
+  50% {
+    fill-opacity: 0.3;
+    stroke-opacity: 1;
+  }
+}
+
+.sapo-controls {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border: 1px solid #bbf7d0;
+}
+
+.sapo-control-button {
+  transition: all 0.2s ease-in-out;
+  position: relative;
+  overflow: hidden;
+}
+
+.sapo-control-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.sapo-control-button:hover::before {
+  left: 100%;
+}
+
+.sapo-control-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(16, 185, 129, 0.2);
+}
+
+.sapo-control-button:active {
+  transform: translateY(0);
+}
+
+.sapo-status-drawing {
+  color: #059669;
+  background-color: #d1fae5;
+  border-color: #059669;
+}
+
+.sapo-status-complete {
+  color: #065f46;
+  background-color: #a7f3d0;
+  border-color: #065f46;
+}
+
+.sapo-progress-indicator {
+  position: relative;
+}
+
+.sapo-progress-indicator::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, #10b981, #34d399, #10b981);
+  background-size: 200% 100%;
+  animation: sapo-progress 2s ease-in-out infinite;
+}
+
+@keyframes sapo-progress {
+  0%, 100% {
+    background-position: 200% 0;
+  }
+  50% {
+    background-position: -200% 0;
+  }
+}
+
+.sapo-mode-enter {
+  animation: sapo-mode-slide-in 0.4s ease-out;
+}
+
+.sapo-mode-exit {
+  animation: sapo-mode-slide-out 0.3s ease-in;
+}
+
+@keyframes sapo-mode-slide-in {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes sapo-mode-slide-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+}
+
+.sapo-zone-boundary {
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 2px 4px rgba(16, 185, 129, 0.2));
+}
+
+.sapo-intersection-marker {
+  fill: #10b981;
+  stroke: #ffffff;
+  stroke-width: 2;
+  r: 6;
+  animation: sapo-marker-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes sapo-marker-pulse {
+  0%, 100% {
+    r: 6;
+    fill-opacity: 1;
+  }
+  50% {
+    r: 8;
+    fill-opacity: 0.7;
+  }
+}
+
+.sapo-help-text {
+  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+  border-left: 4px solid #10b981;
+  position: relative;
+}
+
+.sapo-help-text::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(180deg, #10b981, #34d399, #10b981);
+  background-size: 100% 200%;
+  animation: sapo-border-flow 3s ease-in-out infinite;
+}
+
+@keyframes sapo-border-flow {
+  0%, 100% {
+    background-position: 0% 0%;
+  }
+  50% {
+    background-position: 0% 100%;
+  }
+}
+
+/* Responsive SAPO mode */
+@media (max-width: 768px) {
+  .sapo-mode-indicator {
+    margin: 5px;
+    font-size: 0.875rem;
+  }
+  
+  .sapo-controls {
+    padding: 8px;
+  }
+  
+  .sapo-control-button {
+    padding: 8px 16px;
+    font-size: 0.875rem;
+  }
+}
+
+/* High contrast mode for SAPO */
+@media (prefers-contrast: high) {
+  .sapo-zone-highlight {
+    fill: #000000;
+    fill-opacity: 0.1;
+    stroke: #000000;
+    stroke-width: 3;
+  }
+  
+  .sapo-intersection-marker {
+    fill: #000000;
+    stroke: #ffffff;
+    stroke-width: 3;
+  }
+}
+
+/* Reduced motion for SAPO */
+@media (prefers-reduced-motion: reduce) {
+  .sapo-zone-active::after,
+  .sapo-line-progress,
+  .sapo-zone-pulse,
+  .sapo-marker-pulse,
+  .sapo-progress-indicator::after,
+  .sapo-border-flow {
+    animation: none;
+  }
+} 

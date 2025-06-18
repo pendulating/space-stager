@@ -1,19 +1,17 @@
 // components/Sidebar/LayersPanel.jsx
 import React from 'react';
-import { Eye, EyeOff, X, MapPin, Route } from 'lucide-react';
+import { Eye, EyeOff, X } from 'lucide-react';
 
 const LayersPanel = ({ 
   layers, 
   focusedArea, 
-  mode,
   onToggleLayer, 
-  onClearFocus,
-  onToggleMode
+  onClearFocus
 }) => {
   const renderLayerItem = (layerId, config) => {
     const isPermitLayer = layerId === 'permitAreas';
-    // In SAPO mode, disable permit areas; in parks mode, enable permit areas or if focused area exists
-    const isEnabled = mode === 'sapo' ? !isPermitLayer : (isPermitLayer || focusedArea);
+    // In DPR, enable permit areas or if focused area exists
+    const isEnabled = isPermitLayer || focusedArea;
     const isLoading = config.loading || false;
     
     return (
@@ -51,9 +49,6 @@ const LayersPanel = ({
             {isLoading && (
               <span className="ml-1 text-xs text-gray-500">(Loading...)</span>
             )}
-            {mode === 'sapo' && isPermitLayer && (
-              <span className="ml-1 text-xs text-gray-400">(Disabled in SAPO mode)</span>
-            )}
           </span>
         </div>
         {config.error && (
@@ -69,39 +64,7 @@ const LayersPanel = ({
         <h3 className="text-sm font-medium text-gray-700 mb-3">
           NYC Infrastructure Layers
         </h3>
-        
-        {/* Mode Toggle */}
-        <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-gray-600">Planning Mode</span>
-          </div>
-          <div className="flex bg-white rounded-md p-1 border">
-            <button
-              onClick={onToggleMode}
-              className={`flex-1 flex items-center justify-center px-3 py-2 text-xs font-medium rounded transition-colors ${
-                mode === 'parks'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-gray-600 hover:text-gray-800'
-              }`}
-            >
-              <MapPin className="w-3 h-3 mr-1" />
-              Parks & Rec
-            </button>
-            <button
-              onClick={onToggleMode}
-              className={`flex-1 flex items-center justify-center px-3 py-2 text-xs font-medium rounded transition-colors ${
-                mode === 'sapo'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-gray-600 hover:text-gray-800'
-              }`}
-            >
-              <Route className="w-3 h-3 mr-1" />
-              SAPO
-            </button>
-          </div>
-        </div>
-        
-        {focusedArea && mode === 'parks' && (
+        {focusedArea && (
           <div className="mb-3 bg-blue-50 p-2 rounded-md text-xs text-blue-700 flex justify-between items-center">
             <div>
               <span className="font-medium">Focus active:</span> {
@@ -117,21 +80,12 @@ const LayersPanel = ({
             </button>
           </div>
         )}
-        
-        {!focusedArea && mode === 'parks' && (
+        {!focusedArea && (
           <div className="mb-3 bg-amber-50 p-2 rounded-md text-xs text-amber-700">
             Click on permit areas to explore overlapping zones. 
             Multiple areas? Use the selector popup.
           </div>
         )}
-        
-        {mode === 'sapo' && (
-          <div className="mb-3 bg-green-50 p-2 rounded-md text-xs text-green-700">
-            SAPO mode: Plan events between any two intersections.
-            Click map locations to set start and end points.
-          </div>
-        )}
-        
         <div className="space-y-2">
           {Object.entries(layers).map(([layerId, config]) => 
             renderLayerItem(layerId, config)

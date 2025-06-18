@@ -11,16 +11,31 @@ export const loadInfrastructureData = async (layerId, bounds) => {
   if (endpoint.isLocal) {
     url = endpoint.baseUrl;
   } else {
-    // Expand bounds slightly
-    const expanded = expandBounds(bounds);
+    // Use a larger buffer for bikeLanes
+    const expandFactor = layerId === 'bikeLanes' ? 0.002 : 0.001;
+    const expanded = expandBounds(bounds, expandFactor);
     const minLng = expanded[0][0];
     const minLat = expanded[0][1];
     const maxLng = expanded[1][0];
     const maxLat = expanded[1][1];
     
-    // Build URL with bbox filter
-    const bboxFilter = `$where=within_box(${endpoint.geoField}, ${minLat}, ${minLng}, ${maxLat}, ${maxLng})`;
+    // Use intersects_box for bikeLanes, within_box for others
+    let bboxFilter;
+    if (layerId === 'bikeLanes') {
+      // WKT POLYGON: (minLng minLat, minLng maxLat, maxLng maxLat, maxLng minLat, minLng minLat)
+      const wktPoly = `POLYGON((
+        ${minLng} ${minLat},
+        ${minLng} ${maxLat},
+        ${maxLng} ${maxLat},
+        ${maxLng} ${minLat},
+        ${minLng} ${minLat}
+      ))`;
+      bboxFilter = `$where=intersects(${endpoint.geoField}, '${wktPoly.replace(/\s+/g, ' ').trim()}')`;
+    } else {
+      bboxFilter = `$where=within_box(${endpoint.geoField}, ${minLat}, ${minLng}, ${maxLat}, ${maxLng})`;
+    }
     url = `${endpoint.baseUrl}?${bboxFilter}&$limit=5000`;
+    console.log(`[infrastructureService] Fetching ${layerId} with URL:`, url);
   }
   
   const response = await fetch(url);
@@ -73,21 +88,11 @@ export const filterFeaturesByType = (features, layerId) => {
           )
         );
         
-      case 'benches':
-        return Object.values(props).some(val => 
-          typeof val === 'string' && val.toLowerCase().includes('bench')
-        );
-        
-      case 'streetlights':
-        return Object.values(props).some(val => 
-          typeof val === 'string' && (
-            val.toLowerCase().includes('light') ||
-            val.toLowerCase().includes('lamp')
-          )
-        );
-        
       case 'busStops':
         return true; // All bus stop features are valid
+        
+      case 'bikeLanes':
+        return true; // Allow all features for bike lanes
         
       default:
         return false;
@@ -134,6 +139,15 @@ export const getLayerStyle = (layerId, layerConfig) => {
           'circle-opacity': 0.9,
           'circle-stroke-width': 2,
           'circle-stroke-color': 'white'
+        }
+      };
+    case 'bikeLanes':
+      return {
+        type: 'line',
+        paint: {
+          'line-color': baseColor || '#2196f3',
+          'line-width': 3,
+          'line-opacity': 0.8
         }
       };
     default:

@@ -2,191 +2,202 @@
 import { MAP_CONFIG } from '../constants/mapConfig';
 
 export const loadPermitAreas = async (map) => {
-  try {
-    // Validate map instance
-    if (!map || typeof map.addSource !== 'function') {
-      throw new Error('Invalid map instance provided');
-    }
-    
-    // Check if map is ready
-    if (!map.getStyle()) {
-      throw new Error('Map style not loaded');
-    }
-    
-    // Wait for map to be fully loaded
-    if (!map.loaded()) {
-      console.log('PermitAreas service: Map not fully loaded, waiting...');
-      await new Promise((resolve) => {
-        const checkLoaded = () => {
-          if (map.loaded()) {
-            resolve();
-          } else {
-            setTimeout(checkLoaded, 50);
-          }
-        };
-        checkLoaded();
+  const MAX_RETRIES = 5;
+  const RETRY_DELAYS = [500, 1000, 2000, 4000, 8000]; // ms
+
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      // Validate map instance
+      if (!map || typeof map.addSource !== 'function') {
+        throw new Error('Invalid map instance provided');
+      }
+      // Check if map is ready
+      if (!map.getStyle()) {
+        throw new Error('Map style not loaded');
+      }
+      // Wait for map to be fully loaded
+      if (!map.loaded()) {
+        console.log('PermitAreas service: Map not fully loaded, waiting...');
+        await new Promise((resolve) => {
+          const checkLoaded = () => {
+            if (map.loaded()) {
+              resolve();
+            } else {
+              setTimeout(checkLoaded, 50);
+            }
+          };
+          checkLoaded();
+        });
+      }
+      // Clean up any existing source/layers
+      if (map.getSource('permit-areas')) {
+        console.log('PermitAreas service: Source already exists, removing first');
+        if (map.getLayer('permit-areas-focused-outline')) map.removeLayer('permit-areas-focused-outline');
+        if (map.getLayer('permit-areas-focused-fill')) map.removeLayer('permit-areas-focused-fill');
+        if (map.getLayer('permit-areas-outline')) map.removeLayer('permit-areas-outline');
+        if (map.getLayer('permit-areas-fill')) map.removeLayer('permit-areas-fill');
+        map.removeSource('permit-areas');
+      }
+      // Fetch data
+      console.log(`PermitAreas service: Fetching data from ${MAP_CONFIG.permitAreaSource} (attempt ${attempt})`);
+      const response = await fetch(MAP_CONFIG.permitAreaSource);
+      if (!response.ok) {
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
+      const data = await response.json();
+      if (!data.features || !Array.isArray(data.features)) {
+        throw new Error('Invalid GeoJSON data structure');
+      }
+      // Add source
+      map.addSource('permit-areas', {
+        type: 'geojson',
+        data: data
       });
-    }
-    
-    // Check if source already exists
-    if (map.getSource('permit-areas')) {
-      console.log('PermitAreas service: Source already exists, removing first');
-      // Clean up existing layers and source
+      // Wait for source to be fully loaded (sourcedata event)
+      await new Promise((resolve, reject) => {
+        let timeout = setTimeout(() => {
+          reject(new Error('Timed out waiting for permit-areas source to load'));
+        }, 10000);
+        function onSourceData(e) {
+          if (
+            e.sourceId === 'permit-areas' &&
+            map.isSourceLoaded &&
+            map.isSourceLoaded('permit-areas')
+          ) {
+            map.off('sourcedata', onSourceData);
+            clearTimeout(timeout);
+            resolve();
+          }
+        }
+        map.on('sourcedata', onSourceData);
+      });
+      // Get the first symbol layer ID
+      const layers = map.getStyle().layers;
+      let firstSymbolId;
+      for (let i = 0; i < layers.length; i++) {
+        if (layers[i].type === 'symbol') {
+          firstSymbolId = layers[i].id;
+          break;
+        }
+      }
+      // Add layers
+      map.addLayer({
+        id: 'permit-areas-fill',
+        type: 'fill',
+        source: 'permit-areas',
+        layout: { 'visibility': 'visible' },
+        paint: { 'fill-color': '#f97316', 'fill-opacity': 0.2 }
+      }, firstSymbolId);
+      map.addLayer({
+        id: 'permit-areas-outline',
+        type: 'line',
+        source: 'permit-areas',
+        layout: { 'visibility': 'visible' },
+        paint: { 'line-color': '#f97316', 'line-width': 1 }
+      }, firstSymbolId);
+      map.addLayer({
+        id: 'permit-areas-focused-fill',
+        type: 'fill',
+        source: 'permit-areas',
+        filter: ['==', 'id', ''],
+        layout: { 'visibility': 'visible' },
+        paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.3 }
+      }, firstSymbolId);
+      map.addLayer({
+        id: 'permit-areas-focused-outline',
+        type: 'line',
+        source: 'permit-areas',
+        filter: ['==', 'id', ''],
+        layout: { 'visibility': 'visible' },
+        paint: { 'line-color': '#3b82f6', 'line-width': 3, 'line-dasharray': [2, 2], 'line-opacity': 1 }
+      }, firstSymbolId);
+      // Wait for map to be idle (all rendering/data complete)
+      await new Promise((resolve, reject) => {
+        let timeout = setTimeout(() => {
+          reject(new Error('Timed out waiting for map to become idle after adding layers'));
+        }, 10000);
+        function onIdle() {
+          map.off('idle', onIdle);
+          clearTimeout(timeout);
+          resolve();
+        }
+        map.on('idle', onIdle);
+      });
+      // --- Robust rendering workarounds ---
+      // Short delay before final rendering steps
+      await new Promise(resolve => setTimeout(resolve, 150));
+      // 1. Force a resize and repaint
+      if (map.resize) map.resize();
+      if (map.triggerRepaint) map.triggerRepaint();
+      // 3. Listen for one 'render' event and trigger another repaint
+      await new Promise(resolve => {
+        let didRender = false;
+        function onRender() {
+          if (!didRender) {
+            didRender = true;
+            map.off('render', onRender);
+            if (map.triggerRepaint) map.triggerRepaint();
+            resolve();
+          }
+        }
+        map.on('render', onRender);
+        // Fallback: resolve after 200ms if 'render' doesn't fire
+        setTimeout(() => {
+          if (!didRender) {
+            map.off('render', onRender);
+            resolve();
+          }
+        }, 200);
+      });
+      // --- End robust rendering workarounds ---
+      // Verify all layers were created
+      const requiredLayers = ['permit-areas-fill', 'permit-areas-outline', 'permit-areas-focused-fill', 'permit-areas-focused-outline'];
+      for (const layerId of requiredLayers) {
+        if (!map.getLayer(layerId)) {
+          throw new Error(`Failed to create layer: ${layerId}`);
+        }
+      }
+      // Wait and verify layers are visible
+      await new Promise(resolve => setTimeout(resolve, 100));
+      for (const layerId of requiredLayers) {
+        const layer = map.getLayer(layerId);
+        if (!layer) {
+          throw new Error(`Layer disappeared after creation: ${layerId}`);
+        }
+        const visibility = map.getLayoutProperty(layerId, 'visibility');
+        if (visibility !== 'visible') {
+          map.setLayoutProperty(layerId, 'visibility', 'visible');
+        }
+      }
+      // Final check after a short delay
+      await new Promise(resolve => setTimeout(resolve, 100));
+      for (const layerId of requiredLayers) {
+        if (!map.getLayer(layerId)) {
+          throw new Error(`Layer missing after final check: ${layerId}`);
+        }
+      }
+      console.log('PermitAreas service: All layers created and verified successfully');
+      return data.features || [];
+    } catch (error) {
+      lastError = error;
+      console.error(`PermitAreas service: Error on attempt ${attempt}:`, error);
+      // Clean up before retrying
       if (map.getLayer('permit-areas-focused-outline')) map.removeLayer('permit-areas-focused-outline');
       if (map.getLayer('permit-areas-focused-fill')) map.removeLayer('permit-areas-focused-fill');
       if (map.getLayer('permit-areas-outline')) map.removeLayer('permit-areas-outline');
       if (map.getLayer('permit-areas-fill')) map.removeLayer('permit-areas-fill');
-      map.removeSource('permit-areas');
-    }
-    
-    console.log('PermitAreas service: Fetching data from', MAP_CONFIG.permitAreaSource);
-    const response = await fetch(MAP_CONFIG.permitAreaSource);
-    if (!response.ok) {
-      throw new Error(`HTTP error! Status: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    
-    if (!data.features || !Array.isArray(data.features)) {
-      throw new Error('Invalid GeoJSON data structure');
-    }
-    
-    console.log(`PermitAreas service: Adding source with ${data.features.length} features`);
-    
-    // Add source to map
-    map.addSource('permit-areas', {
-      type: 'geojson',
-      data: data
-    });
-    
-    // Get the first symbol layer ID to insert our layers before it
-    const layers = map.getStyle().layers;
-    let firstSymbolId;
-    for (let i = 0; i < layers.length; i++) {
-      if (layers[i].type === 'symbol') {
-        firstSymbolId = layers[i].id;
-        break;
+      if (map.getSource('permit-areas')) map.removeSource('permit-areas');
+      if (attempt < MAX_RETRIES) {
+        const delay = RETRY_DELAYS[attempt - 1] || 8000;
+        console.warn(`PermitAreas service: Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
-    
-    console.log('PermitAreas service: Adding layers, first symbol layer:', firstSymbolId);
-    
-    // Add layers in order, inserting before symbol layers
-    map.addLayer({
-      id: 'permit-areas-fill',
-      type: 'fill',
-      source: 'permit-areas',
-      layout: {
-        'visibility': 'visible'
-      },
-      paint: {
-        'fill-color': '#f97316',
-        'fill-opacity': 0.2
-      }
-    }, firstSymbolId);
-    
-    map.addLayer({
-      id: 'permit-areas-outline',
-      type: 'line',
-      source: 'permit-areas',
-      layout: {
-        'visibility': 'visible'
-      },
-      paint: {
-        'line-color': '#f97316',
-        'line-width': 1
-      }
-    }, firstSymbolId);
-    
-    map.addLayer({
-      id: 'permit-areas-focused-fill',
-      type: 'fill',
-      source: 'permit-areas',
-      filter: ['==', 'id', ''],
-      layout: {
-        'visibility': 'visible'
-      },
-      paint: {
-        'fill-color': '#3b82f6',
-        'fill-opacity': 0.3
-      }
-    }, firstSymbolId);
-    
-    map.addLayer({
-      id: 'permit-areas-focused-outline',
-      type: 'line',
-      source: 'permit-areas',
-      filter: ['==', 'id', ''],
-      layout: {
-        'visibility': 'visible'
-      },
-      paint: {
-        'line-color': '#3b82f6',
-        'line-width': 3,
-        'line-dasharray': [1, 1]
-      }
-    }, firstSymbolId);
-    
-    // Verify all layers were created
-    const requiredLayers = ['permit-areas-fill', 'permit-areas-outline', 'permit-areas-focused-fill', 'permit-areas-focused-outline'];
-    for (const layerId of requiredLayers) {
-      if (!map.getLayer(layerId)) {
-        throw new Error(`Failed to create layer: ${layerId}`);
-      }
-    }
-    
-    // Wait a moment and verify layers are still there and visible
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    for (const layerId of requiredLayers) {
-      const layer = map.getLayer(layerId);
-      if (!layer) {
-        throw new Error(`Layer disappeared after creation: ${layerId}`);
-      }
-      
-      const visibility = map.getLayoutProperty(layerId, 'visibility');
-      console.log(`PermitAreas service: Layer ${layerId} visibility:`, visibility);
-      
-      // Force visibility if it's not set correctly
-      if (visibility !== 'visible') {
-        console.log(`PermitAreas service: Forcing visibility for layer ${layerId}`);
-        map.setLayoutProperty(layerId, 'visibility', 'visible');
-      }
-    }
-    
-    // Force multiple repaints with delays to ensure rendering
-    map.triggerRepaint();
-    
-    // Additional checks after a longer delay
-    setTimeout(() => {
-      console.log('PermitAreas service: Final verification check');
-      
-      // Force another repaint
-      map.triggerRepaint();
-      
-      // Check if layers are still visible
-      for (const layerId of requiredLayers) {
-        const visibility = map.getLayoutProperty(layerId, 'visibility');
-        if (visibility !== 'visible') {
-          console.warn(`PermitAreas service: Layer ${layerId} lost visibility, restoring`);
-          map.setLayoutProperty(layerId, 'visibility', 'visible');
-        }
-      }
-      
-      // One more repaint for good measure
-      setTimeout(() => map.triggerRepaint(), 100);
-      
-    }, 300);
-    
-    console.log('PermitAreas service: All layers created and verified successfully');
-    
-    // Return features for search functionality
-    return data.features || [];
-    
-  } catch (error) {
-    console.error('PermitAreas service: Error loading permit areas:', error);
-    throw error;
   }
+  // If we get here, all retries failed
+  throw lastError || new Error('Failed to load permit areas after multiple attempts');
 };
 
 export const searchPermitAreas = (permitAreas, searchQuery) => {

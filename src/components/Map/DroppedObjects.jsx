@@ -1,6 +1,8 @@
 import React, { useCallback, useMemo, useEffect } from 'react';
 import { X } from 'lucide-react';
 
+const DEBUG = false; // Set to true to enable DroppedObjects debug logs
+
 const DroppedObjects = ({ 
   objects = [],
   placeableObjects = [],
@@ -8,7 +10,7 @@ const DroppedObjects = ({
   objectUpdateTrigger, 
   onRemoveObject 
 }) => {
-  console.log('DroppedObjects: Component render', {
+  if (DEBUG) console.log('DroppedObjects: Component render', {
     objectCount: objects.length,
     objectUpdateTrigger,
     hasMap: !!map,
@@ -19,16 +21,16 @@ const DroppedObjects = ({
   useEffect(() => {
     if (!map || !objects.length) return;
     
-    console.log('DroppedObjects: useEffect triggered', { objectUpdateTrigger });
+    if (DEBUG) console.log('DroppedObjects: useEffect triggered', { objectUpdateTrigger });
     
     // Test the map project function
     if (objects.length > 0) {
       const testObj = objects[0];
       try {
         const pixel = map.project([testObj.position.lng, testObj.position.lat]);
-        console.log('DroppedObjects: Test projection successful', { pixel });
+        if (DEBUG) console.log('DroppedObjects: Test projection successful', { pixel });
       } catch (error) {
-        console.error('DroppedObjects: Test projection failed', error);
+        if (DEBUG) console.error('DroppedObjects: Test projection failed', error);
       }
     }
   }, [map, objects, objectUpdateTrigger]);
@@ -44,7 +46,7 @@ const DroppedObjects = ({
       // Convert lat/lng to current screen coordinates
       const pixel = map.project([object.position.lng, object.position.lat]);
       
-      console.log('DroppedObjects: Calculating position for', object.id, {
+      if (DEBUG) console.log('DroppedObjects: Calculating position for', object.id, {
         lngLat: [object.position.lng, object.position.lat],
         pixel: { x: pixel.x, y: pixel.y },
         trigger: objectUpdateTrigger
@@ -72,13 +74,13 @@ const DroppedObjects = ({
         willChange: 'transform'
       };
     } catch (error) {
-      console.error('DroppedObjects: Error calculating position', error);
+      if (DEBUG) console.error('DroppedObjects: Error calculating position', error);
       return { display: 'none' };
     }
   }, [placeableObjects, map, objectUpdateTrigger]);
 
   const renderedObjects = useMemo(() => {
-    console.log('DroppedObjects: Recalculating rendered objects, trigger:', objectUpdateTrigger);
+    if (DEBUG) console.log('DroppedObjects: Recalculating rendered objects, trigger:', objectUpdateTrigger);
     
     // Now we can do conditional logic inside the memoized value
     if (!objects || !Array.isArray(objects) || objects.length === 0) {

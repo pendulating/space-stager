@@ -25,7 +25,15 @@ const OverlapSelector = ({
       description += props.propertyname;
     }
     if (props.subpropertyname) {
-      description += description ? ` › ${props.subpropertyname}` : props.subpropertyname;
+      let subDesc = '';
+      if (typeof props.subpropertyname === 'string') {
+        subDesc = props.subpropertyname;
+      } else if (Array.isArray(props.subpropertyname)) {
+        subDesc = props.subpropertyname.join(', ');
+      } else {
+        subDesc = JSON.stringify(props.subpropertyname);
+      }
+      description += description ? ` › ${subDesc}` : subDesc;
     }
     
     // Add area size indication

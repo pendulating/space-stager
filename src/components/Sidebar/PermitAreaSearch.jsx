@@ -6,7 +6,8 @@ const PermitAreaSearch = ({
   onSearchChange,
   searchResults,
   isSearching,
-  onSelectArea
+  onSelectArea,
+  focusedArea
 }) => {
   // Function to highlight search term in text
   const highlightSearchTerm = (text, term) => {
@@ -22,6 +23,14 @@ const PermitAreaSearch = ({
 
   // Handle area selection
   const handleAreaSelect = (area) => {
+    if (
+      focusedArea &&
+      focusedArea.properties &&
+      area.properties &&
+      focusedArea.properties.system === area.properties.system
+    ) {
+      return;
+    }
     onSelectArea(area);
   };
 
@@ -66,7 +75,16 @@ const PermitAreaSearch = ({
               {result.properties.propertyname && (
                 <div className="text-xs text-gray-600">
                   {highlightSearchTerm(result.properties.propertyname, searchQuery)}
-                  {result.properties.subpropertyname && ` › ${highlightSearchTerm(result.properties.subpropertyname, searchQuery)}`}
+                  {result.properties.subpropertyname && (
+                    <>
+                      {' › '}
+                      {typeof result.properties.subpropertyname === 'string'
+                        ? highlightSearchTerm(result.properties.subpropertyname, searchQuery)
+                        : Array.isArray(result.properties.subpropertyname)
+                          ? result.properties.subpropertyname.join(', ')
+                          : JSON.stringify(result.properties.subpropertyname)}
+                    </>
+                  )}
                 </div>
               )}
             </div>
