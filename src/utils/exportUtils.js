@@ -13,7 +13,7 @@ export const exportPlan = (map, draw, droppedObjects, layers, customShapes) => {
       bounds: map.getBounds().toArray()
     },
     layers: layers,
-    customShapes: draw.getAll(),
+    customShapes: draw.current ? draw.current.getAll() : { features: [] },
     droppedObjects: droppedObjects
   };
 
@@ -41,13 +41,7 @@ export const importPlan = (e, map, draw, setCustomShapes, setDroppedObjects, set
         }
         
         if (data.customShapes) {
-          draw.set(data.customShapes);
-          setCustomShapes(data.customShapes.features.map(f => ({
-            id: f.id,
-            type: f.geometry.type,
-            label: f.properties.label || '',
-            properties: f.properties
-          })));
+          draw.current.set(data.customShapes);
         }
         
         if (data.droppedObjects) {

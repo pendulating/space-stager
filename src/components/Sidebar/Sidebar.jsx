@@ -53,6 +53,8 @@ const Sidebar = ({
         onToolSelect={drawTools.activateDrawingTool}
         selectedShape={drawTools.selectedShape}
         onDelete={drawTools.deleteSelectedShape}
+        drawAvailable={drawTools.drawInitialized}
+        onRetry={drawTools.reinitializeDrawControls}
       />
 
       {drawTools.selectedShape && (
@@ -69,14 +71,14 @@ const Sidebar = ({
         draggedObject={dragDrop.draggedObject}
       />
 
-      {drawTools.customShapes.length > 0 && (
-        <CustomShapesList
-          customShapes={drawTools.customShapes}
-          selectedShape={drawTools.selectedShape}
-          onShapeSelect={drawTools.selectShape}
-          draw={drawTools.draw}
-        />
-      )}
+      <CustomShapesList
+        selectedShape={drawTools.selectedShape}
+        onShapeSelect={drawTools.selectShape}
+        draw={drawTools.draw}
+        onShapeRename={drawTools.renameShape}
+        showLabels={drawTools.showLabels}
+        onToggleLabels={drawTools.setShowLabels}
+      />
 
       {dragDrop.droppedObjects.length > 0 && (
         <DroppedObjectsList

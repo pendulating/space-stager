@@ -718,3 +718,160 @@
 .warning-text {
   color: #d97706;
 }
+
+/* Custom Shape Labels */
+.custom-shape-label {
+  position: absolute;
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 999;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transform: translateX(-50%) translateZ(0);
+  will-change: transform;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.custom-shape-label:hover {
+  opacity: 0.9;
+}
+
+/* Custom Shapes List Rename Functionality */
+.custom-shape-item {
+  transition: all 0.2s ease-in-out;
+}
+
+.custom-shape-item:hover {
+  background-color: #f3f4f6;
+}
+
+.custom-shape-edit-button {
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+  padding: 2px;
+  border-radius: 3px;
+  color: #6b7280;
+}
+
+.custom-shape-item:hover .custom-shape-edit-button {
+  opacity: 1;
+}
+
+.custom-shape-edit-button:hover {
+  color: #374151;
+  background-color: #e5e7eb;
+}
+
+.custom-shape-edit-input {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 0.875rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  outline: none;
+  transition: border-color 0.2s ease-in-out;
+}
+
+.custom-shape-edit-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.1);
+}
+
+.custom-shape-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.custom-shape-save-button {
+  padding: 2px;
+  border-radius: 3px;
+  color: #059669;
+  transition: all 0.2s ease-in-out;
+}
+
+.custom-shape-save-button:hover {
+  background-color: #d1fae5;
+  color: #047857;
+}
+
+.custom-shape-cancel-button {
+  padding: 2px;
+  border-radius: 3px;
+  color: #dc2626;
+  transition: all 0.2s ease-in-out;
+}
+
+.custom-shape-cancel-button:hover {
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
+
+/* Labels Toggle */
+.labels-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: #6b7280;
+  cursor: pointer;
+  transition: color 0.2s ease-in-out;
+}
+
+.labels-toggle:hover {
+  color: #374151;
+}
+
+.labels-toggle input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+/* Custom Shape Label Animation */
+.custom-shape-label-enter {
+  animation: labelFadeIn 0.3s ease-out;
+}
+
+@keyframes labelFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px) translateZ(0);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) translateZ(0);
+  }
+}
+
+/* Custom Shape Edit Mode */
+.custom-shape-edit-mode {
+  background-color: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 4px;
+}
+
+.custom-shape-edit-mode .custom-shape-edit-input {
+  background-color: white;
+}
+
+/* Responsive adjustments for custom shapes */
+@media (max-width: 768px) {
+  .custom-shape-label {
+    font-size: 10px;
+    padding: 1px 4px;
+  }
+  
+  .custom-shape-edit-input {
+    font-size: 0.8rem;
+    padding: 3px 6px;
+  }
+  
+  .custom-shape-edit-button {
+    opacity: 1; /* Always visible on mobile */
+  }
+}

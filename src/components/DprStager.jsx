@@ -13,6 +13,7 @@ import { INITIAL_LAYERS } from '../constants/layers';
 import { PLACEABLE_OBJECTS } from '../constants/placeableObjects';
 import { exportPlan, importPlan, exportPermitAreaSiteplan } from '../utils/exportUtils';
 import '../styles/eventStager-dpr.css';
+import '../styles/eventStager.css';
 
 const DprStager = () => {
   const mapContainerRef = useRef(null);
@@ -21,8 +22,8 @@ const DprStager = () => {
   const [showInfo, setShowInfo] = useState(false);
   
   // Use custom hooks for different functionalities
-  const drawTools = useDrawTools(map);
   const permitAreas = usePermitAreas(map, mapLoaded);
+  const drawTools = useDrawTools(map, permitAreas.focusedArea);
   const infrastructure = useInfrastructure(map, permitAreas.focusedArea, layers, setLayers);
   const dragDrop = useDragDrop(map);
   // Future: const dprMode = useDprMode(map, permitAreas.mode, drawTools);
@@ -40,19 +41,21 @@ const DprStager = () => {
   }, [permitAreas.isLoading]);
 
   const prevFocusedAreaRef = useRef(null);
-  const clearDroppedObjectsOnFocusChange = useCallback(() => {
+  const clearObjectsOnFocusChange = useCallback(() => {
     const currentFocusedArea = permitAreas.focusedArea;
     if (prevFocusedAreaRef.current !== currentFocusedArea) {
       prevFocusedAreaRef.current = currentFocusedArea;
       if (!currentFocusedArea) {
+        // Clear both dropped objects and custom shapes when focus is cleared
         dragDrop.clearDroppedObjects();
+        drawTools.clearCustomShapes();
       }
     }
-  }, [permitAreas.focusedArea, dragDrop.clearDroppedObjects]);
+  }, [permitAreas.focusedArea, dragDrop.clearDroppedObjects, drawTools.clearCustomShapes]);
 
   useEffect(() => {
-    clearDroppedObjectsOnFocusChange();
-  }, [clearDroppedObjectsOnFocusChange]);
+    clearObjectsOnFocusChange();
+  }, [clearObjectsOnFocusChange]);
 
   const handleExport = () => {
     exportPlan(
@@ -60,7 +63,7 @@ const DprStager = () => {
       drawTools.draw, 
       dragDrop.droppedObjects, 
       layers, 
-      drawTools.customShapes
+      drawTools.draw?.current ? drawTools.draw.current.getAll().features : []
     );
   };
 
@@ -69,7 +72,7 @@ const DprStager = () => {
       e, 
       map, 
       drawTools.draw, 
-      drawTools.setCustomShapes, 
+      null, // No longer need setCustomShapes
       dragDrop.setDroppedObjects,
       setLayers
     );
@@ -80,7 +83,7 @@ const DprStager = () => {
       map,
       permitAreas.focusedArea,
       layers,
-      drawTools.customShapes,
+      drawTools.draw?.current ? drawTools.draw.current.getAll().features : [],
       dragDrop.droppedObjects,
       format
     );
@@ -168,7 +171,14 @@ const DprStager = () => {
         }
       });
     }
-  }, [permitAreas, layers, infrastructure]);
+    
+    // Re-initialize draw controls after a short delay to ensure style is loaded
+    setTimeout(() => {
+      if (drawTools.reinitializeDrawControls) {
+        drawTools.reinitializeDrawControls();
+      }
+    }, 200);
+  }, [permitAreas, layers, infrastructure, drawTools.reinitializeDrawControls]);
 
   return (
     <div className="h-screen w-full flex flex-col bg-gray-50">

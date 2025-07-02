@@ -1,12 +1,37 @@
 // hooks/useDrawTools.js
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-export const useDrawTools = (map) => {
+export const useDrawTools = (map, focusedArea = null) => {
   const draw = useRef(null);
   const [activeTool, setActiveTool] = useState(null);
-  const [customShapes, setCustomShapes] = useState([]);
   const [selectedShape, setSelectedShape] = useState(null);
   const [shapeLabel, setShapeLabel] = useState('');
+  const [drawInitialized, setDrawInitialized] = useState(false);
+  const [showLabels, setShowLabels] = useState(true);
+
+  // Store event handlers in refs to avoid dependency issues
+  const eventHandlers = useRef({
+    handleDrawCreate: (e) => {
+      const feature = e.features[0];
+      setSelectedShape(feature.id);
+    },
+    handleDrawUpdate: (e) => {
+      console.log('Shape updated:', e.features);
+    },
+    handleDrawDelete: (e) => {
+      setSelectedShape(null);
+    },
+    handleSelectionChange: (e) => {
+      if (e.features.length > 0) {
+        setSelectedShape(e.features[0].id);
+        const feature = e.features[0];
+        setShapeLabel(feature.properties?.label || '');
+      } else {
+        setSelectedShape(null);
+        setShapeLabel('');
+      }
+    }
+  });
 
   // Initialize draw controls
   useEffect(() => {
@@ -16,11 +41,19 @@ export const useDrawTools = (map) => {
       // Remove existing draw control if it exists
       if (draw.current) {
         try {
+          // Remove event handlers first
+          map.off('draw.create', eventHandlers.current.handleDrawCreate);
+          map.off('draw.update', eventHandlers.current.handleDrawUpdate);
+          map.off('draw.delete', eventHandlers.current.handleDrawDelete);
+          map.off('draw.selectionchange', eventHandlers.current.handleSelectionChange);
+          
+          // Remove the control
           map.removeControl(draw.current);
         } catch (error) {
           console.warn('Error removing existing draw control:', error);
         }
         draw.current = null;
+        setDrawInitialized(false);
       }
 
       const drawInstance = new window.MapboxDraw({
@@ -31,78 +64,56 @@ export const useDrawTools = (map) => {
       
       draw.current = drawInstance;
       map.addControl(drawInstance);
+      setDrawInitialized(true);
       console.log('Draw controls added');
 
-      // Set up event handlers
-      map.on('draw.create', handleDrawCreate);
-      map.on('draw.update', handleDrawUpdate);
-      map.on('draw.delete', handleDrawDelete);
-      map.on('draw.selectionchange', handleSelectionChange);
+      // Set up event handlers using refs
+      map.on('draw.create', eventHandlers.current.handleDrawCreate);
+      map.on('draw.update', eventHandlers.current.handleDrawUpdate);
+      map.on('draw.delete', eventHandlers.current.handleDrawDelete);
+      map.on('draw.selectionchange', eventHandlers.current.handleSelectionChange);
     };
 
-    const handleDrawCreate = (e) => {
-      const feature = e.features[0];
-      const shape = {
-        id: feature.id,
-        type: feature.geometry.type,
-        label: '',
-        properties: feature.properties
-      };
-      setCustomShapes(prev => [...prev, shape]);
-      setSelectedShape(shape.id);
-    };
-
-    const handleDrawUpdate = (e) => {
-      // Update handled by MapboxDraw
-      console.log('Shape updated:', e.features);
-    };
-
-    const handleDrawDelete = (e) => {
-      const deletedIds = e.features.map(f => f.id);
-      setCustomShapes(prev => prev.filter(shape => !deletedIds.includes(shape.id)));
-      setSelectedShape(null);
-    };
-
-    const handleSelectionChange = (e) => {
-      if (e.features.length > 0) {
-        setSelectedShape(e.features[0].id);
-        const shape = customShapes.find(s => s.id === e.features[0].id);
-        if (shape) {
-          setShapeLabel(shape.label || '');
-        }
+    // Initialize draw controls when map is ready
+    const initializeDrawControls = () => {
+      if (map.loaded()) {
+        initDraw();
       } else {
-        setSelectedShape(null);
-        setShapeLabel('');
+        map.once('load', initDraw);
       }
     };
 
-    if (map.loaded()) {
-      initDraw();
-    } else {
-      map.once('load', initDraw);
-    }
+    // Initialize on mount
+    initializeDrawControls();
 
     // Cleanup
     return () => {
       if (map && draw.current) {
         try {
-          map.off('draw.create', handleDrawCreate);
-          map.off('draw.update', handleDrawUpdate);
-          map.off('draw.delete', handleDrawDelete);
-          map.off('draw.selectionchange', handleSelectionChange);
+          map.off('draw.create', eventHandlers.current.handleDrawCreate);
+          map.off('draw.update', eventHandlers.current.handleDrawUpdate);
+          map.off('draw.delete', eventHandlers.current.handleDrawDelete);
+          map.off('draw.selectionchange', eventHandlers.current.handleSelectionChange);
           map.removeControl(draw.current);
         } catch (error) {
           console.warn('Error during draw controls cleanup:', error);
         }
         draw.current = null;
+        setDrawInitialized(false);
       }
     };
-  }, [map]);
+  }, [map]); // Only depend on map, not on event handlers
+
+
 
   // Activate drawing tool
   const activateDrawingTool = useCallback((mode) => {
-    if (!draw.current) return;
+    if (!draw.current) {
+      console.warn('Draw controls not initialized, cannot activate tool:', mode);
+      return;
+    }
     
+    console.log('Activating drawing tool:', mode);
     setActiveTool(mode);
     switch(mode) {
       case 'point':
@@ -123,10 +134,6 @@ export const useDrawTools = (map) => {
   // Update shape label
   const updateShapeLabel = useCallback(() => {
     if (selectedShape && draw.current) {
-      setCustomShapes(prev => prev.map(shape => 
-        shape.id === selectedShape ? { ...shape, label: shapeLabel } : shape
-      ));
-      
       const feature = draw.current.get(selectedShape);
       if (feature) {
         feature.properties.label = shapeLabel;
@@ -134,6 +141,19 @@ export const useDrawTools = (map) => {
       }
     }
   }, [selectedShape, shapeLabel]);
+
+  // Rename a specific shape
+  const renameShape = useCallback((shapeId, newLabel) => {
+    if (!draw.current) return;
+    
+    const feature = draw.current.get(shapeId);
+    if (feature) {
+      feature.properties.label = newLabel;
+      draw.current.add(feature);
+    }
+    
+    console.log('Shape renamed:', shapeId, 'to:', newLabel);
+  }, []);
 
   // Delete selected shape
   const deleteSelectedShape = useCallback(() => {
@@ -150,17 +170,81 @@ export const useDrawTools = (map) => {
     }
   }, []);
 
+  // Clear all custom shapes
+  const clearCustomShapes = useCallback(() => {
+    if (draw.current) {
+      draw.current.deleteAll();
+      setSelectedShape(null);
+      setShapeLabel('');
+      console.log('All custom shapes cleared');
+    }
+  }, []);
+
+  // Force re-initialization of draw controls
+  const reinitializeDrawControls = useCallback(() => {
+    if (!map || !window.MapboxDraw) return;
+    
+    console.log('Force re-initializing draw controls');
+    
+    // Store existing shapes before removing
+    const existingShapes = draw.current ? draw.current.getAll() : [];
+    
+    // Remove existing draw control if it exists
+    if (draw.current) {
+      try {
+        // Remove event handlers first
+        map.off('draw.create', eventHandlers.current.handleDrawCreate);
+        map.off('draw.update', eventHandlers.current.handleDrawUpdate);
+        map.off('draw.delete', eventHandlers.current.handleDrawDelete);
+        map.off('draw.selectionchange', eventHandlers.current.handleSelectionChange);
+        
+        map.removeControl(draw.current);
+      } catch (error) {
+        console.warn('Error removing existing draw control:', error);
+      }
+      draw.current = null;
+    }
+
+    const drawInstance = new window.MapboxDraw({
+      displayControlsDefault: false,
+      controls: {},
+      defaultMode: 'simple_select'
+    });
+    
+    draw.current = drawInstance;
+    map.addControl(drawInstance);
+    
+    // Set up event handlers for the new draw instance
+    map.on('draw.create', eventHandlers.current.handleDrawCreate);
+    map.on('draw.update', eventHandlers.current.handleDrawUpdate);
+    map.on('draw.delete', eventHandlers.current.handleDrawDelete);
+    map.on('draw.selectionchange', eventHandlers.current.handleSelectionChange);
+    
+    // Restore existing shapes
+    if (existingShapes.features.length > 0) {
+      drawInstance.add(existingShapes);
+      console.log('Restored', existingShapes.features.length, 'shapes');
+    }
+    
+    setDrawInitialized(true);
+    console.log('Draw controls re-initialized');
+  }, [map]); // Only depend on map
+
   return {
     draw,
     activeTool,
-    customShapes,
     selectedShape,
     shapeLabel,
     setShapeLabel,
-    setCustomShapes,
     activateDrawingTool,
     updateShapeLabel,
+    renameShape,
     deleteSelectedShape,
-    selectShape
+    selectShape,
+    clearCustomShapes,
+    reinitializeDrawControls,
+    drawInitialized,
+    showLabels,
+    setShowLabels
   };
 };

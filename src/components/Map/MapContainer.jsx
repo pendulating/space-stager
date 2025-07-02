@@ -3,6 +3,7 @@ import React, { forwardRef, useEffect, useState, useRef } from 'react';
 import MapTooltip from './MapTooltip';
 import OverlapSelector from './OverlapSelector';
 import DroppedObjects from './DroppedObjects';
+import CustomShapeLabels from './CustomShapeLabels';
 import ActiveToolIndicator from './ActiveToolIndicator';
 import LoadingOverlay from './LoadingOverlay';
 
@@ -107,6 +108,13 @@ const MapContainer = forwardRef(({
         map={map}
         onRemoveObject={dragDrop.removeDroppedObject}
         objectUpdateTrigger={dragDrop.objectUpdateTrigger}
+      />
+      
+      <CustomShapeLabels
+        draw={drawTools.draw}
+        map={map}
+        objectUpdateTrigger={dragDrop.objectUpdateTrigger}
+        showLabels={drawTools.showLabels}
       />
       
       {!mapLoaded && <LoadingOverlay />}
