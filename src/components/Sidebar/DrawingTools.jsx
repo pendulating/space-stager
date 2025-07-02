@@ -9,7 +9,7 @@ const DrawingTools = ({ activeTool, onToolSelect, selectedShape, onDelete, drawA
   ];
 
   return (
-    <div className="p-4 border-b border-gray-200">
+    <div className="p-4 border-b border-gray-200 drawing-tools">
       <h3 className="text-sm font-medium text-gray-700 mb-3">Annotation Tools</h3>
       {!drawAvailable && (
         <div className="mb-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-700">

@@ -47,5 +47,13 @@ export const INITIAL_LAYERS = {
     loading: false,
     loaded: false,
     endpoint: '/api/bus-stops'
+  },
+  benches: { 
+    visible: false, 
+    name: 'Benches', 
+    color: '#8b5cf6', 
+    loading: false,
+    loaded: false,
+    endpoint: '/api/benches'
   }
 };

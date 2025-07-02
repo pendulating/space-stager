@@ -7,7 +7,11 @@ export const useDrawTools = (map, focusedArea = null) => {
   const [selectedShape, setSelectedShape] = useState(null);
   const [shapeLabel, setShapeLabel] = useState('');
   const [drawInitialized, setDrawInitialized] = useState(false);
-  const [showLabels, setShowLabels] = useState(true);
+  const [showLabels, setShowLabelsState] = useState(true);
+  
+  const setShowLabels = useCallback((value) => {
+    setShowLabelsState(value);
+  }, []);
 
   // Store event handlers in refs to avoid dependency issues
   const eventHandlers = useRef({

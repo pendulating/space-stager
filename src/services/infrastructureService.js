@@ -1,6 +1,7 @@
 // services/infrastructureService.js
 import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
 import { expandBounds } from '../utils/geometryUtils';
+import { INFRASTRUCTURE_ICONS } from '../utils/iconUtils';
 
 export const loadInfrastructureData = async (layerId, bounds) => {
   const endpoint = INFRASTRUCTURE_ENDPOINTS[layerId];
@@ -94,6 +95,9 @@ export const filterFeaturesByType = (features, layerId) => {
       case 'bikeLanes':
         return true; // Allow all features for bike lanes
         
+      case 'benches':
+        return true; // All bench features are valid
+        
       default:
         return false;
     }
@@ -104,43 +108,165 @@ export const filterFeaturesByType = (features, layerId) => {
   }));
 };
 
-export const getLayerStyle = (layerId, layerConfig) => {
+// Helper function to check if icons are available on the map
+export const areIconsAvailable = (map) => {
+  if (!map) {
+    console.log('[DEBUG] areIconsAvailable: No map provided');
+    return false;
+  }
+  
+  const iconCheck = Object.values(INFRASTRUCTURE_ICONS).map(icon => {
+    const hasIcon = map.hasImage(icon.id);
+    console.log(`[DEBUG] Icon ${icon.id} available: ${hasIcon}`);
+    return hasIcon;
+  });
+  
+  const allAvailable = iconCheck.every(available => available);
+  console.log(`[DEBUG] All icons available: ${allAvailable}`);
+  
+  return allAvailable;
+};
+
+export const getLayerStyle = (layerId, layerConfig, map = null) => {
   const baseColor = layerConfig.color;
+  const useIcons = map && areIconsAvailable(map);
   
   switch(layerId) {
     case 'hydrants':
-      return {
-        type: 'circle',
-        paint: {
-          'circle-radius': 5,
-          'circle-color': baseColor,
-          'circle-opacity': 0.9,
-          'circle-stroke-width': 1.5,
-          'circle-stroke-color': 'white'
-        }
-      };
+      if (useIcons) {
+        return {
+          type: 'symbol',
+          layout: {
+            'icon-image': 'hydrant-icon',
+            'icon-size': 0.8,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+          },
+          paint: {
+            'icon-color': baseColor,
+            'icon-opacity': 0.9
+          }
+        };
+      } else {
+        return {
+          type: 'circle',
+          paint: {
+            'circle-radius': 5,
+            'circle-color': baseColor,
+            'circle-opacity': 0.9,
+            'circle-stroke-width': 1.5,
+            'circle-stroke-color': 'white'
+          }
+        };
+      }
     case 'trees':
-      return {
-        type: 'circle',
-        paint: {
-          'circle-radius': 4,
-          'circle-color': baseColor,
-          'circle-opacity': 0.8,
-          'circle-stroke-width': 1,
-          'circle-stroke-color': 'white'
-        }
-      };
+      if (useIcons) {
+        return {
+          type: 'symbol',
+          layout: {
+            'icon-image': 'tree-icon',
+            'icon-size': 0.7,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+          },
+          paint: {
+            'icon-color': baseColor,
+            'icon-opacity': 0.8
+          }
+        };
+      } else {
+        return {
+          type: 'circle',
+          paint: {
+            'circle-radius': 4,
+            'circle-color': baseColor,
+            'circle-opacity': 0.8,
+            'circle-stroke-width': 1,
+            'circle-stroke-color': 'white'
+          }
+        };
+      }
     case 'busStops':
-      return {
-        type: 'circle',
-        paint: {
-          'circle-radius': 6,
-          'circle-color': baseColor,
-          'circle-opacity': 0.9,
-          'circle-stroke-width': 2,
-          'circle-stroke-color': 'white'
-        }
-      };
+      if (useIcons) {
+        return {
+          type: 'symbol',
+          layout: {
+            'icon-image': 'bus-stop-icon',
+            'icon-size': 0.9,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+          },
+          paint: {
+            'icon-color': baseColor,
+            'icon-opacity': 0.9
+          }
+        };
+      } else {
+        return {
+          type: 'circle',
+          paint: {
+            'circle-radius': 6,
+            'circle-color': baseColor,
+            'circle-opacity': 0.9,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': 'white'
+          }
+        };
+      }
+    case 'benches':
+      if (useIcons) {
+        return {
+          type: 'symbol',
+          layout: {
+            'icon-image': 'bench-icon',
+            'icon-size': 0.8,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+          },
+          paint: {
+            'icon-color': baseColor,
+            'icon-opacity': 0.9
+          }
+        };
+      } else {
+        return {
+          type: 'circle',
+          paint: {
+            'circle-radius': 5,
+            'circle-color': baseColor,
+            'circle-opacity': 0.9,
+            'circle-stroke-width': 1.5,
+            'circle-stroke-color': 'white'
+          }
+        };
+      }
+    case 'parking':
+      if (useIcons) {
+        return {
+          type: 'symbol',
+          layout: {
+            'icon-image': 'parking-icon',
+            'icon-size': 0.8,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+          },
+          paint: {
+            'icon-color': baseColor,
+            'icon-opacity': 0.9
+          }
+        };
+      } else {
+        return {
+          type: 'circle',
+          paint: {
+            'circle-radius': 5,
+            'circle-color': baseColor,
+            'circle-opacity': 0.9,
+            'circle-stroke-width': 1.5,
+            'circle-stroke-color': 'white'
+          }
+        };
+      }
     case 'bikeLanes':
       return {
         type: 'line',
@@ -151,15 +277,31 @@ export const getLayerStyle = (layerId, layerConfig) => {
         }
       };
     default:
-      return {
-        type: 'circle',
-        paint: {
-          'circle-radius': 4,
-          'circle-color': baseColor,
-          'circle-opacity': 0.8,
-          'circle-stroke-width': 1,
-          'circle-stroke-color': 'white'
-        }
-      };
+      if (useIcons) {
+        return {
+          type: 'symbol',
+          layout: {
+            'icon-image': 'circle',
+            'icon-size': 0.6,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+          },
+          paint: {
+            'icon-color': baseColor,
+            'icon-opacity': 0.8
+          }
+        };
+      } else {
+        return {
+          type: 'circle',
+          paint: {
+            'circle-radius': 4,
+            'circle-color': baseColor,
+            'circle-opacity': 0.8,
+            'circle-stroke-width': 1,
+            'circle-stroke-color': 'white'
+          }
+        };
+      }
   }
 };  

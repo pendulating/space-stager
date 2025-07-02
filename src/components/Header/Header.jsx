@@ -42,7 +42,7 @@ const Header = ({
             </label>
             <button
               onClick={onExport}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors export-button"
               title="Export Event Plan"
             >
               <Download className="w-5 h-5 text-gray-600" />

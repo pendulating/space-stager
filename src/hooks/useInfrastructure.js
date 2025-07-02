@@ -7,13 +7,17 @@ import {
 } from '../services/infrastructureService';
 import { calculateGeometryBounds } from '../utils/geometryUtils';
 import { createInfrastructureTooltipContent } from '../utils/tooltipUtils';
+import { addIconsToMap, retryLoadIcons } from '../utils/iconUtils';
 
 export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
+  console.log('[DEBUG] useInfrastructure hook called with map:', !!map);
+  
   const [infrastructureData, setInfrastructureData] = useState({
     trees: null,
     hydrants: null,
     parking: null,
-    busStops: null
+    busStops: null,
+    benches: null
   });
 
   // Use refs to track state and prevent loops
@@ -22,6 +26,11 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
 
   // Get the focused area ID for comparison
   const focusedAreaId = focusedArea?.id || focusedArea?.properties?.id;
+
+  // Debug: Track map changes
+  useEffect(() => {
+    console.log('[DEBUG] Map changed:', !!map, 'map.isStyleLoaded():', map?.isStyleLoaded());
+  }, [map]);
 
   // Clear infrastructure when focus changes
   useEffect(() => {
@@ -43,7 +52,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     } else {
       // Clear everything when focus is removed
       if (map) {
-        ['trees', 'hydrants', 'parking', 'busStops'].forEach(layerId => {
+        ['trees', 'hydrants', 'parking', 'busStops', 'benches'].forEach(layerId => {
           removeInfrastructureLayer(layerId);
         });
       }
@@ -52,7 +61,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
         trees: null,
         hydrants: null,
         parking: null,
-        busStops: null
+        busStops: null,
+        benches: null
       });
       
       setLayers(prev => ({
@@ -61,7 +71,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
         trees: { ...prev.trees, visible: false, loading: false },
         hydrants: { ...prev.hydrants, visible: false, loading: false },
         parking: { ...prev.parking, visible: false, loading: false },
-        busStops: { ...prev.busStops, visible: false, loading: false }
+        busStops: { ...prev.busStops, visible: false, loading: false },
+        benches: { ...prev.benches, visible: false, loading: false }
       }));
       
       loadingLayersRef.current.clear();
@@ -97,27 +108,90 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
       trees: null,
       hydrants: null,
       parking: null,
-      busStops: null
+      busStops: null,
+      benches: null
     });
 
     // Clear loading states
     loadingLayersRef.current.clear();
   }, [focusedAreaId, map]); // Trigger when focused area ID changes
 
+  // Load infrastructure icons when map is ready
+  useEffect(() => {
+    if (!map) return;
+    
+    console.log('[DEBUG] Icon loading useEffect triggered');
+    
+    // Wait for map style to be loaded before adding icons
+    const loadIcons = () => {
+      console.log('[DEBUG] Attempting to load icons, map.isStyleLoaded():', map.isStyleLoaded());
+      
+      if (map.isStyleLoaded()) {
+        const success = addIconsToMap(map);
+        console.log('[DEBUG] Icon loading result:', success);
+        if (!success) {
+          console.log('[DEBUG] Icon loading failed, retrying...');
+          retryLoadIcons(map);
+        } else {
+          // If icons loaded successfully, reload any existing infrastructure layers
+          console.log('[DEBUG] Icons loaded successfully, checking for existing layers to reload');
+          Object.entries(layers).forEach(([layerId, config]) => {
+            if (layerId !== 'permitAreas' && config.visible && infrastructureData[layerId]) {
+              console.log(`[DEBUG] Reloading ${layerId} layer with icons`);
+              addInfrastructureLayerToMap(layerId, infrastructureData[layerId]);
+            }
+          });
+        }
+      } else {
+        // If style not loaded yet, wait for it
+        console.log('[DEBUG] Map style not loaded, waiting for style.load event');
+        map.once('style.load', () => {
+          console.log('[DEBUG] Style loaded, now loading icons');
+          const success = addIconsToMap(map);
+          console.log('[DEBUG] Icon loading result after style load:', success);
+          if (!success) {
+            console.log('[DEBUG] Icon loading failed after style load, retrying...');
+            retryLoadIcons(map);
+          } else {
+            // If icons loaded successfully, reload any existing infrastructure layers
+            console.log('[DEBUG] Icons loaded successfully after style load, checking for existing layers to reload');
+            Object.entries(layers).forEach(([layerId, config]) => {
+              if (layerId !== 'permitAreas' && config.visible && infrastructureData[layerId]) {
+                console.log(`[DEBUG] Reloading ${layerId} layer with icons`);
+                addInfrastructureLayerToMap(layerId, infrastructureData[layerId]);
+              }
+            });
+          }
+        });
+      }
+    };
+    
+    loadIcons();
+  }, [map, layers, infrastructureData]);
+
   // Add infrastructure layer to map - move this before loadInfrastructureLayer
   const addInfrastructureLayerToMap = useCallback((layerId, data) => {
     if (!map) return;
+    console.log(`[DEBUG] Adding ${layerId} layer to map with ${data.features.length} features`);
+    
     removeInfrastructureLayer(layerId);
     const sourceId = `source-${layerId}`;
+    
     // Add source
     map.addSource(sourceId, {
       type: 'geojson',
       data: data
     });
-    const layerStyle = getLayerStyle(layerId, layers[layerId]);
+    
+    const layerStyle = getLayerStyle(layerId, layers[layerId], map);
+    console.log(`[DEBUG] Layer style for ${layerId}:`, layerStyle);
+    
     // Check for LineString features (for bikeLanes)
     const hasLineString = data.features.some(f => f.geometry && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString'));
     const hasPoint = data.features.some(f => f.geometry && f.geometry.type === 'Point');
+    
+    console.log(`[DEBUG] ${layerId} has LineString: ${hasLineString}, has Point: ${hasPoint}`);
+    
     if (hasLineString && layerStyle.type === 'line') {
       const lineLayerId = `layer-${layerId}-line`;
       map.addLayer({
@@ -126,16 +200,28 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
         source: sourceId,
         paint: layerStyle.paint
       });
+      console.log(`[DEBUG] Added line layer: ${lineLayerId}`);
       // Optionally add hover/click events for lines here
     }
-    if (hasPoint && layerStyle.type === 'circle') {
+    
+    if (hasPoint && (layerStyle.type === 'symbol' || layerStyle.type === 'circle')) {
       const pointLayerId = `layer-${layerId}-point`;
-      map.addLayer({
+      
+      const layerConfig = {
         id: pointLayerId,
-        type: 'circle',
+        type: layerStyle.type,
         source: sourceId,
         paint: layerStyle.paint
-      });
+      };
+      
+      if (layerStyle.layout) {
+        layerConfig.layout = layerStyle.layout;
+      }
+      
+      console.log(`[DEBUG] Adding point layer: ${pointLayerId} with config:`, layerConfig);
+      
+      map.addLayer(layerConfig);
+      
       map.on('mouseenter', pointLayerId, () => {
         map.getCanvas().style.cursor = 'pointer';
       });
@@ -148,6 +234,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
         const content = createInfrastructureTooltipContent(feature.properties, layerId);
         console.log('Infrastructure feature clicked:', content);
       });
+      
+      console.log(`[DEBUG] Successfully added point layer: ${pointLayerId}`);
     }
   }, [map, layers]);
 
@@ -447,7 +535,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
   // Clear focus and all infrastructure - ensure state is properly reset
   const clearFocus = useCallback(() => {
     if (map) {
-      ['trees', 'hydrants', 'parking', 'busStops'].forEach(layerId => {
+      ['trees', 'hydrants', 'parking', 'busStops', 'benches'].forEach(layerId => {
         removeInfrastructureLayer(layerId);
       });
     }
@@ -474,7 +562,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
       trees: null,
       hydrants: null,
       parking: null,
-      busStops: null
+      busStops: null,
+      benches: null
     });
 
     loadingLayersRef.current.clear();

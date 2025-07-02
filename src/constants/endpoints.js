@@ -24,5 +24,10 @@ export const INFRASTRUCTURE_ENDPOINTS = {
     baseUrl: '/data/static/bus_stops_nyc.geojson',
     geoField: null,
     isLocal: true
+  },
+  benches: {
+    baseUrl: 'https://data.cityofnewyork.us/resource/esmy-s8q5.geojson',
+    geoField: 'the_geom',
+    isLocal: false
   }
 };

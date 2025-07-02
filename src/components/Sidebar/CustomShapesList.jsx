@@ -9,7 +9,7 @@ const CustomShapesList = ({
   showLabels = true,
   onToggleLabels
 }) => {
-  console.log('CustomShapesList render:', { showLabels, onToggleLabels: !!onToggleLabels });
+  // console.log('CustomShapesList render:', { showLabels, onToggleLabels: !!onToggleLabels });
 
   const [editingShape, setEditingShape] = useState(null);
   const [editValue, setEditValue] = useState('');
@@ -68,12 +68,11 @@ const CustomShapesList = ({
           <button
             type="button"
             onClick={() => {
-              console.log('Toggle button clicked!', !showLabels);
               if (onToggleLabels) {
                 onToggleLabels(!showLabels);
               }
             }}
-            className="flex items-center gap-2 px-2 py-1 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded cursor-pointer"
+            className="flex items-center gap-2 px-2 py-1 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded cursor-pointer labels-toggle"
           >
             <input
               type="checkbox"

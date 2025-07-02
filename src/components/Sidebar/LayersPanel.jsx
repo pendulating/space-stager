@@ -59,7 +59,7 @@ const LayersPanel = ({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="flex-1 overflow-y-auto layers-panel">
       <div className="p-4">
         <h3 className="text-sm font-medium text-gray-700 mb-3">
           NYC Infrastructure Layers

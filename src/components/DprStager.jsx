@@ -4,11 +4,15 @@ import Sidebar from './Sidebar/Sidebar';
 import MapContainer from './Map/MapContainer';
 import InfoPanel from './Modals/InfoPanel';
 import FocusInfoPanel from './Modals/FocusInfoPanel';
+import WelcomeOverlay from './Tutorial/WelcomeOverlay';
+import TutorialTooltip from './Tutorial/TutorialTooltip';
+import RightSidebar from './Sidebar/RightSidebar';
 import { useMap } from '../hooks/useMap';
 import { useDrawTools } from '../hooks/useDrawTools';
 import { usePermitAreas } from '../hooks/usePermitAreas';
 import { useInfrastructure } from '../hooks/useInfrastructure';
 import { useDragDrop } from '../hooks/useDragDrop';
+import { useSitePlan } from '../contexts/SitePlanContext';
 import { INITIAL_LAYERS } from '../constants/layers';
 import { PLACEABLE_OBJECTS } from '../constants/placeableObjects';
 import { exportPlan, importPlan, exportPermitAreaSiteplan } from '../utils/exportUtils';
@@ -26,6 +30,7 @@ const DprStager = () => {
   const drawTools = useDrawTools(map, permitAreas.focusedArea);
   const infrastructure = useInfrastructure(map, permitAreas.focusedArea, layers, setLayers);
   const dragDrop = useDragDrop(map);
+  const { isSitePlanMode, updateSitePlanMode } = useSitePlan();
   // Future: const dprMode = useDprMode(map, permitAreas.mode, drawTools);
 
   // ... (rest of EventStager logic, but remove SAPO-specific logic)
@@ -56,6 +61,28 @@ const DprStager = () => {
   useEffect(() => {
     clearObjectsOnFocusChange();
   }, [clearObjectsOnFocusChange]);
+
+  // Update site plan mode based on focused area and zoom
+  useEffect(() => {
+    if (map) {
+      const currentZoom = map.getZoom();
+      updateSitePlanMode(permitAreas.focusedArea, currentZoom);
+      
+      // Listen for zoom changes
+      const handleZoom = () => {
+        const zoom = map.getZoom();
+        updateSitePlanMode(permitAreas.focusedArea, zoom);
+      };
+      
+      map.on('zoom', handleZoom);
+      map.on('move', handleZoom);
+      
+      return () => {
+        map.off('zoom', handleZoom);
+        map.off('move', handleZoom);
+      };
+    }
+  }, [map, permitAreas.focusedArea, updateSitePlanMode]);
 
   const handleExport = () => {
     exportPlan(
@@ -191,6 +218,10 @@ const DprStager = () => {
         onExportSiteplan={handleExportSiteplan}
       />
       
+      {/* Tutorial Components */}
+      <WelcomeOverlay />
+      <TutorialTooltip />
+      
       {showInfo && <InfoPanel showInfo={showInfo} onClose={() => setShowInfo(false)} />}
       
       {/* No SAPO Mode Indicator here */}
@@ -220,6 +251,19 @@ const DprStager = () => {
           onClose={() => permitAreas.setShowFocusInfo(false)}
         />
       )}
+
+      {/* Site Plan Mode Indicator */}
+      {isSitePlanMode && (
+        <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-3 mx-4 mt-2">
+          <div className="flex items-center">
+            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-1.447-.894L15 4m0 13V4m-6 3l6-3" />
+            </svg>
+            <span className="font-medium">Site Plan Mode Active</span>
+            <span className="ml-2 text-sm">Design tools available on the right</span>
+          </div>
+        </div>
+      )}
       
       <div className="flex flex-1 overflow-hidden">
         <Sidebar 
@@ -235,6 +279,7 @@ const DprStager = () => {
           placeableObjects={PLACEABLE_OBJECTS}
           map={map}
           onStyleChange={handleStyleChange}
+          isSitePlanMode={isSitePlanMode}
         />
         
         <MapContainer 
@@ -247,6 +292,15 @@ const DprStager = () => {
           permitAreas={permitAreas}
           placeableObjects={PLACEABLE_OBJECTS}
         />
+
+        {/* Right Sidebar for Site Plan Mode */}
+        {isSitePlanMode && (
+          <RightSidebar
+            drawTools={drawTools}
+            dragDrop={dragDrop}
+            placeableObjects={PLACEABLE_OBJECTS}
+          />
+        )}
       </div>
     </div>
   );

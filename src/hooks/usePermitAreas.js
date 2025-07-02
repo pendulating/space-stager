@@ -394,6 +394,12 @@ export const usePermitAreas = (map, mapLoaded) => {
     map.on('click', 'permit-areas-fill', (e) => {
       if (e.features.length === 0) return;
       
+      // Disable permit area selection if we're focused on an area (design mode)
+      if (focusedAreaRef.current) {
+        console.log('Permit area selection disabled - currently in design mode');
+        return;
+      }
+      
       // Only prevent default if we're not in a drawing mode
       const drawControl = map.getControl && map.getControl('MapboxDraw');
       if (drawControl && drawControl.getMode && drawControl.getMode() !== 'simple_select') {
@@ -434,6 +440,12 @@ export const usePermitAreas = (map, mapLoaded) => {
     map.on('dblclick', 'permit-areas-fill', (e) => {
       if (e.features.length === 0) return;
       
+      // Disable permit area selection if we're focused on an area (design mode)
+      if (focusedAreaRef.current) {
+        console.log('Permit area selection disabled - currently in design mode');
+        return;
+      }
+      
       // Only prevent default if we're not in a drawing mode
       const drawControl = map.getControl && map.getControl('MapboxDraw');
       if (drawControl && drawControl.getMode && drawControl.getMode() !== 'simple_select') {
@@ -449,6 +461,11 @@ export const usePermitAreas = (map, mapLoaded) => {
     });
     
     map.on('click', (e) => {
+      // Disable permit area selection if we're focused on an area (design mode)
+      if (focusedAreaRef.current) {
+        return;
+      }
+      
       // Only handle general clicks if we're not in a drawing mode
       const drawControl = map.getControl && map.getControl('MapboxDraw');
       if (drawControl && drawControl.getMode && drawControl.getMode() !== 'simple_select') {
