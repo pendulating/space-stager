@@ -13,15 +13,17 @@
     "civic-tech",
     "open-data"
   ],
-  "homepage": "https://github.com/yourusername/nyc-event-stager",
+  "homepage": "https://pendulating.github.io/space-stager",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/nyc-event-stager.git"
+    "url": "https://github.com/pendulating/space-stager.git"
   },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "predeploy": "pnpm run build",
+    "deploy": "gh-pages -d dist",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "format": "prettier --write \"src/**/*.{js,jsx,json,css,md}\""
   },
@@ -46,6 +48,7 @@
     "eslint-plugin-react": "^7.33.2",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
+    "gh-pages": "^6.3.0",
     "postcss": "^8.4.32",
     "prettier": "^3.1.1",
     "tailwindcss": "^3.3.6",
