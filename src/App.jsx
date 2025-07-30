@@ -10,7 +10,7 @@ function App() {
   return (
     <TutorialProvider>
       <SitePlanProvider>
-        <Router basename="/space-stager">
+        <Router>
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/dpr" element={<DprStager />} />
