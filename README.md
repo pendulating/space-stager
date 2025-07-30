@@ -1,5 +1,6 @@
 # Space Stager
 [![Deploy to GitHub Pages](https://github.com/pendulating/space-stager/actions/workflows/deploy.yml/badge.svg)](https://github.com/pendulating/space-stager/actions/workflows/deploy.yml)
+
 Space Stager is an interactive web application that helps users visualize and plan temporary events in NYC public spaces by overlaying infrastructure data and permit zones on an interactive map.
 
 ## What is Space Stager?
