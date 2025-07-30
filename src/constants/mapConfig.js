@@ -16,7 +16,7 @@ export const BASEMAP_OPTIONS = {
   satellite: {
     name: 'Satellite',
     type: 'custom',
-    basemapType: '2018'
+    basemapType: '2022'
   }
 };
 
@@ -24,6 +24,14 @@ export const NYC_BASEMAPS = {
   '2018': {
     name: 'NYC Satellite 2018',
     url: 'https://maps{s}.nyc.gov/xyz/1.0.0/photo/2018/{z}/{x}/{y}.png8',
+    labelUrl: 'https://maps{s}.nyc.gov/xyz/1.0.0/carto/label-lt/{z}/{x}/{y}.png8',
+    subdomains: '1234',
+    bounds: [[40.4888, -74.2759], [40.9279, -73.6896]],
+    labelBounds: [[40.0341, -74.2727], [41.2919, -71.9101]]
+  },
+  '2022': {
+    name: 'NYC Satellite 2022',
+    url: 'https://maps.nyc.gov/xyz/1.0.0/2022Ortho/{z}/{x}/{y}.png',
     labelUrl: 'https://maps{s}.nyc.gov/xyz/1.0.0/carto/label-lt/{z}/{x}/{y}.png8',
     subdomains: '1234',
     bounds: [[40.4888, -74.2759], [40.9279, -73.6896]],

@@ -15,9 +15,20 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
   const [infrastructureData, setInfrastructureData] = useState({
     trees: null,
     hydrants: null,
-    parking: null,
     busStops: null,
-    benches: null
+    benches: null,
+    bikeLanes: null,
+    bikeParking: null,
+    pedestrianRamps: null,
+    parkingMeters: null,
+    linknycKiosks: null,
+    publicRestrooms: null,
+    drinkingFountains: null,
+    sprayShowers: null,
+    parksTrails: null,
+    parkingLots: null,
+    iceLadders: null,
+    parksSigns: null
   });
 
   // Use refs to track state and prevent loops
@@ -52,7 +63,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     } else {
       // Clear everything when focus is removed
       if (map) {
-        ['trees', 'hydrants', 'parking', 'busStops', 'benches'].forEach(layerId => {
+        ['trees', 'hydrants', 'busStops', 'benches', 'bikeLanes', 'bikeParking', 'pedestrianRamps', 'parkingMeters', 'linknycKiosks', 'publicRestrooms', 'drinkingFountains', 'sprayShowers', 'parksTrails', 'parkingLots', 'iceLadders', 'parksSigns'].forEach(layerId => {
           removeInfrastructureLayer(layerId);
         });
       }
@@ -60,17 +71,38 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
       setInfrastructureData({
         trees: null,
         hydrants: null,
-        parking: null,
         busStops: null,
-        benches: null
+        benches: null,
+        bikeLanes: null,
+        bikeParking: null,
+        pedestrianRamps: null,
+        parkingMeters: null,
+        linknycKiosks: null,
+        publicRestrooms: null,
+        drinkingFountains: null,
+        sprayShowers: null,
+        parksTrails: null,
+        parkingLots: null,
+        iceLadders: null,
+        parksSigns: null
       });
       
       setLayers(prev => ({
         ...prev,
         bikeLanes: { ...prev.bikeLanes, visible: false, loading: false },
+        bikeParking: { ...prev.bikeParking, visible: false, loading: false },
+        pedestrianRamps: { ...prev.pedestrianRamps, visible: false, loading: false },
+        parkingMeters: { ...prev.parkingMeters, visible: false, loading: false },
+        linknycKiosks: { ...prev.linknycKiosks, visible: false, loading: false },
+        publicRestrooms: { ...prev.publicRestrooms, visible: false, loading: false },
+        drinkingFountains: { ...prev.drinkingFountains, visible: false, loading: false },
+        sprayShowers: { ...prev.sprayShowers, visible: false, loading: false },
+        parksTrails: { ...prev.parksTrails, visible: false, loading: false },
+        parkingLots: { ...prev.parkingLots, visible: false, loading: false },
+        iceLadders: { ...prev.iceLadders, visible: false, loading: false },
+        parksSigns: { ...prev.parksSigns, visible: false, loading: false },
         trees: { ...prev.trees, visible: false, loading: false },
         hydrants: { ...prev.hydrants, visible: false, loading: false },
-        parking: { ...prev.parking, visible: false, loading: false },
         busStops: { ...prev.busStops, visible: false, loading: false },
         benches: { ...prev.benches, visible: false, loading: false }
       }));
@@ -186,11 +218,17 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     const layerStyle = getLayerStyle(layerId, layers[layerId], map);
     console.log(`[DEBUG] Layer style for ${layerId}:`, layerStyle);
     
-    // Check for LineString features (for bikeLanes)
+    // Check for different geometry types
     const hasLineString = data.features.some(f => f.geometry && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString'));
     const hasPoint = data.features.some(f => f.geometry && f.geometry.type === 'Point');
+    const hasPolygon = data.features.some(f => f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon'));
     
-    console.log(`[DEBUG] ${layerId} has LineString: ${hasLineString}, has Point: ${hasPoint}`);
+    console.log(`[DEBUG] ${layerId} has LineString: ${hasLineString}, has Point: ${hasPoint}, has Polygon: ${hasPolygon}`);
+    console.log(`[DEBUG] ${layerId} sample features:`, data.features.slice(0, 2).map(f => ({
+      hasGeometry: !!f.geometry,
+      geometryType: f.geometry?.type,
+      hasCoordinates: !!f.geometry?.coordinates
+    })));
     
     if (hasLineString && layerStyle.type === 'line') {
       const lineLayerId = `layer-${layerId}-line`;
@@ -202,6 +240,31 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
       });
       console.log(`[DEBUG] Added line layer: ${lineLayerId}`);
       // Optionally add hover/click events for lines here
+    }
+    
+    if (hasPolygon && layerStyle.type === 'fill') {
+      const polygonLayerId = `layer-${layerId}-polygon`;
+      map.addLayer({
+        id: polygonLayerId,
+        type: 'fill',
+        source: sourceId,
+        paint: layerStyle.paint
+      });
+      console.log(`[DEBUG] Added polygon layer: ${polygonLayerId}`);
+      
+      // Add hover and click events for polygons
+      map.on('mouseenter', polygonLayerId, () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', polygonLayerId, () => {
+        map.getCanvas().style.cursor = '';
+      });
+      map.on('click', polygonLayerId, (e) => {
+        if (e.features.length === 0) return;
+        const feature = e.features[0];
+        const content = createInfrastructureTooltipContent(feature.properties, layerId);
+        console.log('Infrastructure feature clicked:', content);
+      });
     }
     
     if (hasPoint && (layerStyle.type === 'symbol' || layerStyle.type === 'circle')) {
@@ -254,9 +317,10 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
       return;
     }
     
-    // Remove both possible layer IDs
+    // Remove all possible layer IDs
     const pointLayerId = `layer-${layerId}-point`;
     const lineLayerId = `layer-${layerId}-line`;
+    const polygonLayerId = `layer-${layerId}-polygon`;
     const altLayerId = `${layerId}-layer`;
     const sourceId = layerId;
     const altSourceId = `source-${layerId}`;
@@ -269,6 +333,12 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
       }
       if (map.getLayer(lineLayerId)) {
         map.removeLayer(lineLayerId);
+      }
+      if (map.getLayer(polygonLayerId)) {
+        map.off('mouseenter', polygonLayerId);
+        map.off('mouseleave', polygonLayerId);
+        map.off('click', polygonLayerId);
+        map.removeLayer(polygonLayerId);
       }
       if (map.getLayer(altLayerId)) {
         map.removeLayer(altLayerId);
@@ -532,10 +602,10 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     });
   }, [focusedArea, loadInfrastructureLayer, toggleInfrastructureLayerVisibility, setLayers]);
 
-  // Clear focus and all infrastructure - ensure state is properly reset
+      // Clear focus and all infrastructure - ensure state is properly reset
   const clearFocus = useCallback(() => {
     if (map) {
-      ['trees', 'hydrants', 'parking', 'busStops', 'benches'].forEach(layerId => {
+      ['trees', 'hydrants', 'busStops', 'benches', 'bikeLanes', 'bikeParking', 'pedestrianRamps', 'parkingMeters', 'linknycKiosks', 'publicRestrooms', 'drinkingFountains', 'sprayShowers', 'parksTrails', 'parkingLots', 'iceLadders', 'parksSigns'].forEach(layerId => {
         removeInfrastructureLayer(layerId);
       });
     }
@@ -561,9 +631,20 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     setInfrastructureData({
       trees: null,
       hydrants: null,
-      parking: null,
       busStops: null,
-      benches: null
+      benches: null,
+      bikeLanes: null,
+      bikeParking: null,
+      pedestrianRamps: null,
+      parkingMeters: null,
+      linknycKiosks: null,
+      publicRestrooms: null,
+      drinkingFountains: null,
+      sprayShowers: null,
+      parksTrails: null,
+      parkingLots: null,
+      iceLadders: null,
+      parksSigns: null
     });
 
     loadingLayersRef.current.clear();

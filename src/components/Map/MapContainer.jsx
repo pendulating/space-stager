@@ -6,6 +6,7 @@ import DroppedObjects from './DroppedObjects';
 import CustomShapeLabels from './CustomShapeLabels';
 import ActiveToolIndicator from './ActiveToolIndicator';
 import LoadingOverlay from './LoadingOverlay';
+import PlacementPreview from './PlacementPreview';
 
 const DEBUG = false; // Set to true to enable MapContainer debug logs
 
@@ -14,7 +15,7 @@ const MapContainer = forwardRef(({
   mapLoaded, 
   focusedArea, 
   drawTools, 
-  dragDrop, 
+  clickToPlace, 
   permitAreas,
   placeableObjects,
   infrastructure,
@@ -28,7 +29,13 @@ const MapContainer = forwardRef(({
   activeTool,
   isLoading
 }, ref) => {
-  const { handleMapDragOver, handleMapDrop, droppedObjects } = dragDrop;
+  const { 
+    handleMapMouseMove, 
+    handleMapClick, 
+    droppedObjects, 
+    placementMode, 
+    cursorPosition 
+  } = clickToPlace;
   const mapContainerRef = useRef(null);
 
   // Compass state
@@ -96,25 +103,32 @@ const MapContainer = forwardRef(({
       
       <div 
         ref={ref} 
-        className="absolute inset-0"
+        className={`absolute inset-0 ${placementMode ? 'cursor-crosshair' : ''}`}
         style={{ width: '100%', height: '100%' }}
-        onDragOver={handleMapDragOver}
-        onDrop={handleMapDrop}
+        onMouseMove={handleMapMouseMove}
+        onClick={handleMapClick}
       />
       
       <DroppedObjects
         objects={droppedObjects}
         placeableObjects={placeableObjects}
         map={map}
-        onRemoveObject={dragDrop.removeDroppedObject}
-        objectUpdateTrigger={dragDrop.objectUpdateTrigger}
+        onRemoveObject={clickToPlace.removeDroppedObject}
+        objectUpdateTrigger={clickToPlace.objectUpdateTrigger}
       />
       
       <CustomShapeLabels
         draw={drawTools.draw}
         map={map}
-        objectUpdateTrigger={dragDrop.objectUpdateTrigger}
+        objectUpdateTrigger={clickToPlace.objectUpdateTrigger}
         showLabels={drawTools.showLabels}
+      />
+      
+      {/* Placement Preview */}
+      <PlacementPreview
+        placementMode={placementMode}
+        cursorPosition={cursorPosition}
+        placeableObjects={placeableObjects}
       />
       
       {!mapLoaded && <LoadingOverlay />}

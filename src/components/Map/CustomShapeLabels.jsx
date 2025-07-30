@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useEffect } from 'react';
+import React, { useCallback, useMemo, useEffect, useRef } from 'react';
 
 const DEBUG = false; // Set to true to enable CustomShapeLabels debug logs
 
@@ -8,12 +8,22 @@ const CustomShapeLabels = ({
   objectUpdateTrigger,
   showLabels = true
 }) => {
+  // Track which labels are new or recently renamed to apply animations only when needed
+  const animatedLabels = useRef(new Set());
+  const previousLabels = useRef(new Map()); // Track previous label text to detect changes
   if (DEBUG) console.log('CustomShapeLabels: Component render', {
     shapeCount: customShapes.length,
     objectUpdateTrigger,
     hasMap: !!map,
     showLabels
   });
+
+  // Cleanup effect to clear tracking when draw instance changes
+  useEffect(() => {
+    // Clear tracking when draw instance changes
+    animatedLabels.current.clear();
+    previousLabels.current.clear();
+  }, [draw]);
 
   // Test effect to see if we can manually trigger updates
   useEffect(() => {
@@ -151,12 +161,33 @@ const CustomShapeLabels = ({
         return null;
       }
       
-      if (DEBUG) console.log('CustomShapeLabels: Rendering label for shape:', shape.id, 'with style:', style);
+      // Check if this label is new or has been renamed
+      const currentLabel = shape.properties.label;
+      const previousLabel = previousLabels.current.get(shape.id);
+      const isNewLabel = !previousLabel;
+      const isRenamed = previousLabel && previousLabel !== currentLabel;
+      const shouldAnimate = isNewLabel || isRenamed;
+      
+      // Update our tracking
+      previousLabels.current.set(shape.id, currentLabel);
+      
+      // Add to animated set if this label should animate
+      if (shouldAnimate) {
+        animatedLabels.current.add(shape.id);
+        // Remove from animated set after animation completes
+        setTimeout(() => {
+          animatedLabels.current.delete(shape.id);
+        }, 300); // Match animation duration
+      }
+      
+      const isCurrentlyAnimated = animatedLabels.current.has(shape.id);
+      
+      if (DEBUG) console.log('CustomShapeLabels: Rendering label for shape:', shape.id, 'with style:', style, 'animated:', isCurrentlyAnimated);
       return (
         <div
-          key={`label-${shape.id}-${objectUpdateTrigger}`}
+          key={`label-${shape.id}`} // Stable key that doesn't change on map movement
           style={style}
-          className="custom-shape-label custom-shape-label-enter"
+          className={`custom-shape-label ${isCurrentlyAnimated ? 'custom-shape-label-enter' : ''}`}
           title={shape.properties.label}
         >
           {shape.properties.label}

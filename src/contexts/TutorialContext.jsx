@@ -50,6 +50,11 @@ export const TUTORIAL_CONTENT = {
   }
 };
 
+// Development flag to disable tutorial
+const DISABLE_TUTORIAL = process.env.NODE_ENV === 'development' && 
+  (localStorage.getItem('DISABLE_TUTORIAL') === 'true' || 
+   window.location.search.includes('disable-tutorial'));
+
 // Initial state
 const initialState = {
   isFirstVisit: true,
@@ -57,7 +62,7 @@ const initialState = {
   currentStep: null,
   completedSteps: [],
   dismissed: false,
-  showWelcome: true
+  showWelcome: !DISABLE_TUTORIAL
 };
 
 // Action types
@@ -130,6 +135,12 @@ export function TutorialProvider({ children }) {
 
   // Load tutorial state from localStorage on mount
   useEffect(() => {
+    // Check if tutorial is disabled in development
+    if (DISABLE_TUTORIAL) {
+      dispatch({ type: TUTORIAL_ACTIONS.DISMISS_TUTORIAL });
+      return;
+    }
+
     const savedState = localStorage.getItem('spaceStagerTutorial');
     if (savedState) {
       const parsed = JSON.parse(savedState);
@@ -188,6 +199,23 @@ export function TutorialProvider({ children }) {
     return state.currentStep ? TUTORIAL_CONTENT[state.currentStep] : null;
   };
 
+  // Development utilities
+  const disableTutorial = () => {
+    if (process.env.NODE_ENV === 'development') {
+      localStorage.setItem('DISABLE_TUTORIAL', 'true');
+      window.location.reload();
+    }
+  };
+
+  const enableTutorial = () => {
+    if (process.env.NODE_ENV === 'development') {
+      localStorage.removeItem('DISABLE_TUTORIAL');
+      window.location.reload();
+    }
+  };
+
+  const isTutorialDisabled = DISABLE_TUTORIAL;
+
   const value = {
     ...state,
     startTutorial,
@@ -198,6 +226,9 @@ export function TutorialProvider({ children }) {
     resetTutorial,
     isStepCompleted,
     getCurrentStepContent,
+    disableTutorial,
+    enableTutorial,
+    isTutorialDisabled,
     TUTORIAL_STEPS,
     TUTORIAL_CONTENT
   };

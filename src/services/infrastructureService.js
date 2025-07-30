@@ -1,11 +1,13 @@
 // services/infrastructureService.js
 import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
 import { expandBounds } from '../utils/geometryUtils';
-import { INFRASTRUCTURE_ICONS } from '../utils/iconUtils';
+import { INFRASTRUCTURE_ICONS, getZoomIndependentIconSize, layerUsesPngIcon } from '../utils/iconUtils';
 
 export const loadInfrastructureData = async (layerId, bounds) => {
   const endpoint = INFRASTRUCTURE_ENDPOINTS[layerId];
   if (!endpoint) throw new Error(`Unknown layer: ${layerId}`);
+  
+  console.log(`[infrastructureService] Loading ${layerId} with endpoint:`, endpoint);
   
   let url;
   
@@ -47,6 +49,59 @@ export const loadInfrastructureData = async (layerId, bounds) => {
   
   const data = await response.json();
   
+  // Handle datasets that use different geometry field names
+  if (layerId === 'parkingMeters' && data.features) {
+    console.log(`[infrastructureService] Processing ${layerId} with ${data.features.length} features`);
+    
+    // Transform features to use standard geometry field
+    data.features = data.features.map(feature => {
+      // Check if we need to create geometry from lat/lng properties
+      if (feature.properties && feature.properties.lat && feature.properties.long && !feature.geometry) {
+        return {
+          ...feature,
+          geometry: {
+            type: 'Point',
+            coordinates: [parseFloat(feature.properties.long), parseFloat(feature.properties.lat)]
+          }
+        };
+      }
+      return feature;
+    });
+    
+    console.log(`[infrastructureService] Transformed ${data.features.length} parking meter features`);
+  }
+  
+  // Handle LinkNYC kiosks data (JSON format with location coordinates)
+  if (layerId === 'linknycKiosks' && Array.isArray(data)) {
+    console.log(`[infrastructureService] Processing ${layerId} with ${data.length} features`);
+    
+    // Convert JSON array to GeoJSON format
+    const geojsonData = {
+      type: 'FeatureCollection',
+      features: data.map(item => ({
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: [parseFloat(item.longitude), parseFloat(item.latitude)]
+        },
+        properties: {
+          ...item,
+          // Add some computed properties for better tooltips
+          kiosk_id: item.link_site_id,
+          kiosk_type: item.planned_kiosk_type,
+          status: item.link_installation_status,
+          address: item.street_address,
+          cross_streets: `${item.cross_street_1} & ${item.cross_street_2}`,
+          borough: item.boro,
+          neighborhood: item.neighborhood_tabulation_area_nta
+        }
+      }))
+    };
+    
+    console.log(`[infrastructureService] Transformed ${geojsonData.features.length} LinkNYC kiosk features`);
+    return geojsonData;
+  }
+  
   // For local files, filter by bounds manually
   if (endpoint.isLocal && bounds) {
     data.features = data.features.filter(feature => {
@@ -81,19 +136,46 @@ export const filterFeaturesByType = (features, layerId) => {
       case 'hydrants':
         return true; // All hydrant features are valid
         
-      case 'parking':
-        return Object.values(props).some(val => 
-          typeof val === 'string' && (
-            val.toLowerCase().includes('meter') ||
-            val.toLowerCase().includes('parking')
-          )
-        );
+
         
       case 'busStops':
         return true; // All bus stop features are valid
         
       case 'bikeLanes':
         return true; // Allow all features for bike lanes
+        
+      case 'bikeParking':
+        return true; // All bike parking features are valid
+        
+      case 'pedestrianRamps':
+        return true; // All pedestrian ramp features are valid
+        
+      case 'parkingMeters':
+        return true; // All parking meter features are valid
+        
+      case 'linknycKiosks':
+        return true; // All LinkNYC kiosk features are valid
+        
+      case 'publicRestrooms':
+        return true; // All public restroom features are valid
+        
+      case 'drinkingFountains':
+        return true; // All drinking fountain features are valid
+        
+      case 'sprayShowers':
+        return true; // All spray shower features are valid
+        
+      case 'parksTrails':
+        return true; // All parks trail features are valid
+        
+      case 'parkingLots':
+        return true; // All parking lot features are valid
+        
+      case 'iceLadders':
+        return true; // All ice ladder features are valid
+        
+      case 'parksSigns':
+        return true; // All parks sign features are valid
         
       case 'benches':
         return true; // All bench features are valid
@@ -134,11 +216,12 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
   switch(layerId) {
     case 'hydrants':
       if (useIcons) {
+        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(0.8) : 0.8;
         return {
           type: 'symbol',
           layout: {
             'icon-image': 'hydrant-icon',
-            'icon-size': 0.8,
+            'icon-size': iconSize,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true
           },
@@ -161,11 +244,12 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     case 'trees':
       if (useIcons) {
+        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(0.7) : 0.7;
         return {
           type: 'symbol',
           layout: {
             'icon-image': 'tree-icon',
-            'icon-size': 0.7,
+            'icon-size': iconSize,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true
           },
@@ -215,11 +299,12 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     case 'benches':
       if (useIcons) {
+        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(0.8) : 0.8;
         return {
           type: 'symbol',
           layout: {
             'icon-image': 'bench-icon',
-            'icon-size': 0.8,
+            'icon-size': iconSize,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true
           },
@@ -240,33 +325,7 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
           }
         };
       }
-    case 'parking':
-      if (useIcons) {
-        return {
-          type: 'symbol',
-          layout: {
-            'icon-image': 'parking-icon',
-            'icon-size': 0.8,
-            'icon-allow-overlap': true,
-            'icon-ignore-placement': true
-          },
-          paint: {
-            'icon-color': baseColor,
-            'icon-opacity': 0.9
-          }
-        };
-      } else {
-        return {
-          type: 'circle',
-          paint: {
-            'circle-radius': 5,
-            'circle-color': baseColor,
-            'circle-opacity': 0.9,
-            'circle-stroke-width': 1.5,
-            'circle-stroke-color': 'white'
-          }
-        };
-      }
+
     case 'bikeLanes':
       return {
         type: 'line',
@@ -276,6 +335,271 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
           'line-opacity': 0.8
         }
       };
+    case 'bikeParking':
+      if (useIcons) {
+        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(0.8) : 0.8;
+        return {
+          type: 'symbol',
+          layout: {
+            'icon-image': 'bike-parking-icon',
+            'icon-size': iconSize,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+          },
+          paint: {
+            'icon-color': baseColor,
+            'icon-opacity': 0.9
+          }
+        };
+      } else {
+        return {
+          type: 'circle',
+          paint: {
+            'circle-radius': 6,
+            'circle-color': baseColor,
+            'circle-opacity': 0.9,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': 'white'
+          }
+        };
+      }
+    case 'pedestrianRamps':
+      if (useIcons) {
+        return {
+          type: 'symbol',
+          layout: {
+            'icon-image': 'pedestrian-ramp-icon',
+            'icon-size': 0.8,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+          },
+          paint: {
+            'icon-color': baseColor,
+            'icon-opacity': 0.9
+          }
+        };
+      } else {
+        return {
+          type: 'circle',
+          paint: {
+            'circle-radius': 5,
+            'circle-color': baseColor,
+            'circle-opacity': 0.9,
+            'circle-stroke-width': 1.5,
+            'circle-stroke-color': 'white'
+          }
+        };
+      }
+    case 'parkingMeters':
+      if (useIcons) {
+        return {
+          type: 'symbol',
+          layout: {
+            'icon-image': 'parking-meter-icon',
+            'icon-size': 0.8,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+          },
+          paint: {
+            'icon-color': baseColor,
+            'icon-opacity': 0.9
+          }
+        };
+      } else {
+        return {
+          type: 'circle',
+          paint: {
+            'circle-radius': 4,
+            'circle-color': baseColor,
+            'circle-opacity': 0.9,
+            'circle-stroke-width': 1.5,
+            'circle-stroke-color': 'white'
+          }
+        };
+      }
+    case 'linknycKiosks':
+      if (useIcons) {
+        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(0.8) : 0.8;
+        return {
+          type: 'symbol',
+          layout: {
+            'icon-image': 'linknyc-kiosk-icon',
+            'icon-size': iconSize,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+          },
+          paint: {
+            'icon-color': baseColor,
+            'icon-opacity': 0.9
+          }
+        };
+      } else {
+        return {
+          type: 'circle',
+          paint: {
+            'circle-radius': 6,
+            'circle-color': baseColor,
+            'circle-opacity': 0.9,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': 'white'
+          }
+        };
+      }
+    case 'publicRestrooms':
+      if (useIcons) {
+        return {
+          type: 'symbol',
+          layout: {
+            'icon-image': 'public-restroom-icon',
+            'icon-size': 0.8,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+          },
+          paint: {
+            'icon-color': baseColor,
+            'icon-opacity': 0.9
+          }
+        };
+      } else {
+        return {
+          type: 'circle',
+          paint: {
+            'circle-radius': 5,
+            'circle-color': baseColor,
+            'circle-opacity': 0.9,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': 'white'
+          }
+        };
+      }
+    case 'drinkingFountains':
+      if (useIcons) {
+        return {
+          type: 'symbol',
+          layout: {
+            'icon-image': 'drinking-fountain-icon',
+            'icon-size': 0.8,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+          },
+          paint: {
+            'icon-color': baseColor,
+            'icon-opacity': 0.9
+          }
+        };
+      } else {
+        return {
+          type: 'circle',
+          paint: {
+            'circle-radius': 4,
+            'circle-color': baseColor,
+            'circle-opacity': 0.9,
+            'circle-stroke-width': 1.5,
+            'circle-stroke-color': 'white'
+          }
+        };
+      }
+    case 'sprayShowers':
+      if (useIcons) {
+        return {
+          type: 'symbol',
+          layout: {
+            'icon-image': 'spray-shower-icon',
+            'icon-size': 0.8,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+          },
+          paint: {
+            'icon-color': baseColor,
+            'icon-opacity': 0.9
+          }
+        };
+      } else {
+        return {
+          type: 'circle',
+          paint: {
+            'circle-radius': 5,
+            'circle-color': baseColor,
+            'circle-opacity': 0.9,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': 'white'
+          }
+        };
+      }
+    case 'parksTrails':
+      // For trails, we use line styling instead of icons/circles
+      return {
+        type: 'line',
+        paint: {
+          'line-color': baseColor,
+          'line-width': 3,
+          'line-opacity': 0.8
+        }
+      };
+    case 'parkingLots':
+      // For parking lots, we use fill styling for polygons
+      return {
+        type: 'fill',
+        paint: {
+          'fill-color': baseColor,
+          'fill-opacity': 0.6,
+          'fill-outline-color': baseColor
+        }
+      };
+    case 'iceLadders':
+      if (useIcons) {
+        return {
+          type: 'symbol',
+          layout: {
+            'icon-image': 'ice-ladder-icon',
+            'icon-size': 0.8,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+          },
+          paint: {
+            'icon-color': baseColor,
+            'icon-opacity': 0.9
+          }
+        };
+      } else {
+        return {
+          type: 'circle',
+          paint: {
+            'circle-radius': 5,
+            'circle-color': baseColor,
+            'circle-opacity': 0.9,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': 'white'
+          }
+        };
+      }
+    case 'parksSigns':
+      if (useIcons) {
+        return {
+          type: 'symbol',
+          layout: {
+            'icon-image': 'parks-sign-icon',
+            'icon-size': 0.8,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+          },
+          paint: {
+            'icon-color': baseColor,
+            'icon-opacity': 0.9
+          }
+        };
+      } else {
+        return {
+          type: 'circle',
+          paint: {
+            'circle-radius': 4,
+            'circle-color': baseColor,
+            'circle-opacity': 0.9,
+            'circle-stroke-width': 1.5,
+            'circle-stroke-color': 'white'
+          }
+        };
+      }
     default:
       if (useIcons) {
         return {

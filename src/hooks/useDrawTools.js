@@ -68,6 +68,9 @@ export const useDrawTools = (map, focusedArea = null) => {
       
       draw.current = drawInstance;
       map.addControl(drawInstance);
+      
+
+      
       setDrawInitialized(true);
       console.log('Draw controls added');
 
@@ -118,6 +121,7 @@ export const useDrawTools = (map, focusedArea = null) => {
     }
     
     console.log('Activating drawing tool:', mode);
+    
     setActiveTool(mode);
     switch(mode) {
       case 'point':
@@ -225,7 +229,7 @@ export const useDrawTools = (map, focusedArea = null) => {
     map.on('draw.selectionchange', eventHandlers.current.handleSelectionChange);
     
     // Restore existing shapes
-    if (existingShapes.features.length > 0) {
+    if (existingShapes && existingShapes.features && existingShapes.features.length > 0) {
       drawInstance.add(existingShapes);
       console.log('Restored', existingShapes.features.length, 'shapes');
     }

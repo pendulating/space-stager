@@ -11,7 +11,7 @@ import { useMap } from '../hooks/useMap';
 import { useDrawTools } from '../hooks/useDrawTools';
 import { usePermitAreas } from '../hooks/usePermitAreas';
 import { useInfrastructure } from '../hooks/useInfrastructure';
-import { useDragDrop } from '../hooks/useDragDrop';
+import { useClickToPlace } from '../hooks/useClickToPlace';
 import { useSitePlan } from '../contexts/SitePlanContext';
 import { INITIAL_LAYERS } from '../constants/layers';
 import { PLACEABLE_OBJECTS } from '../constants/placeableObjects';
@@ -24,16 +24,17 @@ const DprStager = () => {
   const { map, mapLoaded } = useMap(mapContainerRef);
   const [layers, setLayers] = useState(INITIAL_LAYERS);
   const [showInfo, setShowInfo] = useState(false);
+  const [isShaking, setIsShaking] = useState(false);
   
   // Use custom hooks for different functionalities
   const permitAreas = usePermitAreas(map, mapLoaded);
   const drawTools = useDrawTools(map, permitAreas.focusedArea);
   const infrastructure = useInfrastructure(map, permitAreas.focusedArea, layers, setLayers);
-  const dragDrop = useDragDrop(map);
+  const clickToPlace = useClickToPlace(map);
   const { isSitePlanMode, updateSitePlanMode } = useSitePlan();
   // Future: const dprMode = useDprMode(map, permitAreas.mode, drawTools);
 
-  // ... (rest of EventStager logic, but remove SAPO-specific logic)
+  // DPR-specific event staging logic
 
   useEffect(() => {
     setLayers(prev => ({
@@ -52,15 +53,21 @@ const DprStager = () => {
       prevFocusedAreaRef.current = currentFocusedArea;
       if (!currentFocusedArea) {
         // Clear both dropped objects and custom shapes when focus is cleared
-        dragDrop.clearDroppedObjects();
+        clickToPlace.clearDroppedObjects();
         drawTools.clearCustomShapes();
       }
     }
-  }, [permitAreas.focusedArea, dragDrop.clearDroppedObjects, drawTools.clearCustomShapes]);
+  }, [permitAreas.focusedArea, clickToPlace.clearDroppedObjects, drawTools.clearCustomShapes]);
 
   useEffect(() => {
     clearObjectsOnFocusChange();
   }, [clearObjectsOnFocusChange]);
+
+  // Trigger shake animation
+  const triggerShake = useCallback(() => {
+    setIsShaking(true);
+    setTimeout(() => setIsShaking(false), 500);
+  }, []);
 
   // Update site plan mode based on focused area and zoom
   useEffect(() => {
@@ -68,9 +75,28 @@ const DprStager = () => {
       const currentZoom = map.getZoom();
       updateSitePlanMode(permitAreas.focusedArea, currentZoom);
       
-      // Listen for zoom changes
+      // Listen for zoom changes with restrictions when focused
       const handleZoom = () => {
         const zoom = map.getZoom();
+        
+        // Check zoom restrictions when a permit area is focused and camera animation is complete
+        if (permitAreas.focusedArea && 
+            permitAreas.minAllowedZoom !== null && 
+            !permitAreas.isCameraAnimating && 
+            zoom < permitAreas.minAllowedZoom) {
+          console.log('Zoom restriction triggered:', {
+            currentZoom: zoom,
+            minAllowed: permitAreas.minAllowedZoom,
+            initialZoom: permitAreas.initialFocusZoom,
+            cameraAnimating: permitAreas.isCameraAnimating
+          });
+          
+          // Prevent further zoom out and trigger shake
+          map.setZoom(permitAreas.minAllowedZoom);
+          triggerShake();
+          return;
+        }
+        
         updateSitePlanMode(permitAreas.focusedArea, zoom);
       };
       
@@ -82,13 +108,13 @@ const DprStager = () => {
         map.off('move', handleZoom);
       };
     }
-  }, [map, permitAreas.focusedArea, updateSitePlanMode]);
+  }, [map, permitAreas.focusedArea, permitAreas.minAllowedZoom, permitAreas.initialFocusZoom, permitAreas.isCameraAnimating, updateSitePlanMode, triggerShake]);
 
   const handleExport = () => {
     exportPlan(
       map, 
       drawTools.draw, 
-      dragDrop.droppedObjects, 
+      clickToPlace.droppedObjects, 
       layers, 
       drawTools.draw?.current ? drawTools.draw.current.getAll().features : []
     );
@@ -100,7 +126,7 @@ const DprStager = () => {
       map, 
       drawTools.draw, 
       null, // No longer need setCustomShapes
-      dragDrop.setDroppedObjects,
+      clickToPlace.setDroppedObjects,
       setLayers
     );
   };
@@ -111,7 +137,7 @@ const DprStager = () => {
       permitAreas.focusedArea,
       layers,
       drawTools.draw?.current ? drawTools.draw.current.getAll().features : [],
-      dragDrop.droppedObjects,
+      clickToPlace.droppedObjects,
       format
     );
   };
@@ -208,14 +234,10 @@ const DprStager = () => {
   }, [permitAreas, layers, infrastructure, drawTools.reinitializeDrawControls]);
 
   return (
-    <div className="h-screen w-full flex flex-col bg-gray-50">
+    <div className={`h-screen w-full flex flex-col bg-gray-50 ${isShaking ? 'shake-animation' : ''}`}>
       <Header 
         showInfo={showInfo}
         setShowInfo={setShowInfo}
-        onImport={handleImport}
-        onExport={handleExport}
-        focusedArea={permitAreas.focusedArea}
-        onExportSiteplan={handleExportSiteplan}
       />
       
       {/* Tutorial Components */}
@@ -224,7 +246,7 @@ const DprStager = () => {
       
       {showInfo && <InfoPanel showInfo={showInfo} onClose={() => setShowInfo(false)} />}
       
-      {/* No SAPO Mode Indicator here */}
+
       {permitAreas.isLoading && (
         <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-3 mx-4 mt-2">
           <div className="flex items-center">
@@ -268,15 +290,11 @@ const DprStager = () => {
       <div className="flex flex-1 overflow-hidden">
         <Sidebar 
           layers={layers}
-          setLayers={setLayers}
           focusedArea={permitAreas.focusedArea}
           onClearFocus={handleClearFocus}
           onToggleLayer={handleToggleLayer}
-          drawTools={drawTools}
           permitAreas={permitAreas}
           infrastructure={infrastructure}
-          dragDrop={dragDrop}
-          placeableObjects={PLACEABLE_OBJECTS}
           map={map}
           onStyleChange={handleStyleChange}
           isSitePlanMode={isSitePlanMode}
@@ -288,7 +306,7 @@ const DprStager = () => {
           mapLoaded={mapLoaded}
           focusedArea={permitAreas.focusedArea}
           drawTools={drawTools}
-          dragDrop={dragDrop}
+          clickToPlace={clickToPlace}
           permitAreas={permitAreas}
           placeableObjects={PLACEABLE_OBJECTS}
         />
@@ -297,8 +315,11 @@ const DprStager = () => {
         {isSitePlanMode && (
           <RightSidebar
             drawTools={drawTools}
-            dragDrop={dragDrop}
+            clickToPlace={clickToPlace}
             placeableObjects={PLACEABLE_OBJECTS}
+            onExport={handleExport}
+            onExportSiteplan={handleExportSiteplan}
+            focusedArea={permitAreas.focusedArea}
           />
         )}
       </div>

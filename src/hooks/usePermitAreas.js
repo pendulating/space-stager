@@ -57,7 +57,7 @@ function getOrientedMinBBox(coords) {
   return { rect: bestRect, angle: bestAngle };
 }
 
-export const usePermitAreas = (map, mapLoaded) => {
+export const usePermitAreas = (map, mapLoaded, options = {}) => {
   const [permitAreas, setPermitAreas] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -71,7 +71,10 @@ export const usePermitAreas = (map, mapLoaded) => {
   const [clickPosition, setClickPosition] = useState({ x: 0, y: 0 });
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
-  const [mode, setMode] = useState('parks'); // 'parks' or 'sapo'
+  const [mode, setMode] = useState('parks'); // Always parks mode
+  const [initialFocusZoom, setInitialFocusZoom] = useState(null); // Track initial zoom when focused
+  const [minAllowedZoom, setMinAllowedZoom] = useState(null); // Minimum zoom when focused
+  const [isCameraAnimating, setIsCameraAnimating] = useState(false); // Track camera animation state
   const focusedAreaRef = useRef(focusedArea);
 
   useEffect(() => {
@@ -237,6 +240,15 @@ export const usePermitAreas = (map, mapLoaded) => {
         optimalZoom
       });
       
+      // Set initial zoom level but delay zoom restrictions until animation is complete
+      setInitialFocusZoom(optimalZoom);
+      setIsCameraAnimating(true); // Start camera animation
+      
+      console.log('Starting camera animation to focused area:', {
+        initialZoom: optimalZoom,
+        minAllowedZoom: Math.max(1, optimalZoom - 2)
+      });
+      
       // Use fitBounds with the calculated zoom level
       map.fitBounds(orientedBbox, {
         padding: 20,
@@ -251,6 +263,15 @@ export const usePermitAreas = (map, mapLoaded) => {
           map.rotateTo(-angle, { duration: 500 });
         }
       }, 1100);
+      
+      // Set zoom restrictions after all animations are complete (1000ms fitBounds + 1100ms delay + 500ms rotation)
+      setTimeout(() => {
+        setMinAllowedZoom(Math.max(1, optimalZoom - 2));
+        setIsCameraAnimating(false);
+        console.log('Camera animation complete, zoom restrictions now active:', {
+          minAllowedZoom: Math.max(1, optimalZoom - 2)
+        });
+      }, 1700); // Total animation time: 1000ms + 700ms buffer for rotation
     } catch (error) {
       console.error('Error fitting oriented bounds:', error);
       // Fallback: fit to regular bounds with dynamic zoom calculation
@@ -279,6 +300,8 @@ export const usePermitAreas = (map, mapLoaded) => {
     }
     console.log('Permit area focused successfully');
   }, [map, calculateGeometryBounds]);
+
+
 
   // Build tooltip content based on available properties
   const buildTooltipContent = useCallback((properties) => {
@@ -563,7 +586,7 @@ export const usePermitAreas = (map, mapLoaded) => {
       }
     };
     await attemptLoad();
-  }, [map, mapLoaded, setupTooltipListeners, setupPermitAreaClickListeners]);
+  }, [map, mapLoaded, setupTooltipListeners, setupPermitAreaClickListeners, mode]);
 
   // Clear focus function
   const clearFocus = useCallback(() => {
@@ -572,6 +595,9 @@ export const usePermitAreas = (map, mapLoaded) => {
     setFocusedArea(null);
     setShowFocusInfo(false);
     setShowOverlapSelector(false);
+    setInitialFocusZoom(null);
+    setMinAllowedZoom(null);
+    setIsCameraAnimating(false);
     clearOverlapHighlights(map);
     
     if (map && map.getLayer('permit-areas-focused-fill')) {
@@ -630,46 +656,7 @@ export const usePermitAreas = (map, mapLoaded) => {
     clearOverlapHighlights(map);
   }, [map]);
 
-  // Function to toggle between modes
-  const toggleMode = useCallback(() => {
-    const newMode = mode === 'parks' ? 'sapo' : 'parks';
-    setMode(newMode);
-    
-    // Clear any existing focus when switching modes
-    if (newMode === 'sapo') {
-      clearFocus();
-      
-      // Hide permit area layers when switching to SAPO mode
-      if (map && map.getLayer && map.getStyle()) {
-        const permitLayers = ['permit-areas-fill', 'permit-areas-outline', 'permit-areas-focused-fill', 'permit-areas-focused-outline'];
-        permitLayers.forEach(layerId => {
-          try {
-            if (map.getLayer(layerId)) {
-              map.setLayoutProperty(layerId, 'visibility', 'none');
-            }
-          } catch (error) {
-            console.warn(`Error hiding layer ${layerId}:`, error);
-          }
-        });
-      }
-    } else {
-      // Show permit area layers when switching back to parks mode
-      if (map && map.getLayer && map.getStyle()) {
-        const permitLayers = ['permit-areas-fill', 'permit-areas-outline'];
-        permitLayers.forEach(layerId => {
-          try {
-            if (map.getLayer(layerId)) {
-              map.setLayoutProperty(layerId, 'visibility', 'visible');
-            }
-          } catch (error) {
-            console.warn(`Error showing layer ${layerId}:`, error);
-          }
-        });
-      }
-    }
-    
-    console.log('Mode switched to:', newMode);
-  }, [mode, clearFocus, map]);
+
 
   return {
     permitAreas,
@@ -688,11 +675,13 @@ export const usePermitAreas = (map, mapLoaded) => {
     isLoading,
     loadError,
     mode,
-    toggleMode,
     focusOnPermitArea,
     clearFocus,
     selectOverlappingArea,
     clearOverlapSelector,
-    loadPermitAreas
+    loadPermitAreas,
+    initialFocusZoom,
+    minAllowedZoom,
+    isCameraAnimating
   };
 };

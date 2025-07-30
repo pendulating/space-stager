@@ -52,26 +52,30 @@ const DroppedObjects = ({
         trigger: objectUpdateTrigger
       });
       
+      // Use the object's defined size or default to 24px
+      const iconSize = Math.max(objectType.size.width, objectType.size.height, 24);
+      const halfSize = iconSize / 2;
+      
       return {
         position: 'absolute',
-        left: pixel.x - objectType.size.width / 2,
-        top: pixel.y - objectType.size.height / 2,
-        width: objectType.size.width,
-        height: objectType.size.height,
-        backgroundColor: objectType.color,
-        border: '2px solid white',
-        borderRadius: '4px',
+        left: pixel.x - halfSize,
+        top: pixel.y - halfSize,
+        width: iconSize,
+        height: iconSize,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontSize: '20px',
         cursor: 'pointer',
         userSelect: 'none',
-        boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
         zIndex: 1000,
         pointerEvents: 'auto',
         transform: 'translateZ(0)',
-        willChange: 'transform'
+        willChange: 'transform',
+        // Minimal styling - just the icon with a subtle background for visibility
+        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        borderRadius: '50%',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+        border: '1px solid rgba(0,0,0,0.1)'
       };
     } catch (error) {
       if (DEBUG) console.error('DroppedObjects: Error calculating position', error);
@@ -98,15 +102,27 @@ const DroppedObjects = ({
       const style = getObjectStyle(obj);
       if (style.display === 'none') return null;
       
+      // Calculate icon size for font sizing
+      const iconSize = Math.max(objectType.size.width, objectType.size.height, 24);
+      const fontSize = Math.max(iconSize * 0.6, 14);
+      
       return (
         <div
           key={`${obj.id}-${objectUpdateTrigger}`}
           style={style}
           onClick={() => onRemoveObject && onRemoveObject(obj.id)}
           title={`${obj.name} - Click to remove`}
-          className="group relative"
+          className="group relative placed-object"
         >
-          {objectType.icon}
+          <div 
+            style={{ 
+              color: objectType.color,
+              fontSize: `${fontSize}px`,
+              lineHeight: '1'
+            }}
+          >
+            {objectType.icon}
+          </div>
           
           {/* Remove button overlay */}
           <div className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity">

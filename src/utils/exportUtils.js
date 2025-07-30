@@ -63,57 +63,84 @@ export const exportPermitAreaSiteplan = async (map, focusedArea, layers, customS
     return;
   }
 
+  // Store current map state to restore later
+  let originalCenter, originalZoom, originalPitch, originalBearing;
+  
   try {
     console.log('Starting export process...');
     
-    // Ensure map is loaded and idle
+    // Store current map state to restore later
+    originalCenter = map.getCenter();
+    originalZoom = map.getZoom();
+    originalPitch = map.getPitch();
+    originalBearing = map.getBearing();
+    
+    // Set map to 2D view for export (top-down view)
+    map.setPitch(0);
+    map.setBearing(0);
+    
+    // Wait for the map to update after setting pitch and bearing
+    await new Promise(resolve => {
+      map.once('moveend', resolve);
+      // Force a move to trigger the event
+      map.triggerRepaint();
+    });
+    
+    // Get the permit area bounds and fit the map optimally to it
+    const permitBounds = getPermitAreaBounds(focusedArea);
+    if (permitBounds) {
+      console.log('Permit area bounds:', permitBounds);
+      
+      // Calculate expanded bounds to include context around the permit area
+      const permitWidth = permitBounds[1][0] - permitBounds[0][0];
+      const permitHeight = permitBounds[1][1] - permitBounds[0][1];
+      
+      // Expand by 40% of the permit area size in each direction for better context
+      const expansionFactor = 0.4;
+      const expandedBounds = [
+        [
+          permitBounds[0][0] - (permitWidth * expansionFactor),
+          permitBounds[0][1] - (permitHeight * expansionFactor)
+        ],
+        [
+          permitBounds[1][0] + (permitWidth * expansionFactor),
+          permitBounds[1][1] + (permitHeight * expansionFactor)
+        ]
+      ];
+      
+      console.log('Setting bounds for export:', expandedBounds);
+      
+      // Fit to the expanded bounds in one step for consistent alignment
+      map.fitBounds(expandedBounds, {
+        duration: 0, // Instant fit
+        padding: 20  // Minimal padding for consistent alignment
+      });
+      
+      // Wait for the fit to complete
+      await new Promise(resolve => {
+        map.once('moveend', resolve);
+      });
+    }
+    
+    // Wait for map to be ready
     await new Promise((resolve) => {
-      if (map.loaded()) {
-        if (map.areTilesLoaded()) {
-          resolve();
-        } else {
-          map.once('idle', resolve);
-        }
+      if (map.loaded() && map.areTilesLoaded()) {
+        resolve();
       } else {
-        map.once('load', () => {
-          map.once('idle', resolve);
-        });
+        map.once('idle', resolve);
       }
     });
 
     console.log('Map is ready for export');
-
-    // Ensure all visible infrastructure layers are loaded and visible
-    const visibleInfrastructureLayers = Object.entries(layers)
-      .filter(([layerId, config]) => layerId !== 'permitAreas' && config.visible)
-      .map(([layerId]) => layerId);
-    
-    console.log('Visible infrastructure layers for export:', visibleInfrastructureLayers);
-
-    // Ensure infrastructure layers are visible on the map
-    visibleInfrastructureLayers.forEach(layerId => {
-      try {
-        // Check if the layer exists and is visible
-        const pointLayerId = `layer-${layerId}-point`;
-        const lineLayerId = `layer-${layerId}-line`;
-        
-        if (map.getLayer(pointLayerId)) {
-          map.setLayoutProperty(pointLayerId, 'visibility', 'visible');
-        }
-        if (map.getLayer(lineLayerId)) {
-          map.setLayoutProperty(lineLayerId, 'visibility', 'visible');
-        }
-      } catch (error) {
-        console.log(`Could not ensure visibility for layer ${layerId}:`, error);
-      }
-    });
 
     // Hide UI elements that shouldn't appear in export
     const elementsToHide = [
       '.maplibregl-control-container',
       '.maplibre-search-box',
       '.active-tool-indicator',
-      '.map-tooltip'
+      '.map-tooltip',
+      '.placed-object',
+      '.custom-shape-label'
     ];
     
     const hiddenElements = [];
@@ -125,16 +152,9 @@ export const exportPermitAreaSiteplan = async (map, focusedArea, layers, customS
       });
     });
 
-    // Force a repaint
+    // Force a repaint and wait
     map.triggerRepaint();
-    
-    // Wait for repaint to complete
-    await new Promise(resolve => {
-      map.once('render', resolve);
-    });
-
-    // Additional wait to ensure everything is rendered
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     console.log('Getting canvas data...');
     
@@ -142,7 +162,7 @@ export const exportPermitAreaSiteplan = async (map, focusedArea, layers, customS
     const mapCanvas = map.getCanvas();
     console.log('Canvas dimensions:', mapCanvas.width, 'x', mapCanvas.height);
     
-    // Try different methods to get the image data
+    // Get image data
     let mapImageData;
     try {
       mapImageData = mapCanvas.toDataURL('image/png');
@@ -163,10 +183,10 @@ export const exportPermitAreaSiteplan = async (map, focusedArea, layers, customS
     const exportCanvas = document.createElement('canvas');
     const ctx = exportCanvas.getContext('2d');
     
-    // Set dimensions
+    // Set dimensions for A4 paper (landscape)
     const scale = 2;
-    const width = 1200 * scale;
-    const height = 800 * scale;
+    const width = 1400 * scale;  // A4 landscape width
+    const height = 1000 * scale; // A4 landscape height
     exportCanvas.width = width;
     exportCanvas.height = height;
     
@@ -185,17 +205,23 @@ export const exportPermitAreaSiteplan = async (map, focusedArea, layers, customS
         console.log('Map image loaded successfully');
         
         try {
-          // Calculate map area
+          // Calculate map area to maximize space usage while leaving room for title and legend
           const mapArea = {
-            x: 50,
+            x: 30,
             y: 80,
-            width: 800,
-            height: 600
+            width: 1340,  // Use ~96% of canvas width
+            height: 840   // Use ~84% of canvas height
           };
           
           // Draw map image
           ctx.drawImage(img, mapArea.x, mapArea.y, mapArea.width, mapArea.height);
           console.log('Map image drawn to canvas');
+          
+          // Draw custom shapes (annotations) on the export canvas
+          if (customShapes && customShapes.length > 0) {
+            console.log('Drawing custom shapes:', customShapes.length);
+            drawCustomShapesOnCanvas(ctx, mapArea, map, customShapes);
+          }
           
           // Draw dropped objects on the export canvas
           if (droppedObjects && droppedObjects.length > 0) {
@@ -212,23 +238,71 @@ export const exportPermitAreaSiteplan = async (map, focusedArea, layers, customS
           
           console.log('All elements added, creating blob...');
           
-          // Export
-          exportCanvas.toBlob((blob) => {
-            if (blob) {
-              console.log('Blob created successfully, size:', blob.size);
-              downloadBlob(blob, `siteplan-${getSafeFilename(focusedArea)}.${format}`);
-            } else {
-              console.error('Failed to create blob');
-              alert('Failed to create export file');
-            }
-            
-            // Restore UI elements
-            hiddenElements.forEach(({ element, display }) => {
-              element.style.display = display;
-            });
-            
-            resolve();
-          }, `image/${format}`, 0.95);
+          // Export based on format
+          if (format === 'pdf') {
+            // For PDF, we need to convert the canvas to PDF
+            console.log('Creating PDF...');
+            // For now, we'll create a high-quality PNG and suggest using a PDF converter
+            exportCanvas.toBlob((blob) => {
+              if (blob) {
+                console.log('Blob created successfully, size:', blob.size);
+                // Convert PNG to PDF using jsPDF
+                import('jspdf').then(({ default: jsPDF }) => {
+                  const pdf = new jsPDF('landscape', 'mm', 'a4');
+                  const imgData = URL.createObjectURL(blob);
+                  
+                  pdf.addImage(imgData, 'PNG', 0, 0, 297, 210); // A4 landscape dimensions
+                  pdf.save(`siteplan-${getSafeFilename(focusedArea)}.pdf`);
+                  
+                  URL.revokeObjectURL(imgData);
+                }).catch(() => {
+                  // Fallback to PNG if jsPDF is not available
+                  downloadBlob(blob, `siteplan-${getSafeFilename(focusedArea)}.png`);
+                  alert('PDF generation failed. PNG file created instead.');
+                });
+              } else {
+                console.error('Failed to create blob');
+                alert('Failed to create export file');
+              }
+              
+              // Restore map state
+              map.setCenter(originalCenter);
+              map.setZoom(originalZoom);
+              map.setPitch(originalPitch);
+              map.setBearing(originalBearing);
+              
+              // Restore UI elements
+              hiddenElements.forEach(({ element, display }) => {
+                element.style.display = display;
+              });
+              
+              resolve();
+            }, 'image/png', 0.95);
+          } else {
+            // For PNG and JPG
+            exportCanvas.toBlob((blob) => {
+              if (blob) {
+                console.log('Blob created successfully, size:', blob.size);
+                downloadBlob(blob, `siteplan-${getSafeFilename(focusedArea)}.${format}`);
+              } else {
+                console.error('Failed to create blob');
+                alert('Failed to create export file');
+              }
+              
+              // Restore map state
+              map.setCenter(originalCenter);
+              map.setZoom(originalZoom);
+              map.setPitch(originalPitch);
+              map.setBearing(originalBearing);
+              
+              // Restore UI elements
+              hiddenElements.forEach(({ element, display }) => {
+                element.style.display = display;
+              });
+              
+              resolve();
+            }, `image/${format}`, 0.95);
+          }
           
         } catch (drawError) {
           console.error('Error drawing to canvas:', drawError);
@@ -249,12 +323,24 @@ export const exportPermitAreaSiteplan = async (map, focusedArea, layers, customS
     console.error('Export failed:', error);
     alert(`Export failed: ${error.message}`);
     
+    // Restore map state on error
+    try {
+      map.setCenter(originalCenter);
+      map.setZoom(originalZoom);
+      map.setPitch(originalPitch);
+      map.setBearing(originalBearing);
+    } catch (restoreError) {
+      console.error('Failed to restore map state:', restoreError);
+    }
+    
     // Restore UI elements on error
     const elementsToHide = [
       '.maplibregl-control-container',
       '.maplibre-search-box',
       '.active-tool-indicator',
-      '.map-tooltip'
+      '.map-tooltip',
+      '.placed-object',
+      '.custom-shape-label'
     ];
     
     elementsToHide.forEach(selector => {
@@ -545,46 +631,269 @@ const downloadBlob = (blob, filename) => {
   URL.revokeObjectURL(url);
 };
 
+// Get bounding box of permit area
+const getPermitAreaBounds = (focusedArea) => {
+  if (!focusedArea || !focusedArea.geometry) return null;
+  
+  try {
+    const coordinates = focusedArea.geometry.coordinates;
+    let minLng = Infinity, maxLng = -Infinity;
+    let minLat = Infinity, maxLat = -Infinity;
+    
+    // Handle different geometry types
+    if (focusedArea.geometry.type === 'Polygon') {
+      coordinates[0].forEach(coord => {
+        minLng = Math.min(minLng, coord[0]);
+        maxLng = Math.max(maxLng, coord[0]);
+        minLat = Math.min(minLat, coord[1]);
+        maxLat = Math.max(maxLat, coord[1]);
+      });
+    } else if (focusedArea.geometry.type === 'MultiPolygon') {
+      coordinates.forEach(polygon => {
+        polygon[0].forEach(coord => {
+          minLng = Math.min(minLng, coord[0]);
+          maxLng = Math.max(maxLng, coord[0]);
+          minLat = Math.min(minLat, coord[1]);
+          maxLat = Math.max(maxLat, coord[1]);
+        });
+      });
+    }
+    
+    if (minLng === Infinity || maxLng === -Infinity) return null;
+    
+    return [[minLng, minLat], [maxLng, maxLat]];
+  } catch (error) {
+    console.error('Error calculating permit area bounds:', error);
+    return null;
+  }
+};
+
+// Draw custom shapes (annotations) on the export canvas
+const drawCustomShapesOnCanvas = (ctx, mapArea, map, customShapes) => {
+  if (!customShapes || customShapes.length === 0) return;
+  
+  customShapes.forEach(shape => {
+    try {
+      if (shape.geometry.type === 'Point') {
+        // Draw point annotation
+        const pixel = map.project([shape.geometry.coordinates[0], shape.geometry.coordinates[1]]);
+        const mapCanvas = map.getCanvas();
+        
+        // Use normalized coordinates for better alignment
+        const normalizedX = pixel.x / mapCanvas.width;
+        const normalizedY = pixel.y / mapCanvas.height;
+        const mapPixelX = mapArea.x + normalizedX * mapArea.width;
+        const mapPixelY = mapArea.y + normalizedY * mapArea.height;
+        
+        // Draw point marker
+        ctx.fillStyle = '#3b82f6';
+        ctx.beginPath();
+        ctx.arc(mapPixelX, mapPixelY, 8, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        // Draw label if available
+        if (shape.properties && shape.properties.label) {
+          ctx.fillStyle = '#1f2937';
+          ctx.font = 'bold 12px Arial';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          
+          // Add background for label
+          const textWidth = ctx.measureText(shape.properties.label).width;
+          const labelX = mapPixelX;
+          const labelY = mapPixelY - 15;
+          
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+          ctx.fillRect(labelX - textWidth/2 - 4, labelY - 12, textWidth + 8, 16);
+          
+          ctx.fillStyle = '#1f2937';
+          ctx.fillText(shape.properties.label, labelX, labelY);
+        }
+        
+      } else if (shape.geometry.type === 'LineString') {
+        // Draw line annotation
+        ctx.strokeStyle = '#3b82f6';
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        ctx.beginPath();
+        shape.geometry.coordinates.forEach((coord, index) => {
+          const pixel = map.project([coord[0], coord[1]]);
+          const mapCanvas = map.getCanvas();
+          const normalizedX = pixel.x / mapCanvas.width;
+          const normalizedY = pixel.y / mapCanvas.height;
+          const mapPixelX = mapArea.x + normalizedX * mapArea.width;
+          const mapPixelY = mapArea.y + normalizedY * mapArea.height;
+          
+          if (index === 0) {
+            ctx.moveTo(mapPixelX, mapPixelY);
+          } else {
+            ctx.lineTo(mapPixelX, mapPixelY);
+          }
+        });
+        ctx.stroke();
+        
+        // Draw label at midpoint if available
+        if (shape.properties && shape.properties.label) {
+          const midIndex = Math.floor(shape.geometry.coordinates.length / 2);
+          const midCoord = shape.geometry.coordinates[midIndex];
+          const pixel = map.project([midCoord[0], midCoord[1]]);
+          const mapCanvas = map.getCanvas();
+          const normalizedX = pixel.x / mapCanvas.width;
+          const normalizedY = pixel.y / mapCanvas.height;
+          const mapPixelX = mapArea.x + normalizedX * mapArea.width;
+          const mapPixelY = mapArea.y + normalizedY * mapArea.height;
+          
+          ctx.fillStyle = '#1f2937';
+          ctx.font = 'bold 12px Arial';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          
+          // Add background for label
+          const textWidth = ctx.measureText(shape.properties.label).width;
+          const labelX = mapPixelX;
+          const labelY = mapPixelY;
+          
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+          ctx.fillRect(labelX - textWidth/2 - 4, labelY - 8, textWidth + 8, 16);
+          
+          ctx.fillStyle = '#1f2937';
+          ctx.fillText(shape.properties.label, labelX, labelY);
+        }
+        
+      } else if (shape.geometry.type === 'Polygon') {
+        // Draw polygon annotation
+        ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
+        ctx.strokeStyle = '#3b82f6';
+        ctx.lineWidth = 2;
+        
+        ctx.beginPath();
+        shape.geometry.coordinates[0].forEach((coord, index) => {
+          const pixel = map.project([coord[0], coord[1]]);
+          const mapCanvas = map.getCanvas();
+          const normalizedX = pixel.x / mapCanvas.width;
+          const normalizedY = pixel.y / mapCanvas.height;
+          const mapPixelX = mapArea.x + normalizedX * mapArea.width;
+          const mapPixelY = mapArea.y + normalizedY * mapArea.height;
+          
+          if (index === 0) {
+            ctx.moveTo(mapPixelX, mapPixelY);
+          } else {
+            ctx.lineTo(mapPixelX, mapPixelY);
+          }
+        });
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        
+        // Draw label at centroid if available
+        if (shape.properties && shape.properties.label) {
+          // Calculate centroid
+          let sumLng = 0, sumLat = 0;
+          shape.geometry.coordinates[0].forEach(coord => {
+            sumLng += coord[0];
+            sumLat += coord[1];
+          });
+          const centroidLng = sumLng / shape.geometry.coordinates[0].length;
+          const centroidLat = sumLat / shape.geometry.coordinates[0].length;
+          
+          const pixel = map.project([centroidLng, centroidLat]);
+          const mapCanvas = map.getCanvas();
+          const normalizedX = pixel.x / mapCanvas.width;
+          const normalizedY = pixel.y / mapCanvas.height;
+          const mapPixelX = mapArea.x + normalizedX * mapArea.width;
+          const mapPixelY = mapArea.y + normalizedY * mapArea.height;
+          
+          ctx.fillStyle = '#1f2937';
+          ctx.font = 'bold 12px Arial';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          
+          // Add background for label
+          const textWidth = ctx.measureText(shape.properties.label).width;
+          const labelX = mapPixelX;
+          const labelY = mapPixelY;
+          
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+          ctx.fillRect(labelX - textWidth/2 - 4, labelY - 8, textWidth + 8, 16);
+          
+          ctx.fillStyle = '#1f2937';
+          ctx.fillText(shape.properties.label, labelX, labelY);
+        }
+      }
+      
+    } catch (error) {
+      console.error('Error drawing custom shape:', error);
+    }
+  });
+};
+
 // Draw dropped objects on the export canvas
 const drawDroppedObjectsOnCanvas = (ctx, mapArea, map, droppedObjects) => {
   if (!droppedObjects || droppedObjects.length === 0) return;
   
-  droppedObjects.forEach(obj => {
+  console.log('Drawing', droppedObjects.length, 'dropped objects on export canvas');
+  
+  droppedObjects.forEach((obj, index) => {
     const objectType = PLACEABLE_OBJECTS.find(p => p.id === obj.type);
-    if (!objectType) return;
+    if (!objectType) {
+      console.warn('Object type not found for:', obj.type);
+      return;
+    }
     
     try {
-      // Convert lat/lng to pixel coordinates on the export canvas
+      // Convert lat/lng to normalized screen coordinates (0-1)
       const pixel = map.project([obj.position.lng, obj.position.lat]);
+      const mapCanvas = map.getCanvas();
       
-      // Calculate position relative to the map area on the export canvas
-      const mapPixelX = mapArea.x + (pixel.x / map.getCanvas().width) * mapArea.width;
-      const mapPixelY = mapArea.y + (pixel.y / map.getCanvas().height) * mapArea.height;
+      // Normalize pixel coordinates to 0-1 range
+      const normalizedX = pixel.x / mapCanvas.width;
+      const normalizedY = pixel.y / mapCanvas.height;
       
-      // Draw the object
-      const objWidth = objectType.size.width;
-      const objHeight = objectType.size.height;
-      const x = mapPixelX - objWidth / 2;
-      const y = mapPixelY - objHeight / 2;
+      // Check if object is within visible bounds
+      if (normalizedX < 0 || normalizedX > 1 || normalizedY < 0 || normalizedY > 1) {
+        console.warn(`Object ${index} is outside visible bounds:`, { normalizedX, normalizedY });
+      }
       
-      // Draw background
+      // Transform to export canvas coordinates
+      const mapPixelX = mapArea.x + normalizedX * mapArea.width;
+      const mapPixelY = mapArea.y + normalizedY * mapArea.height;
+      
+      console.log(`Object ${index} (${objectType.name}):`, {
+        lat: obj.position.lat,
+        lng: obj.position.lng,
+        pixel: { x: pixel.x, y: pixel.y },
+        normalized: { x: normalizedX, y: normalizedY },
+        canvas: { x: mapPixelX, y: mapPixelY }
+      });
+      
+      // Draw the object with better styling
+      const objSize = Math.max(objectType.size.width, objectType.size.height, 28);
+      
+      // Draw background circle
       ctx.fillStyle = objectType.color;
-      ctx.fillRect(x, y, objWidth, objHeight);
+      ctx.beginPath();
+      ctx.arc(mapPixelX, mapPixelY, objSize / 2, 0, 2 * Math.PI);
+      ctx.fill();
       
       // Draw border
       ctx.strokeStyle = 'white';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x, y, objWidth, objHeight);
+      ctx.lineWidth = 3;
+      ctx.stroke();
       
-      // Draw icon (simplified - just a colored rectangle for now)
+      // Draw icon
       ctx.fillStyle = 'white';
-      ctx.font = `${objHeight * 0.6}px Arial`;
+      ctx.font = `bold ${objSize * 0.6}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(objectType.icon, x + objWidth / 2, y + objHeight / 2);
+      ctx.fillText(objectType.icon, mapPixelX, mapPixelY);
       
     } catch (error) {
-      console.error('Error drawing dropped object:', error);
+      console.error('Error drawing dropped object:', error, obj);
     }
   });
 };

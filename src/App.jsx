@@ -5,7 +5,6 @@ import { TutorialProvider } from './contexts/TutorialContext';
 import { SitePlanProvider } from './contexts/SitePlanContext';
 import LandingPage from './pages/LandingPage';
 import DprStager from './components/DprStager';
-import SapoStager from './components/SapoStager';
 
 function App() {
   return (
@@ -15,7 +14,6 @@ function App() {
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/dpr" element={<DprStager />} />
-            <Route path="/sapo" element={<SapoStager />} />
           </Routes>
         </Router>
       </SitePlanProvider>

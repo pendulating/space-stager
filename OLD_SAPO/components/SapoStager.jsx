@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Route } from 'lucide-react';
 import Header from './Header/Header';
 import Sidebar from './Sidebar/Sidebar';
 import MapContainer from './Map/MapContainer';
@@ -11,6 +10,7 @@ import { usePermitAreas } from '../hooks/usePermitAreas';
 import { useInfrastructure } from '../hooks/useInfrastructure';
 import { useDragDrop } from '../hooks/useDragDrop';
 import { useSapoMode } from '../hooks/useSapoMode';
+import { useClickToPlace } from '../hooks/useClickToPlace';
 import { INITIAL_LAYERS } from '../constants/layers';
 import { PLACEABLE_OBJECTS } from '../constants/placeableObjects';
 import { exportPlan, importPlan, exportPermitAreaSiteplan } from '../utils/exportUtils';
@@ -24,8 +24,9 @@ const SapoStager = () => {
   
   // Use custom hooks for different functionalities
   const drawTools = useDrawTools(map);
-  const permitAreas = usePermitAreas(map, mapLoaded);
+  const permitAreas = usePermitAreas(map, mapLoaded, { initialMode: 'sapo' });
   const infrastructure = useInfrastructure(map, permitAreas.focusedArea, layers, setLayers);
+  const clickToPlace = useClickToPlace(map);
   const dragDrop = useDragDrop(map);
   const sapoMode = useSapoMode(map, permitAreas.mode, drawTools);
 
@@ -190,7 +191,6 @@ const SapoStager = () => {
         <div className="sapo-mode-indicator bg-green-100 border-l-4 border-green-500 text-green-700 p-3 mx-4 mt-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center">
-              <Route className="w-4 h-4 mr-2" />
               <span className="font-medium">SAPO Mode Active</span>
               {sapoMode.isDrawingLine && (
                 <span className="ml-2 text-sm">(Drawing line...)</span>
@@ -261,6 +261,7 @@ const SapoStager = () => {
           mapLoaded={mapLoaded}
           focusedArea={permitAreas.focusedArea}
           drawTools={drawTools}
+          clickToPlace={clickToPlace}
           dragDrop={dragDrop}
           permitAreas={permitAreas}
           sapoMode={sapoMode}
