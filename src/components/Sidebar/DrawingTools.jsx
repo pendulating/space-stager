@@ -14,11 +14,18 @@ const DrawingTools = ({ activeTool, onToolSelect, selectedShape, onDelete, drawA
       {!drawAvailable && (
         <div className="mb-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-700">
           Drawing tools are initializing...
+          <br />
+          <small className="text-yellow-600">
+            Status: {drawAvailable ? 'Ready' : 'Initializing'}
+          </small>
           <button 
             onClick={() => {
-              console.log('Manual re-initialization requested');
+              console.log('Manual re-initialization requested via retry button');
               if (onRetry) {
+                console.log('Calling onRetry function...');
                 onRetry();
+              } else {
+                console.warn('onRetry function not available');
               }
             }}
             className="ml-2 px-2 py-1 bg-yellow-200 hover:bg-yellow-300 rounded text-xs"

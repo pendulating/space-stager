@@ -555,9 +555,10 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
           pollTries++;
           let allPresent = requiredLayers.every(layerId => map.getLayer(layerId));
           console.log(`PermitAreas: Polling for layers (try ${pollTries}):`, requiredLayers.map(id => ({ id, present: !!map.getLayer(id) })));
-          if (!allPresent && pollTries < 3) {
+          if (!allPresent && pollTries < 3 && retryCount < maxRetries) {
             setTimeout(() => {
-              if (!requiredLayers.every(layerId => map.getLayer(layerId))) {
+              // Double-check that layers are still missing and we haven't exceeded retry count
+              if (!requiredLayers.every(layerId => map.getLayer(layerId)) && retryCount < maxRetries) {
                 console.warn('PermitAreas: Defensive reload triggered');
                 attemptLoad();
               }

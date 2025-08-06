@@ -309,10 +309,10 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
         resolve();
         
       } else if (basemapKey === 'carto') {
-        // For carto, remove NYC layers and ensure carto style is loaded
+        // For carto, remove NYC satellite layer and restore hidden carto layers
         console.log(`switchBasemap: Switching back to carto style`);
         
-        // Remove NYC layers if they exist
+        // Remove NYC satellite layers if they exist
         try {
           if (map.getLayer('nyc-satellite-layer')) {
             map.removeLayer('nyc-satellite-layer');
@@ -321,66 +321,143 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
             map.removeSource('nyc-satellite');
           }
         } catch (e) {
-          // Ignore errors if layers don't exist
+          console.log(`switchBasemap: Error removing satellite layers:`, e);
         }
         
-        // Set the carto style - this will recreate all Carto layers
-        const newStyle = basemapOption.url;
-        console.log(`switchBasemap: Setting carto style: ${newStyle}`);
-        
-        // Set up timeout for style loading
-        const styleLoadTimeout = setTimeout(() => {
-          console.warn(`switchBasemap: Style load timeout, proceeding anyway`);
-          try {
-            map.setCenter(center);
-            map.setZoom(zoom);
-            map.setBearing(bearing);
-            map.setPitch(pitch);
-            
-            if (onStyleChange && typeof onStyleChange === 'function') {
-              setTimeout(() => {
-                onStyleChange();
-              }, 100);
+        // Instead of reloading the entire style, restore visibility of hidden layers
+        try {
+          const style = map.getStyle();
+          console.log(`switchBasemap: Restoring visibility of carto layers`);
+          
+          // List of layers that should be visible in carto mode
+          const cartoLayersToShow = [
+            // Background and basic layers
+            'background',
+            'landuse',
+            'landcover',
+            'water',
+            'waterway',
+            'building',
+            'building-outline',
+            'tunnel',
+            'road',
+            'bridge',
+            // Road labels
+            'roadname_minor',
+            'roadname_sec', 
+            'roadname_pri',
+            'roadname_major',
+            // Place labels
+            'place_hamlet',
+            'place_suburbs',
+            'place_villages', 
+            'place_town',
+            'place_country_2',
+            'place_country_1',
+            'place_state',
+            'place_continent',
+            'place_city_r6',
+            'place_city_r5',
+            'place_city_dot_r7',
+            'place_city_dot_r4',
+            'place_city_dot_r2',
+            'place_city_dot_z7',
+            'place_capital_dot_z7',
+            // POI and other labels
+            'poi_stadium',
+            'poi_park',
+            'watername_ocean',
+            'watername_sea',
+            'watername_lake',
+            'watername_lake_line',
+            'housenumber'
+          ];
+          
+          let restoredCount = 0;
+          style.layers?.forEach(layer => {
+            // Show carto layers
+            if (cartoLayersToShow.includes(layer.id) || 
+                layer.id.startsWith('landuse') ||
+                layer.id.startsWith('admin') ||
+                layer.id.startsWith('natural') ||
+                layer.id.startsWith('transportation') ||
+                layer.id.startsWith('boundary')) {
+              try {
+                map.setLayoutProperty(layer.id, 'visibility', 'visible');
+                restoredCount++;
+              } catch (e) {
+                // Ignore errors for layers that don't support visibility
+              }
             }
-            
-            console.log(`switchBasemap: Successfully switched to ${basemapKey} (timeout fallback)`);
-            resolve();
-          } catch (error) {
-            console.error(`switchBasemap: Error in timeout fallback:`, error);
-            reject(error);
-          }
-        }, 5000);
-        
-        map.setStyle(newStyle);
-        
-        map.once('style.load', () => {
-          clearTimeout(styleLoadTimeout);
-          console.log(`switchBasemap: Carto style loaded successfully!`);
-          try {
-            map.setCenter(center);
-            map.setZoom(zoom);
-            map.setBearing(bearing);
-            map.setPitch(pitch);
-            
-            if (onStyleChange && typeof onStyleChange === 'function') {
-              setTimeout(() => {
-                onStyleChange();
-              }, 100);
+          });
+          
+          console.log(`switchBasemap: Restored visibility for ${restoredCount} carto layers`);
+          
+          // No need to call onStyleChange since we didn't change the style
+          // Just resolve immediately
+          console.log(`switchBasemap: Successfully switched to ${basemapKey} (fast mode)`);
+          resolve();
+          
+        } catch (e) {
+          console.error(`switchBasemap: Error in fast carto switch, falling back to full reload:`, e);
+          
+          // Fallback: full style reload (original logic)
+          const newStyle = basemapOption.url;
+          console.log(`switchBasemap: Falling back to full style reload: ${newStyle}`);
+          
+          const styleLoadTimeout = setTimeout(() => {
+            console.warn(`switchBasemap: Style load timeout, proceeding anyway`);
+            try {
+              map.setCenter(center);
+              map.setZoom(zoom);
+              map.setBearing(bearing);
+              map.setPitch(pitch);
+              
+              if (onStyleChange && typeof onStyleChange === 'function') {
+                setTimeout(() => {
+                  onStyleChange();
+                }, 100);
+              }
+              
+              console.log(`switchBasemap: Successfully switched to ${basemapKey} (timeout fallback)`);
+              resolve();
+            } catch (error) {
+              console.error(`switchBasemap: Error in timeout fallback:`, error);
+              reject(error);
             }
-            
-            console.log(`switchBasemap: Successfully switched to ${basemapKey}`);
-            resolve();
-          } catch (error) {
-            console.error(`switchBasemap: Error restoring view state:`, error);
-            reject(error);
-          }
-        });
-        
-        map.once('error', (error) => {
-          clearTimeout(styleLoadTimeout);
-          console.error(`switchBasemap: Map error during style switch:`, error);
-          reject(new Error(`Failed to load basemap style: ${error.error}`));
-        });
+          }, 5000);
+          
+          map.setStyle(newStyle);
+          
+          map.once('style.load', () => {
+            clearTimeout(styleLoadTimeout);
+            console.log(`switchBasemap: Carto style loaded successfully!`);
+            try {
+              map.setCenter(center);
+              map.setZoom(zoom);
+              map.setBearing(bearing);
+              map.setPitch(pitch);
+              
+              if (onStyleChange && typeof onStyleChange === 'function') {
+                setTimeout(() => {
+                  onStyleChange();
+                }, 100);
+              }
+              
+              console.log(`switchBasemap: Successfully switched to ${basemapKey}`);
+              resolve();
+            } catch (error) {
+              console.error(`switchBasemap: Error restoring view state:`, error);
+              reject(error);
+            }
+          });
+          
+          map.once('error', (error) => {
+            clearTimeout(styleLoadTimeout);
+            console.error(`switchBasemap: Map error during style switch:`, error);
+            reject(new Error(`Failed to load basemap style: ${error.error}`));
+          });
+        }
       }
       
     } catch (error) {

@@ -148,58 +148,49 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     loadingLayersRef.current.clear();
   }, [focusedAreaId, map]); // Trigger when focused area ID changes
 
-  // Load infrastructure icons when map is ready
+  // Load infrastructure icons when map is ready - improved version to avoid race conditions
   useEffect(() => {
     if (!map) return;
     
     console.log('[DEBUG] Icon loading useEffect triggered');
     
-    // Wait for map style to be loaded before adding icons
-    const loadIcons = () => {
-      console.log('[DEBUG] Attempting to load icons, map.isStyleLoaded():', map.isStyleLoaded());
-      
-      if (map.isStyleLoaded()) {
-        const success = addIconsToMap(map);
-        console.log('[DEBUG] Icon loading result:', success);
-        if (!success) {
-          console.log('[DEBUG] Icon loading failed, retrying...');
-          retryLoadIcons(map);
+    // Debounce icon loading to avoid conflicts during rapid style changes
+    const iconLoadTimeout = setTimeout(() => {
+      const loadIcons = () => {
+        console.log('[DEBUG] Attempting to load icons, map.isStyleLoaded():', map.isStyleLoaded());
+        
+        if (map.isStyleLoaded()) {
+          const success = addIconsToMap(map);
+          console.log('[DEBUG] Icon loading result:', success);
+          if (!success) {
+            console.log('[DEBUG] Icon loading failed, retrying...');
+            retryLoadIcons(map);
+          }
+          // Note: Removed automatic layer reloading to avoid conflicts
+          // Layers will be reloaded when they're toggled or when focus changes
         } else {
-          // If icons loaded successfully, reload any existing infrastructure layers
-          console.log('[DEBUG] Icons loaded successfully, checking for existing layers to reload');
-          Object.entries(layers).forEach(([layerId, config]) => {
-            if (layerId !== 'permitAreas' && config.visible && infrastructureData[layerId]) {
-              console.log(`[DEBUG] Reloading ${layerId} layer with icons`);
-              addInfrastructureLayerToMap(layerId, infrastructureData[layerId]);
-            }
+          // If style not loaded yet, wait for it
+          console.log('[DEBUG] Map style not loaded, waiting for style.load event');
+          map.once('style.load', () => {
+            // Add delay to ensure style is fully ready
+            setTimeout(() => {
+              console.log('[DEBUG] Style loaded, now loading icons');
+              const success = addIconsToMap(map);
+              console.log('[DEBUG] Icon loading result after style load:', success);
+              if (!success) {
+                console.log('[DEBUG] Icon loading failed after style load, retrying...');
+                retryLoadIcons(map);
+              }
+            }, 100);
           });
         }
-      } else {
-        // If style not loaded yet, wait for it
-        console.log('[DEBUG] Map style not loaded, waiting for style.load event');
-        map.once('style.load', () => {
-          console.log('[DEBUG] Style loaded, now loading icons');
-          const success = addIconsToMap(map);
-          console.log('[DEBUG] Icon loading result after style load:', success);
-          if (!success) {
-            console.log('[DEBUG] Icon loading failed after style load, retrying...');
-            retryLoadIcons(map);
-          } else {
-            // If icons loaded successfully, reload any existing infrastructure layers
-            console.log('[DEBUG] Icons loaded successfully after style load, checking for existing layers to reload');
-            Object.entries(layers).forEach(([layerId, config]) => {
-              if (layerId !== 'permitAreas' && config.visible && infrastructureData[layerId]) {
-                console.log(`[DEBUG] Reloading ${layerId} layer with icons`);
-                addInfrastructureLayerToMap(layerId, infrastructureData[layerId]);
-              }
-            });
-          }
-        });
-      }
-    };
+      };
+      
+      loadIcons();
+    }, 150); // Debounce delay
     
-    loadIcons();
-  }, [map, layers, infrastructureData]);
+    return () => clearTimeout(iconLoadTimeout);
+  }, [map]); // Only depend on map to avoid excessive re-runs
 
   // Add infrastructure layer to map - move this before loadInfrastructureLayer
   const addInfrastructureLayerToMap = useCallback((layerId, data) => {

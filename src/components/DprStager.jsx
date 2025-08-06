@@ -21,7 +21,7 @@ import '../styles/eventStager.css';
 
 const DprStager = () => {
   const mapContainerRef = useRef(null);
-  const { map, mapLoaded } = useMap(mapContainerRef);
+  const { map, mapLoaded, styleLoaded } = useMap(mapContainerRef);
   const [layers, setLayers] = useState(INITIAL_LAYERS);
   const [showInfo, setShowInfo] = useState(false);
   const [isShaking, setIsShaking] = useState(false);
@@ -170,15 +170,9 @@ const DprStager = () => {
     }
   }, [map, infrastructure]);
 
-  // When the focusedArea changes, clear all infrastructure layers from the map AND reset their state in the sidebar
+  // When the focusedArea changes, reset infrastructure layer states in the sidebar
+  // (The actual clearing is handled by useInfrastructure hook to avoid race conditions)
   useEffect(() => {
-    // 1. Clear all infrastructure layers from the map
-    Object.entries(layers).forEach(([layerId, config]) => {
-      if (layerId !== 'permitAreas' && config.visible) {
-        infrastructure.toggleLayer(layerId); // This will remove from map
-      }
-    });
-    // 2. Reset all infrastructure layers in the sidebar state
     setLayers(prev => {
       const newLayers = { ...prev };
       Object.keys(newLayers).forEach(layerId => {
@@ -196,42 +190,60 @@ const DprStager = () => {
     });
   }, [permitAreas.focusedArea?.id]);
 
-  // Load permit areas after map is loaded, reliably (matches old one-pager)
+  // Load permit areas after map and style are fully loaded
   useEffect(() => {
-    if (!mapLoaded || !map || !permitAreas.loadPermitAreas) return;
+    if (!mapLoaded || !styleLoaded || !map || !permitAreas.loadPermitAreas) return;
     if (map.getSource && map.getSource('permit-areas')) {
       console.log('DprStager: Permit areas source already present, skipping load');
       return;
     }
-    console.log('DprStager: Map loaded, loading permit areas');
+    console.log('DprStager: Map and style loaded, loading permit areas');
     permitAreas.loadPermitAreas();
-  }, [mapLoaded, map, permitAreas.loadPermitAreas]);
+  }, [mapLoaded, styleLoaded, map, permitAreas.loadPermitAreas]);
 
-  // Handle basemap style changes
+  // Handle basemap style changes with proper timing
   const handleStyleChange = useCallback(() => {
-    console.log('Basemap style changed, re-initializing layers...');
+    console.log('Basemap style changed, waiting for style to fully load before re-initializing layers...');
     
-    // Re-initialize permit areas
-    if (permitAreas.loadPermitAreas) {
-      permitAreas.loadPermitAreas();
-    }
-    
-    // Re-initialize infrastructure layers if there's a focused area
-    if (permitAreas.focusedArea) {
-      Object.entries(layers).forEach(([layerId, config]) => {
-        if (layerId !== 'permitAreas' && config.visible) {
-          infrastructure.toggleLayer(layerId);
+    if (!map) return;
+
+    const reinitializeLayers = () => {
+      console.log('Style fully loaded, now re-initializing layers...');
+      
+      // Re-initialize permit areas
+      if (permitAreas.loadPermitAreas) {
+        permitAreas.loadPermitAreas();
+      }
+      
+      // Re-initialize infrastructure layers if there's a focused area
+      if (permitAreas.focusedArea) {
+        Object.entries(layers).forEach(([layerId, config]) => {
+          if (layerId !== 'permitAreas' && config.visible) {
+            infrastructure.toggleLayer(layerId);
+          }
+        });
+      }
+      
+      // Re-initialize draw controls after layers are handled
+      setTimeout(() => {
+        if (drawTools.forceReinitialize) {
+          drawTools.forceReinitialize();
         }
+      }, 300);
+    };
+
+    // Wait for the style to be fully loaded before reinitializing
+    if (map.isStyleLoaded()) {
+      // Style is already loaded, proceed immediately
+      reinitializeLayers();
+    } else {
+      // Wait for style to load
+      map.once('style.load', () => {
+        // Add additional delay to ensure all style resources are ready
+        setTimeout(reinitializeLayers, 100);
       });
     }
-    
-    // Re-initialize draw controls after a short delay to ensure style is loaded
-    setTimeout(() => {
-      if (drawTools.reinitializeDrawControls) {
-        drawTools.reinitializeDrawControls();
-      }
-    }, 200);
-  }, [permitAreas, layers, infrastructure, drawTools.reinitializeDrawControls]);
+  }, [map, permitAreas, layers, infrastructure, drawTools.forceReinitialize]);
 
   return (
     <div className={`h-screen w-full flex flex-col bg-gray-50 ${isShaking ? 'shake-animation' : ''}`}>
