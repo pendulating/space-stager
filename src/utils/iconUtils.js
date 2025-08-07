@@ -41,6 +41,59 @@ export const INFRASTRUCTURE_ICONS = {
     type: 'png',
     src: '/data/icons/bike-parking.png'
   },
+  citibikeStations: {
+    id: 'citibike-station-icon',
+    type: 'svg',
+    svg: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="12" r="8" fill="currentColor"/>
+      <circle cx="12" cy="12" r="6" fill="white"/>
+      <circle cx="12" cy="12" r="4" fill="currentColor"/>
+      <circle cx="12" cy="12" r="2" fill="white"/>
+      <rect x="10" y="4" width="4" height="2" fill="currentColor"/>
+      <rect x="10" y="18" width="4" height="2" fill="currentColor"/>
+      <rect x="4" y="10" width="2" height="4" fill="currentColor"/>
+      <rect x="18" y="10" width="2" height="4" fill="currentColor"/>
+    </svg>`
+  },
+  subwayEntrances: {
+    id: 'subway-entrance-icon',
+    type: 'svg',
+    svg: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="4" y="4" width="16" height="16" fill="currentColor"/>
+      <rect x="6" y="6" width="12" height="12" fill="white"/>
+      <rect x="8" y="8" width="8" height="8" fill="currentColor"/>
+      <rect x="10" y="10" width="4" height="4" fill="white"/>
+      <rect x="11" y="11" width="2" height="2" fill="currentColor"/>
+      <rect x="9" y="18" width="6" height="2" fill="currentColor"/>
+      <rect x="10" y="20" width="4" height="2" fill="currentColor"/>
+    </svg>`
+  },
+  fireLanes: {
+    id: 'fire-lane-icon',
+    type: 'svg',
+    svg: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="4" y="4" width="16" height="16" fill="currentColor"/>
+      <rect x="6" y="6" width="12" height="12" fill="white"/>
+      <rect x="8" y="8" width="8" height="8" fill="currentColor"/>
+      <rect x="10" y="10" width="4" height="4" fill="white"/>
+      <rect x="11" y="11" width="2" height="2" fill="currentColor"/>
+      <rect x="9" y="18" width="6" height="2" fill="currentColor"/>
+      <rect x="10" y="20" width="4" height="2" fill="currentColor"/>
+    </svg>`
+  },
+  specialDisasterRoutes: {
+    id: 'special-disaster-route-icon',
+    type: 'svg',
+    svg: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="4" y="4" width="16" height="16" fill="currentColor"/>
+      <rect x="6" y="6" width="12" height="12" fill="white"/>
+      <rect x="8" y="8" width="8" height="8" fill="currentColor"/>
+      <rect x="10" y="10" width="4" height="4" fill="white"/>
+      <rect x="11" y="11" width="2" height="2" fill="currentColor"/>
+      <rect x="9" y="18" width="6" height="2" fill="currentColor"/>
+      <rect x="10" y="20" width="4" height="2" fill="currentColor"/>
+    </svg>`
+  },
   pedestrianRamps: {
     id: 'pedestrian-ramp-icon',
     type: 'svg',

@@ -5,17 +5,17 @@ export const LAYER_GROUPS = {
   'public-infrastructure': {
     name: 'Public Infrastructure',
     icon: '🏛️',
-    layers: ['hydrants', 'busStops', 'benches', 'publicRestrooms', 'drinkingFountains', 'sprayShowers', 'linknycKiosks', 'parkingMeters', 'pedestrianRamps']
+    layers: ['hydrants', 'busStops', 'subwayEntrances', 'benches', 'publicRestrooms', 'drinkingFountains', 'sprayShowers', 'linknycKiosks', 'parkingMeters', 'pedestrianRamps']
   },
   'lanes': {
     name: 'Lanes',
     icon: '🚴',
-    layers: ['bikeLanes', 'bikeParking', 'parkingLots']
+    layers: ['bikeLanes', 'bikeParking', 'citibikeStations', 'parkingLots']
   },
   'safety-features': {
     name: 'Safety Features',
     icon: '🛡️',
-    layers: ['iceLadders']
+    layers: ['iceLadders', 'fireLanes', 'specialDisasterRoutes']
   },
   'nyc-parks': {
     name: 'NYC Parks',
@@ -29,8 +29,10 @@ export const STARTER_SET_LAYERS = [
   'trees',
   'hydrants',
   'busStops',
+  'subwayEntrances',
   'benches',
   'bikeParking',
+  'citibikeStations',
   'publicRestrooms'
 ];
 
@@ -58,6 +60,38 @@ export const INITIAL_LAYERS = {
     loading: false,
     loaded: false,
     endpoint: '/api/bike-parking'
+  },
+  citibikeStations: {
+    visible: false,
+    name: 'Citibike Stations',
+    color: '#0ea5e9',
+    loading: false,
+    loaded: false,
+    endpoint: '/api/citibike-stations'
+  },
+  subwayEntrances: {
+    visible: false,
+    name: 'Subway Entrances',
+    color: '#dc2626',
+    loading: false,
+    loaded: false,
+    endpoint: '/api/subway-entrances'
+  },
+  fireLanes: {
+    visible: false,
+    name: 'Fire Lanes',
+    color: '#ef4444',
+    loading: false,
+    loaded: false,
+    endpoint: '/api/fire-lanes'
+  },
+  specialDisasterRoutes: {
+    visible: false,
+    name: 'Special Disaster Routes',
+    color: '#f59e0b',
+    loading: false,
+    loaded: false,
+    endpoint: '/api/special-disaster-routes'
   },
   pedestrianRamps: {
     visible: false,

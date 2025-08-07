@@ -111,6 +111,75 @@ export const createInfrastructureTooltipContent = (properties, layerId) => {
     });
     
     return content;
+  } else if (layerId === 'subwayEntrances') {
+    const importantFields = [
+      { key: 'stop_name', label: 'Station Name' },
+      { key: 'entrance_type', label: 'Entrance Type' },
+      { key: 'daytime_routes', label: 'Routes' },
+      { key: 'entry_allowed', label: 'Entry Allowed' },
+      { key: 'exit_allowed', label: 'Exit Allowed' },
+      { key: 'borough', label: 'Borough' }
+    ];
+    
+    const content = [];
+    
+    importantFields.forEach(field => {
+      const value = properties[field.key];
+      if (value) {
+        content.push({
+          label: field.label,
+          value: value
+        });
+      }
+    });
+    
+    return content;
+  } else if (layerId === 'fireLanes') {
+    const importantFields = [
+      { key: 'full_street_name', label: 'Street Name' },
+      { key: 'fire_lane', label: 'Fire Lane Status' },
+      { key: 'posted_speed', label: 'Posted Speed' },
+      { key: 'number_total_lanes', label: 'Total Lanes' },
+      { key: 'streetwidth', label: 'Street Width' },
+      { key: 'boroughcode', label: 'Borough' }
+    ];
+    
+    const content = [];
+    
+    importantFields.forEach(field => {
+      const value = properties[field.key];
+      if (value) {
+        content.push({
+          label: field.label,
+          value: value
+        });
+      }
+    });
+    
+    return content;
+  } else if (layerId === 'specialDisasterRoutes') {
+    const importantFields = [
+      { key: 'full_street_name', label: 'Street Name' },
+      { key: 'special_disaster', label: 'Special Disaster Status' },
+      { key: 'posted_speed', label: 'Posted Speed' },
+      { key: 'number_total_lanes', label: 'Total Lanes' },
+      { key: 'streetwidth', label: 'Street Width' },
+      { key: 'boroughcode', label: 'Borough' }
+    ];
+    
+    const content = [];
+    
+    importantFields.forEach(field => {
+      const value = properties[field.key];
+      if (value) {
+        content.push({
+          label: field.label,
+          value: value
+        });
+      }
+    });
+    
+    return content;
   }
   
   // Generic handling for other layers

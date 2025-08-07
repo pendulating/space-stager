@@ -17,29 +17,24 @@ export const useMap = (mapContainer) => {
         mapRef.current = mapInstance;
         setMap(mapInstance);
         
-        // Wait for both map load and style load before setting mapLoaded
-        const checkFullyLoaded = () => {
-          if (mapInstance.loaded() && mapInstance.isStyleLoaded()) {
-            console.log('Map and style fully loaded');
-            setMapLoaded(true);
-            setStyleLoaded(true);
-          }
-        };
-
-        // Check immediately
-        checkFullyLoaded();
-        
-        // Set up listeners for future style changes
-        mapInstance.on('style.load', () => {
-          console.log('Style loaded');
+        // Check immediately if map is already loaded (might happen in development)
+        if (mapInstance.loaded() && mapInstance.isStyleLoaded()) {
+          console.log('Map already loaded during initialization');
+          setMapLoaded(true);
           setStyleLoaded(true);
-          checkFullyLoaded();
+        }
+        
+        // Use the 'load' event for initial loading
+        mapInstance.on('load', () => {
+          console.log('Map load event fired - map and initial style are ready');
+          setMapLoaded(true);
+          setStyleLoaded(true);
         });
         
-        mapInstance.on('data', (e) => {
-          if (e.dataType === 'style') {
-            checkFullyLoaded();
-          }
+        // Handle style changes (like basemap switching)
+        mapInstance.on('style.load', () => {
+          console.log('Style load event fired');
+          setStyleLoaded(true);
         });
         
       } catch (error) {

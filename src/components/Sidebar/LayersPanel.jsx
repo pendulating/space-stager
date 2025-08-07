@@ -292,21 +292,29 @@ const LayersPanel = ({
         {/* NYC Permit Areas - Always Fixed */}
         {permitAreasLayer && renderLayerItem('permitAreas', permitAreasLayer)}
         
-        {/* Focus Area Info */}
+        {/* Focus Area Info - Enhanced */}
         {focusedArea && (
-          <div className="bg-blue-50 p-2 rounded-md text-xs text-blue-700 flex justify-between items-center">
-            <div>
-              <span className="font-medium">Focus active:</span> {
-                focusedArea.properties.name || 'Unnamed Area'
-              }
+          <div className="bg-gradient-to-r from-blue-100 to-blue-50 p-3 rounded-lg border-2 border-blue-200 shadow-sm">
+            <div className="flex justify-between items-center">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                  <span className="text-sm font-semibold text-blue-900 tracking-wide">
+                    Focus Active
+                  </span>
+                </div>
+                <div className="mt-1 text-sm font-medium text-blue-800 truncate" title={focusedArea.properties.name || 'Unnamed Area'}>
+                  {focusedArea.properties.name || 'Unnamed Area'}
+                </div>
+              </div>
+              <button 
+                onClick={onClearFocus}
+                className="ml-3 bg-white/80 hover:bg-white border border-blue-300 hover:border-blue-400 rounded-md p-2 text-blue-600 hover:text-blue-700 transition-all duration-150 shadow-sm hover:shadow focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                title="Clear Focus and Return to Map View"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
-            <button 
-              onClick={onClearFocus}
-              className="text-blue-600 hover:text-blue-800 p-1"
-              title="Clear Focus"
-            >
-              <X className="w-4 h-4" />
-            </button>
           </div>
         )}
         

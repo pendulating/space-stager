@@ -19,6 +19,10 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     benches: null,
     bikeLanes: null,
     bikeParking: null,
+    citibikeStations: null,
+    subwayEntrances: null,
+    fireLanes: null,
+    specialDisasterRoutes: null,
     pedestrianRamps: null,
     parkingMeters: null,
     linknycKiosks: null,
@@ -63,7 +67,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     } else {
       // Clear everything when focus is removed
       if (map) {
-        ['trees', 'hydrants', 'busStops', 'benches', 'bikeLanes', 'bikeParking', 'pedestrianRamps', 'parkingMeters', 'linknycKiosks', 'publicRestrooms', 'drinkingFountains', 'sprayShowers', 'parksTrails', 'parkingLots', 'iceLadders', 'parksSigns'].forEach(layerId => {
+        ['trees', 'hydrants', 'busStops', 'benches', 'bikeLanes', 'bikeParking', 'citibikeStations', 'subwayEntrances', 'fireLanes', 'specialDisasterRoutes', 'pedestrianRamps', 'parkingMeters', 'linknycKiosks', 'publicRestrooms', 'drinkingFountains', 'sprayShowers', 'parksTrails', 'parkingLots', 'iceLadders', 'parksSigns'].forEach(layerId => {
           removeInfrastructureLayer(layerId);
         });
       }
@@ -75,6 +79,10 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
         benches: null,
         bikeLanes: null,
         bikeParking: null,
+        citibikeStations: null,
+        subwayEntrances: null,
+        fireLanes: null,
+        specialDisasterRoutes: null,
         pedestrianRamps: null,
         parkingMeters: null,
         linknycKiosks: null,
@@ -139,9 +147,24 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     setInfrastructureData({
       trees: null,
       hydrants: null,
-      parking: null,
       busStops: null,
-      benches: null
+      benches: null,
+      bikeLanes: null,
+      bikeParking: null,
+      citibikeStations: null,
+      subwayEntrances: null,
+      fireLanes: null,
+      specialDisasterRoutes: null,
+      pedestrianRamps: null,
+      parkingMeters: null,
+      linknycKiosks: null,
+      publicRestrooms: null,
+      drinkingFountains: null,
+      sprayShowers: null,
+      parksTrails: null,
+      parkingLots: null,
+      iceLadders: null,
+      parksSigns: null
     });
 
     // Clear loading states
@@ -596,7 +619,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
       // Clear focus and all infrastructure - ensure state is properly reset
   const clearFocus = useCallback(() => {
     if (map) {
-      ['trees', 'hydrants', 'busStops', 'benches', 'bikeLanes', 'bikeParking', 'pedestrianRamps', 'parkingMeters', 'linknycKiosks', 'publicRestrooms', 'drinkingFountains', 'sprayShowers', 'parksTrails', 'parkingLots', 'iceLadders', 'parksSigns'].forEach(layerId => {
+      ['trees', 'hydrants', 'busStops', 'benches', 'bikeLanes', 'bikeParking', 'citibikeStations', 'subwayEntrances', 'fireLanes', 'specialDisasterRoutes', 'pedestrianRamps', 'parkingMeters', 'linknycKiosks', 'publicRestrooms', 'drinkingFountains', 'sprayShowers', 'parksTrails', 'parkingLots', 'iceLadders', 'parksSigns'].forEach(layerId => {
         removeInfrastructureLayer(layerId);
       });
     }
@@ -626,6 +649,10 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
       benches: null,
       bikeLanes: null,
       bikeParking: null,
+      citibikeStations: null,
+      subwayEntrances: null,
+      fireLanes: null,
+      specialDisasterRoutes: null,
       pedestrianRamps: null,
       parkingMeters: null,
       linknycKiosks: null,

@@ -22,8 +22,10 @@ export const loadInfrastructureData = async (layerId, bounds) => {
     const maxLng = expanded[1][0];
     const maxLat = expanded[1][1];
     
-    // Use intersects_box for bikeLanes, within_box for others
-    let bboxFilter;
+    // Build the where clause with multiple conditions
+    let whereConditions = [];
+    
+    // Add bounding box filter
     if (layerId === 'bikeLanes') {
       // WKT POLYGON: (minLng minLat, minLng maxLat, maxLng maxLat, maxLng minLat, minLng minLat)
       const wktPoly = `POLYGON((
@@ -33,10 +35,17 @@ export const loadInfrastructureData = async (layerId, bounds) => {
         ${maxLng} ${minLat},
         ${minLng} ${minLat}
       ))`;
-      bboxFilter = `$where=intersects(${endpoint.geoField}, '${wktPoly.replace(/\s+/g, ' ').trim()}')`;
+      whereConditions.push(`intersects(${endpoint.geoField}, '${wktPoly.replace(/\s+/g, ' ').trim()}')`);
     } else {
-      bboxFilter = `$where=within_box(${endpoint.geoField}, ${minLat}, ${minLng}, ${maxLat}, ${maxLng})`;
+      whereConditions.push(`within_box(${endpoint.geoField}, ${minLat}, ${minLng}, ${maxLat}, ${maxLng})`);
     }
+    
+    // Add additional filter conditions for fire lanes and special disaster routes
+    if (endpoint.filterField && endpoint.filterValue) {
+      whereConditions.push(`${endpoint.filterField}='${endpoint.filterValue}'`);
+    }
+    
+    const bboxFilter = `$where=${whereConditions.join(' AND ')}`;
     url = `${endpoint.baseUrl}?${bboxFilter}&$limit=5000`;
     console.log(`[infrastructureService] Fetching ${layerId} with URL:`, url);
   }
@@ -146,6 +155,18 @@ export const filterFeaturesByType = (features, layerId) => {
         
       case 'bikeParking':
         return true; // All bike parking features are valid
+        
+      case 'citibikeStations':
+        return true; // All citibike station features are valid
+        
+      case 'subwayEntrances':
+        return true; // All subway entrance features are valid
+        
+      case 'fireLanes':
+        return true; // All fire lane features are valid
+        
+      case 'specialDisasterRoutes':
+        return true; // All special disaster route features are valid
         
       case 'pedestrianRamps':
         return true; // All pedestrian ramp features are valid
@@ -363,6 +384,82 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
           }
         };
       }
+    case 'citibikeStations':
+      if (useIcons) {
+        return {
+          type: 'symbol',
+          layout: {
+            'icon-image': 'citibike-station-icon',
+            'icon-size': 0.8,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+          },
+          paint: {
+            'icon-color': baseColor,
+            'icon-opacity': 0.9
+          }
+        };
+      } else {
+        return {
+          type: 'circle',
+          paint: {
+            'circle-radius': 6,
+            'circle-color': baseColor,
+            'circle-opacity': 0.9,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': 'white'
+          }
+        };
+      }
+    case 'subwayEntrances':
+      if (useIcons) {
+        return {
+          type: 'symbol',
+          layout: {
+            'icon-image': 'subway-entrance-icon',
+            'icon-size': 0.8,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+          },
+          paint: {
+            'icon-color': baseColor,
+            'icon-opacity': 0.9
+          }
+        };
+      } else {
+        return {
+          type: 'circle',
+          paint: {
+            'circle-radius': 6,
+            'circle-color': baseColor,
+            'circle-opacity': 0.9,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': 'white'
+          }
+        };
+      }
+    case 'fireLanes':
+      // For fire lanes, we use line styling since they are MultiLineString features
+      return {
+        type: 'line',
+        paint: {
+          'line-color': baseColor,
+          'line-width': 4,
+          'line-opacity': 0.8,
+          'line-dasharray': [2, 2]
+        }
+      };
+    case 'specialDisasterRoutes':
+      // For special disaster routes, we use line styling since they are MultiLineString features
+      return {
+        type: 'line',
+        paint: {
+          'line-color': baseColor,
+          'line-width': 4,
+          'line-opacity': 0.8,
+          'line-dasharray': [4, 2]
+        }
+      };
     case 'pedestrianRamps':
       if (useIcons) {
         return {

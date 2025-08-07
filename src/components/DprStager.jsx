@@ -190,16 +190,54 @@ const DprStager = () => {
     });
   }, [permitAreas.focusedArea?.id]);
 
-  // Load permit areas after map and style are fully loaded
+  // Load permit areas after map is ready - use similar logic to useDrawTools
   useEffect(() => {
-    if (!mapLoaded || !styleLoaded || !map || !permitAreas.loadPermitAreas) return;
+    if (!map || !permitAreas.loadPermitAreas) {
+      console.log('DprStager: Waiting for map instance:', { mapExists: !!map });
+      return;
+    }
+    
     if (map.getSource && map.getSource('permit-areas')) {
       console.log('DprStager: Permit areas source already present, skipping load');
       return;
     }
-    console.log('DprStager: Map and style loaded, loading permit areas');
-    permitAreas.loadPermitAreas();
-  }, [mapLoaded, styleLoaded, map, permitAreas.loadPermitAreas]);
+    
+    console.log('DprStager: Map instance available, checking readiness...');
+    
+    const loadWhenReady = () => {
+      if (map.loaded() && map.isStyleLoaded()) {
+        console.log('DprStager: Map confirmed ready, loading permit areas');
+        permitAreas.loadPermitAreas();
+      } else if (map.loaded()) {
+        console.log('DprStager: Map loaded but style not ready, waiting for style...');
+        // Wait for style to load
+        map.once('style.load', () => {
+          console.log('DprStager: Style loaded, now loading permit areas');
+          permitAreas.loadPermitAreas();
+        });
+      } else {
+        console.log('DprStager: Map not loaded yet, waiting for load event...');
+        // Wait for map to load
+        map.once('load', () => {
+          console.log('DprStager: Map load event received, loading permit areas');
+          permitAreas.loadPermitAreas();
+        });
+      }
+    };
+    
+    // Try immediately, then use timeout as fallback
+    loadWhenReady();
+    
+    // Fallback timeout in case events don't fire
+    const timeoutId = setTimeout(() => {
+      if (map && map.loaded() && map.isStyleLoaded() && !map.getSource('permit-areas')) {
+        console.log('DprStager: Fallback timeout triggered, loading permit areas');
+        permitAreas.loadPermitAreas();
+      }
+    }, 2000);
+    
+    return () => clearTimeout(timeoutId);
+  }, [map, permitAreas.loadPermitAreas]);
 
   // Handle basemap style changes with proper timing
   const handleStyleChange = useCallback(() => {
@@ -210,38 +248,59 @@ const DprStager = () => {
     const reinitializeLayers = () => {
       console.log('Style fully loaded, now re-initializing layers...');
       
-      // Re-initialize permit areas
-      if (permitAreas.loadPermitAreas) {
-        permitAreas.loadPermitAreas();
-      }
-      
-      // Re-initialize infrastructure layers if there's a focused area
-      if (permitAreas.focusedArea) {
-        Object.entries(layers).forEach(([layerId, config]) => {
-          if (layerId !== 'permitAreas' && config.visible) {
-            infrastructure.toggleLayer(layerId);
-          }
-        });
-      }
-      
-      // Re-initialize draw controls after layers are handled
-      setTimeout(() => {
-        if (drawTools.forceReinitialize) {
-          drawTools.forceReinitialize();
+      // Wait for the map to be completely ready
+      const waitForMapReady = () => {
+        if (!map.loaded() || !map.isStyleLoaded()) {
+          setTimeout(waitForMapReady, 50);
+          return;
         }
-      }, 300);
+        
+        // Re-initialize permit areas
+        if (permitAreas.loadPermitAreas) {
+          permitAreas.loadPermitAreas();
+        }
+        
+        // Re-initialize infrastructure layers if there's a focused area
+        if (permitAreas.focusedArea) {
+          Object.entries(layers).forEach(([layerId, config]) => {
+            if (layerId !== 'permitAreas' && config.visible) {
+              infrastructure.toggleLayer(layerId);
+            }
+          });
+        }
+        
+        // Re-initialize draw controls after layers are handled
+        setTimeout(() => {
+          if (drawTools.forceReinitialize) {
+            drawTools.forceReinitialize();
+          }
+        }, 300);
+      };
+      
+      // Add a delay to ensure style is fully processed
+      setTimeout(waitForMapReady, 200);
     };
 
-    // Wait for the style to be fully loaded before reinitializing
+    // Always wait for the next style.load event, even if style appears loaded
+    // This ensures we catch the completion of any ongoing style change
+    const styleLoadHandler = () => {
+      console.log('Style load event received, scheduling layer reinitialization');
+      // Add additional delay to ensure all style resources are ready
+      setTimeout(reinitializeLayers, 150);
+    };
+    
+    // Remove any existing listener and add new one
+    map.off('style.load', styleLoadHandler);
+    map.once('style.load', styleLoadHandler);
+    
+    // Fallback: if style appears already loaded, still trigger reinitialization
     if (map.isStyleLoaded()) {
-      // Style is already loaded, proceed immediately
-      reinitializeLayers();
-    } else {
-      // Wait for style to load
-      map.once('style.load', () => {
-        // Add additional delay to ensure all style resources are ready
-        setTimeout(reinitializeLayers, 100);
-      });
+      console.log('Style appears already loaded, but still waiting for next style.load event');
+      // Set a backup timeout in case the style.load event doesn't fire
+      setTimeout(() => {
+        console.log('Backup timeout triggered for style change');
+        reinitializeLayers();
+      }, 2000);
     }
   }, [map, permitAreas, layers, infrastructure, drawTools.forceReinitialize]);
 

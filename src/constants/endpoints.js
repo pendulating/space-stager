@@ -10,6 +10,30 @@ export const INFRASTRUCTURE_ENDPOINTS = {
     geoField: 'the_geom',
     isLocal: false
   },
+  citibikeStations: {
+    baseUrl: '/data/static/citibike_stations/citibike_stations.geojson',
+    geoField: null,
+    isLocal: true
+  },
+  subwayEntrances: {
+    baseUrl: 'https://data.ny.gov/resource/i9wp-a4ja.geojson',
+    geoField: 'the_geom',
+    isLocal: false
+  },
+  fireLanes: {
+    baseUrl: 'https://data.cityofnewyork.us/resource/inkn-q76z.geojson',
+    geoField: 'the_geom',
+    isLocal: false,
+    filterField: 'fire_lane',
+    filterValue: 'True'
+  },
+  specialDisasterRoutes: {
+    baseUrl: 'https://data.cityofnewyork.us/resource/inkn-q76z.geojson',
+    geoField: 'the_geom',
+    isLocal: false,
+    filterField: 'special_disaster',
+    filterValue: 'True'
+  },
   pedestrianRamps: {
     baseUrl: 'https://data.cityofnewyork.us/resource/ufzp-rrqu.geojson',
     geoField: 'the_geom',

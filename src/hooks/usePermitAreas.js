@@ -513,80 +513,87 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       console.log('PermitAreas: No map instance available for loading', { map });
       return;
     }
+    
+    // More robust readiness check
+    if (!map.loaded() || !map.isStyleLoaded()) {
+      console.log('PermitAreas: Map not fully ready, deferring load');
+      return;
+    }
+
     console.log('PermitAreas: loadPermitAreas called', { mapLoaded, mapExists: !!map });
+    
     // Check if already loaded to prevent duplicate loading
     if (map.getSource('permit-areas')) {
       console.log('PermitAreas: Already loaded, skipping');
       return;
     }
+    
     console.log('PermitAreas: Starting to load permit areas using service');
     setIsLoading(true);
     setLoadError(null);
 
-    const maxRetries = 3;
-    let retryCount = 0;
-
-    const requiredLayers = ['permit-areas-fill', 'permit-areas-outline'];
-
-    const attemptLoad = async () => {
-      try {
-        // Add a small delay to ensure map is fully ready
-        await new Promise(resolve => setTimeout(resolve, 100));
-        // Double-check map is still available and ready
-        if (!map || !map.getStyle() || !map.loaded()) {
-          throw new Error('Map not ready for layer loading');
-        }
-        console.log('PermitAreas: Calling loadPermitAreasService', { mapLoaded, mapExists: !!map });
-        const features = await loadPermitAreasService(map);
-        // Verify layers were actually added and are visible
-        for (const layerId of requiredLayers) {
-          if (!map.getLayer(layerId)) {
-            throw new Error(`Layer not found after service call: ${layerId}`);
-          }
-          const visibility = map.getLayoutProperty(layerId, 'visibility');
-          if (visibility !== 'visible') {
-            console.log(`PermitAreas: Layer ${layerId} not visible, fixing...`);
-            map.setLayoutProperty(layerId, 'visibility', 'visible');
-          }
-        }
-        // Defensive polling: after 2s, check if layers are present, retry if not (up to 2 more times)
-        let pollTries = 0;
-        const pollForLayers = () => {
-          pollTries++;
-          let allPresent = requiredLayers.every(layerId => map.getLayer(layerId));
-          console.log(`PermitAreas: Polling for layers (try ${pollTries}):`, requiredLayers.map(id => ({ id, present: !!map.getLayer(id) })));
-          if (!allPresent && pollTries < 3 && retryCount < maxRetries) {
-            setTimeout(() => {
-              // Double-check that layers are still missing and we haven't exceeded retry count
-              if (!requiredLayers.every(layerId => map.getLayer(layerId)) && retryCount < maxRetries) {
-                console.warn('PermitAreas: Defensive reload triggered');
-                attemptLoad();
-              }
-            }, 2000);
+    try {
+      // Use a more defensive approach - wait for map to be truly ready
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Timeout waiting for map to be ready'));
+        }, 10000);
+        
+        const checkReady = () => {
+          if (map && map.loaded() && map.isStyleLoaded() && map.getStyle()) {
+            clearTimeout(timeout);
+            resolve();
+          } else {
+            setTimeout(checkReady, 50);
           }
         };
-        setTimeout(pollForLayers, 2000);
-        setPermitAreas(features);
-        console.log(`PermitAreas: Loaded ${features.length} permit areas using service`);
-        // Set up event listeners after successful load
-        setupTooltipListeners();
-        setupPermitAreaClickListeners();
-        setIsLoading(false);
-        console.log('PermitAreas: Loading completed successfully');
-      } catch (error) {
-        retryCount++;
-        console.warn(`PermitAreas: Load attempt ${retryCount} failed:`, error.message);
-        if (retryCount < maxRetries) {
-          console.log(`PermitAreas: Retrying in ${retryCount * 500}ms...`);
-          setTimeout(() => attemptLoad(), retryCount * 500);
-        } else {
-          console.error('PermitAreas: All retry attempts failed:', error);
-          setLoadError(error.message);
-          setIsLoading(false);
+        
+        checkReady();
+      });
+
+      console.log('PermitAreas: Map confirmed ready, calling service');
+      const features = await loadPermitAreasService(map);
+      
+      // Verify layers were created successfully
+      const requiredLayers = ['permit-areas-fill', 'permit-areas-outline', 'permit-areas-focused-fill', 'permit-areas-focused-outline'];
+      
+      // Wait a bit for layers to be fully registered
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      for (const layerId of requiredLayers) {
+        if (!map.getLayer(layerId)) {
+          throw new Error(`Required layer not found: ${layerId}`);
         }
       }
-    };
-    await attemptLoad();
+
+      setPermitAreas(features);
+      console.log(`PermitAreas: Successfully loaded ${features.length} permit areas`);
+      
+      // Set up event listeners after successful load
+      setupTooltipListeners();
+      setupPermitAreaClickListeners();
+      setIsLoading(false);
+      
+    } catch (error) {
+      console.error('PermitAreas: Failed to load permit areas:', error);
+      setLoadError(error.message);
+      setIsLoading(false);
+      
+      // Clean up on failure
+      try {
+        if (map.getSource('permit-areas')) {
+          const layersToRemove = ['permit-areas-focused-outline', 'permit-areas-focused-fill', 'permit-areas-outline', 'permit-areas-fill'];
+          layersToRemove.forEach(layerId => {
+            if (map.getLayer(layerId)) {
+              map.removeLayer(layerId);
+            }
+          });
+          map.removeSource('permit-areas');
+        }
+      } catch (cleanupError) {
+        console.warn('Error during cleanup:', cleanupError);
+      }
+    }
   }, [map, mapLoaded, setupTooltipListeners, setupPermitAreaClickListeners, mode]);
 
   // Clear focus function
