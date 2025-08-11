@@ -550,27 +550,37 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   }, [map, calculateGeometryArea, focusOnPermitArea]);
 
   // Function to load permit areas using the service
+  const loadInFlightRef = useRef(false);
   const loadPermitAreas = useCallback(async () => {
+    if (loadInFlightRef.current) {
+      console.log('PermitAreas: Load already in progress, skipping concurrent call');
+      return;
+    }
     if (!map) {
       console.log('PermitAreas: No map instance available for loading', { map });
       return;
     }
     
-    // More robust readiness check
-    if (!map.loaded() || !map.isStyleLoaded()) {
-      console.log('PermitAreas: Map not fully ready, deferring load');
-      return;
-    }
-
     console.log('PermitAreas: loadPermitAreas called', { mapLoaded, mapExists: !!map });
     
-    // Check if already loaded to prevent duplicate loading
+    // Check if already fully initialized (source + all expected layers)
     if (map.getSource('permit-areas')) {
-      console.log('PermitAreas: Already loaded, skipping');
-      return;
+      const requiredLayers = [
+        'permit-areas-fill',
+        'permit-areas-outline',
+        'permit-areas-focused-fill',
+        'permit-areas-focused-outline'
+      ];
+      const allLayersExist = requiredLayers.every(id => map.getLayer && map.getLayer(id));
+      if (allLayersExist) {
+        console.log('PermitAreas: Already fully initialized, skipping');
+        return;
+      }
+      console.log('PermitAreas: Source exists but layers missing, proceeding to (re)load');
     }
     
     console.log('PermitAreas: Starting to load permit areas using service');
+    loadInFlightRef.current = true;
     setIsLoading(true);
     setLoadError(null);
 
@@ -603,12 +613,21 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       await new Promise(resolve => setTimeout(resolve, 100));
       
       for (const layerId of requiredLayers) {
-        if (!map.getLayer(layerId)) {
+        const layer = map.getLayer(layerId);
+        if (!layer) {
           throw new Error(`Required layer not found: ${layerId}`);
         }
+        // Ensure layers are visible if user toggled permitAreas on
+        try {
+          const visibility = map.getLayoutProperty(layerId, 'visibility');
+          if (visibility !== 'visible') {
+            map.setLayoutProperty(layerId, 'visibility', 'visible');
+          }
+        } catch (_) {}
       }
 
-      setPermitAreas(features);
+      // Defensive: ensure features is an array
+      setPermitAreas(Array.isArray(features) ? features : []);
       console.log(`PermitAreas: Successfully loaded ${features.length} permit areas`);
       
       // Set up event listeners after successful load
@@ -635,8 +654,41 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       } catch (cleanupError) {
         console.warn('Error during cleanup:', cleanupError);
       }
+    } finally {
+      loadInFlightRef.current = false;
     }
   }, [map, mapLoaded, setupTooltipListeners, setupPermitAreaClickListeners, mode]);
+
+  // Watchdog: verify permit area layers shortly after mount/style changes and retry if missing
+  useEffect(() => {
+    if (!map) return;
+    let canceled = false;
+    const requiredLayers = [
+      'permit-areas-fill',
+      'permit-areas-outline',
+      'permit-areas-focused-fill',
+      'permit-areas-focused-outline'
+    ];
+    let attempts = 0;
+    const maxAttempts = 4;
+
+    const verifyAndRepair = async () => {
+      if (canceled) return;
+      const hasSource = !!(map.getSource && map.getSource('permit-areas'));
+      const allLayers = requiredLayers.every(id => map.getLayer && map.getLayer(id));
+      if (hasSource && allLayers) return; // all good
+      if (attempts >= maxAttempts) return; // give up silently
+      attempts += 1;
+      try {
+        await loadPermitAreas();
+      } catch (_) {}
+      setTimeout(() => { if (!canceled) verifyAndRepair(); }, 300);
+    };
+
+    // Kick off verification shortly after mount/style ready
+    const t = setTimeout(verifyAndRepair, 200);
+    return () => { canceled = true; clearTimeout(t); };
+  }, [map, loadPermitAreas]);
 
   // Clear focus function
   const clearFocus = useCallback(() => {

@@ -31,18 +31,93 @@ export const loadPermitAreas = async (map) => {
           checkLoaded();
         });
       }
-      // Clean up any existing source/layers
-      if (map.getSource('permit-areas')) {
-        console.log('PermitAreas service: Source already exists, removing first');
-        if (map.getLayer('permit-areas-focused-outline')) map.removeLayer('permit-areas-focused-outline');
-        if (map.getLayer('permit-areas-focused-fill')) map.removeLayer('permit-areas-focused-fill');
-        if (map.getLayer('permit-areas-outline')) map.removeLayer('permit-areas-outline');
-        if (map.getLayer('permit-areas-fill')) map.removeLayer('permit-areas-fill');
-        map.removeSource('permit-areas');
+      // Pre-initialize source and layers with empty data to avoid flicker and event races
+      const styleLayers = map.getStyle().layers;
+      let firstSymbolId;
+      for (let i = 0; i < styleLayers.length; i++) {
+        if (styleLayers[i].type === 'symbol') {
+          firstSymbolId = styleLayers[i].id;
+          break;
+        }
       }
-      // Fetch data
-      console.log(`PermitAreas service: Fetching data from ${MAP_CONFIG.permitAreaSource} (attempt ${attempt})`);
-      const response = await fetch(MAP_CONFIG.permitAreaSource);
+      if (!map.getSource('permit-areas')) {
+        map.addSource('permit-areas', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] }
+        });
+      }
+      if (!map.getLayer('permit-areas-fill')) {
+        map.addLayer({
+          id: 'permit-areas-fill',
+          type: 'fill',
+          source: 'permit-areas',
+          layout: { 'visibility': 'visible' },
+          paint: { 'fill-color': '#f97316', 'fill-opacity': 0.2 }
+        }, firstSymbolId);
+      }
+      if (!map.getLayer('permit-areas-outline')) {
+        map.addLayer({
+          id: 'permit-areas-outline',
+          type: 'line',
+          source: 'permit-areas',
+          layout: { 'visibility': 'visible' },
+          paint: { 'line-color': '#f97316', 'line-width': 1 }
+        }, firstSymbolId);
+      }
+      if (!map.getLayer('permit-areas-focused-fill')) {
+        map.addLayer({
+          id: 'permit-areas-focused-fill',
+          type: 'fill',
+          source: 'permit-areas',
+          filter: ['==', ['get', 'system'], ''],
+          layout: { 'visibility': 'visible' },
+          paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.3 }
+        }, firstSymbolId);
+      }
+      if (!map.getLayer('permit-areas-focused-outline')) {
+        map.addLayer({
+          id: 'permit-areas-focused-outline',
+          type: 'line',
+          source: 'permit-areas',
+          filter: ['==', ['get', 'system'], ''],
+          layout: { 'visibility': 'visible' },
+          paint: { 'line-color': '#3b82f6', 'line-width': 3, 'line-dasharray': [2, 2], 'line-opacity': 1 }
+        }, firstSymbolId);
+      }
+
+      // Fetch data (always fetch to refresh search/index) with cache bypass
+      // Build a cache-busting URL and force a network fetch to avoid flaky cached responses
+      const buildUrl = (extraParam) => {
+        try {
+          const u = new URL(MAP_CONFIG.permitAreaSource, window.location.origin);
+          u.searchParams.set('_ts', String(Date.now()));
+          if (extraParam) u.searchParams.set('_rnd', String(extraParam));
+          return u.toString();
+        } catch (_) {
+          // Fallback for non-browser environments
+          return `${MAP_CONFIG.permitAreaSource}?_ts=${Date.now()}${extraParam ? `&_rnd=${extraParam}` : ''}`;
+        }
+      };
+
+      async function fetchWithCacheBypass() {
+        const primaryUrl = buildUrl();
+        console.log(`PermitAreas service: Fetching data from ${primaryUrl} (attempt ${attempt})`);
+        let response = await fetch(primaryUrl, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, max-age=0',
+            Pragma: 'no-cache'
+          }
+        });
+        if (!response.ok || response.status === 304) {
+          const fallbackUrl = buildUrl(Math.random());
+          console.warn(`PermitAreas service: Primary fetch not ok (status ${response.status}). Retrying with ${fallbackUrl}`);
+          response = await fetch(fallbackUrl, { cache: 'reload' });
+        }
+        return response;
+      }
+
+      const response = await fetchWithCacheBypass();
       if (!response.ok) {
         throw new Error(`HTTP error! Status: ${response.status}`);
       }
@@ -50,69 +125,29 @@ export const loadPermitAreas = async (map) => {
       if (!data.features || !Array.isArray(data.features)) {
         throw new Error('Invalid GeoJSON data structure');
       }
-      // Add source
-      map.addSource('permit-areas', {
-        type: 'geojson',
-        data: data
-      });
-      // Wait for source to be fully loaded (sourcedata event)
-      await new Promise((resolve, reject) => {
-        let timeout = setTimeout(() => {
-          reject(new Error('Timed out waiting for permit-areas source to load'));
-        }, 10000);
-        function onSourceData(e) {
-          if (
-            e.sourceId === 'permit-areas' &&
-            map.isSourceLoaded &&
-            map.isSourceLoaded('permit-areas')
-          ) {
-            map.off('sourcedata', onSourceData);
-            clearTimeout(timeout);
-            resolve();
-          }
-        }
-        map.on('sourcedata', onSourceData);
-      });
-      // Get the first symbol layer ID
-      const layers = map.getStyle().layers;
-      let firstSymbolId;
-      for (let i = 0; i < layers.length; i++) {
-        if (layers[i].type === 'symbol') {
-          firstSymbolId = layers[i].id;
-          break;
-        }
+      // Update source data and poll for readiness to avoid missing events
+      const src = map.getSource('permit-areas');
+      if (src && src.setData) {
+        src.setData(data);
       }
-      // Add layers
-      map.addLayer({
-        id: 'permit-areas-fill',
-        type: 'fill',
-        source: 'permit-areas',
-        layout: { 'visibility': 'visible' },
-        paint: { 'fill-color': '#f97316', 'fill-opacity': 0.2 }
-      }, firstSymbolId);
-      map.addLayer({
-        id: 'permit-areas-outline',
-        type: 'line',
-        source: 'permit-areas',
-        layout: { 'visibility': 'visible' },
-        paint: { 'line-color': '#f97316', 'line-width': 1 }
-      }, firstSymbolId);
-      map.addLayer({
-        id: 'permit-areas-focused-fill',
-        type: 'fill',
-        source: 'permit-areas',
-        filter: ['==', 'id', ''],
-        layout: { 'visibility': 'visible' },
-        paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.3 }
-      }, firstSymbolId);
-      map.addLayer({
-        id: 'permit-areas-focused-outline',
-        type: 'line',
-        source: 'permit-areas',
-        filter: ['==', 'id', ''],
-        layout: { 'visibility': 'visible' },
-        paint: { 'line-color': '#3b82f6', 'line-width': 3, 'line-dasharray': [2, 2], 'line-opacity': 1 }
-      }, firstSymbolId);
+      await new Promise((resolve, reject) => {
+        const start = Date.now();
+        const timeoutMs = 10000;
+        const check = () => {
+          try {
+            if (map.isSourceLoaded && map.isSourceLoaded('permit-areas')) {
+              resolve();
+              return;
+            }
+          } catch (_) {}
+          if (Date.now() - start > timeoutMs) {
+            reject(new Error('Timed out waiting for permit-areas source to load'));
+          } else {
+            setTimeout(check, 50);
+          }
+        };
+        check();
+      });
       // Wait for map to be idle (all rendering/data complete)
       await new Promise((resolve, reject) => {
         let timeout = setTimeout(() => {
@@ -125,33 +160,8 @@ export const loadPermitAreas = async (map) => {
         }
         map.on('idle', onIdle);
       });
-      // --- Robust rendering workarounds ---
-      // Short delay before final rendering steps
-      await new Promise(resolve => setTimeout(resolve, 150));
-      // 1. Force a resize and repaint
-      if (map.resize) map.resize();
-      if (map.triggerRepaint) map.triggerRepaint();
-      // 3. Listen for one 'render' event and trigger another repaint
-      await new Promise(resolve => {
-        let didRender = false;
-        function onRender() {
-          if (!didRender) {
-            didRender = true;
-            map.off('render', onRender);
-            if (map.triggerRepaint) map.triggerRepaint();
-            resolve();
-          }
-        }
-        map.on('render', onRender);
-        // Fallback: resolve after 200ms if 'render' doesn't fire
-        setTimeout(() => {
-          if (!didRender) {
-            map.off('render', onRender);
-            resolve();
-          }
-        }, 200);
-      });
-      // --- End robust rendering workarounds ---
+      // Optional short delay to allow rendering to catch up
+      await new Promise(resolve => setTimeout(resolve, 50));
       // Verify all layers were created
       const requiredLayers = ['permit-areas-fill', 'permit-areas-outline', 'permit-areas-focused-fill', 'permit-areas-focused-outline'];
       for (const layerId of requiredLayers) {
@@ -183,12 +193,7 @@ export const loadPermitAreas = async (map) => {
     } catch (error) {
       lastError = error;
       console.error(`PermitAreas service: Error on attempt ${attempt}:`, error);
-      // Clean up before retrying
-      if (map.getLayer('permit-areas-focused-outline')) map.removeLayer('permit-areas-focused-outline');
-      if (map.getLayer('permit-areas-focused-fill')) map.removeLayer('permit-areas-focused-fill');
-      if (map.getLayer('permit-areas-outline')) map.removeLayer('permit-areas-outline');
-      if (map.getLayer('permit-areas-fill')) map.removeLayer('permit-areas-fill');
-      if (map.getSource('permit-areas')) map.removeSource('permit-areas');
+      // Avoid destructive cleanup to reduce flicker; layers will be corrected on next attempt
       if (attempt < MAX_RETRIES) {
         const delay = RETRY_DELAYS[attempt - 1] || 8000;
         console.warn(`PermitAreas service: Retrying in ${delay}ms...`);

@@ -55,7 +55,27 @@ export const initializeMap = async (container) => {
     style: BASEMAP_OPTIONS.carto.url,
     center: MAP_CONFIG.center,
     zoom: MAP_CONFIG.zoom,
-    preserveDrawingBuffer: MAP_CONFIG.preserveDrawingBuffer
+    preserveDrawingBuffer: MAP_CONFIG.preserveDrawingBuffer,
+    transformRequest: (url, resourceType) => {
+      try {
+        // Only touch our permit-areas GeoJSON and avoid breaking tiles/fonts/sprites
+        if (typeof url === 'string' && url.includes('/data/permit-areas/')) {
+          const u = new URL(url, window.location.origin);
+          // Append cache-busting timestamp
+          u.searchParams.set('_ts', String(Date.now()));
+          return {
+            url: u.toString(),
+            headers: {
+              'Cache-Control': 'no-cache, no-store, max-age=0',
+              Pragma: 'no-cache'
+            }
+          };
+        }
+      } catch (_) {
+        // noop
+      }
+      return { url };
+    }
   });
 
   return new Promise((resolve, reject) => {
@@ -302,7 +322,7 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
         
         if (onStyleChange && typeof onStyleChange === 'function') {
           setTimeout(() => {
-            onStyleChange();
+            onStyleChange({ type: 'overlay' });
           }, 100);
         }
         
@@ -415,7 +435,7 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
               
               if (onStyleChange && typeof onStyleChange === 'function') {
                 setTimeout(() => {
-                  onStyleChange();
+                  onStyleChange({ type: 'style' });
                 }, 100);
               }
               
@@ -440,7 +460,7 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
               
               if (onStyleChange && typeof onStyleChange === 'function') {
                 setTimeout(() => {
-                  onStyleChange();
+                  onStyleChange({ type: 'style' });
                 }, 100);
               }
               

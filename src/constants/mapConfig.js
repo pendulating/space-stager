@@ -4,7 +4,8 @@ export const MAP_CONFIG = {
   center: [-73.985, 40.758],
   zoom: 16,
   preserveDrawingBuffer: true,
-  permitAreaSource: '/data/permit-areas/nyc-permit-areas-minified.geojson'
+  permitAreaSource: '/data/permit-areas/nyc-permit-areas-minified.geojson',
+  permitFetchCacheMode: 'no-store'
 };
 
 export const BASEMAP_OPTIONS = {

@@ -191,57 +191,17 @@ const DprStager = () => {
     });
   }, [permitAreas.focusedArea?.id]);
 
-  // Load permit areas after map is ready - use similar logic to useDrawTools
+  // Load permit areas once after initial map load
+  const didInitialPermitLoadRef = useRef(false);
   useEffect(() => {
-    if (!map || !permitAreas.loadPermitAreas) {
-      console.log('DprStager: Waiting for map instance:', { mapExists: !!map });
-      return;
-    }
-    
-    if (map.getSource && map.getSource('permit-areas')) {
-      console.log('DprStager: Permit areas source already present, skipping load');
-      return;
-    }
-    
-    console.log('DprStager: Map instance available, checking readiness...');
-    
-    const loadWhenReady = () => {
-      if (map.loaded() && map.isStyleLoaded()) {
-        console.log('DprStager: Map confirmed ready, loading permit areas');
-        permitAreas.loadPermitAreas();
-      } else if (map.loaded()) {
-        console.log('DprStager: Map loaded but style not ready, waiting for style...');
-        // Wait for style to load
-        map.once('style.load', () => {
-          console.log('DprStager: Style loaded, now loading permit areas');
-          permitAreas.loadPermitAreas();
-        });
-      } else {
-        console.log('DprStager: Map not loaded yet, waiting for load event...');
-        // Wait for map to load
-        map.once('load', () => {
-          console.log('DprStager: Map load event received, loading permit areas');
-          permitAreas.loadPermitAreas();
-        });
-      }
-    };
-    
-    // Try immediately, then use timeout as fallback
-    loadWhenReady();
-    
-    // Fallback timeout in case events don't fire
-    const timeoutId = setTimeout(() => {
-      if (map && map.loaded() && map.isStyleLoaded() && !map.getSource('permit-areas')) {
-        console.log('DprStager: Fallback timeout triggered, loading permit areas');
-        permitAreas.loadPermitAreas();
-      }
-    }, 2000);
-    
-    return () => clearTimeout(timeoutId);
-  }, [map, permitAreas.loadPermitAreas]);
+    if (!map || !permitAreas.loadPermitAreas || didInitialPermitLoadRef.current === true) return;
+    if (!mapLoaded) return;
+    didInitialPermitLoadRef.current = true;
+    permitAreas.loadPermitAreas();
+  }, [map, mapLoaded, permitAreas.loadPermitAreas]);
 
   // Handle basemap style changes with proper timing
-  const handleStyleChange = useCallback(() => {
+  const handleStyleChange = useCallback((evt = { type: 'style' }) => {
     console.log('Basemap style changed, waiting for style to fully load before re-initializing layers...');
     
     if (!map) return;
@@ -256,9 +216,11 @@ const DprStager = () => {
           return;
         }
         
-        // Re-initialize permit areas
-        if (permitAreas.loadPermitAreas) {
-          permitAreas.loadPermitAreas();
+        // Only re-init on true style changes, not overlay toggles
+        if (evt.type === 'style') {
+          if (permitAreas.loadPermitAreas) {
+            permitAreas.loadPermitAreas();
+          }
         }
         
         // Re-initialize infrastructure layers if there's a focused area
@@ -279,26 +241,23 @@ const DprStager = () => {
       setTimeout(waitForMapReady, 200);
     };
 
-    // Always wait for the next style.load event, even if style appears loaded
-    // This ensures we catch the completion of any ongoing style change
-    const styleLoadHandler = () => {
-      console.log('Style load event received, scheduling layer reinitialization');
-      // Add additional delay to ensure all style resources are ready
+    // Only wait for style.load event if this was a style change
+    if (evt.type === 'style') {
+      const styleLoadHandler = () => {
+        console.log('Style load event received, scheduling layer reinitialization');
+        setTimeout(reinitializeLayers, 150);
+      };
+      map.off('style.load', styleLoadHandler);
+      map.once('style.load', styleLoadHandler);
+      if (map.isStyleLoaded()) {
+        setTimeout(() => {
+          console.log('Backup timeout triggered for style change');
+          reinitializeLayers();
+        }, 2000);
+      }
+    } else {
+      // For overlay, reinitialize immediately with a small delay
       setTimeout(reinitializeLayers, 150);
-    };
-    
-    // Remove any existing listener and add new one
-    map.off('style.load', styleLoadHandler);
-    map.once('style.load', styleLoadHandler);
-    
-    // Fallback: if style appears already loaded, still trigger reinitialization
-    if (map.isStyleLoaded()) {
-      console.log('Style appears already loaded, but still waiting for next style.load event');
-      // Set a backup timeout in case the style.load event doesn't fire
-      setTimeout(() => {
-        console.log('Backup timeout triggered for style change');
-        reinitializeLayers();
-      }, 2000);
     }
   }, [map, permitAreas, layers, infrastructure, drawTools.forceReinitialize]);
 
