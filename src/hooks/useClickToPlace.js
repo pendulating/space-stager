@@ -29,8 +29,10 @@ export const useClickToPlace = (map) => {
       'move', 'zoom', 'rotate', 'pitch', 'resize'
     ];
     
+    // Ensure we don't register duplicates across hot reloads/style changes
     const addEventListeners = () => {
       events.forEach(event => {
+        map.off(event, updateObjectPositions);
         map.on(event, updateObjectPositions);
         if (DEBUG) console.log(`ClickToPlace: Added listener for ${event}`);
       });

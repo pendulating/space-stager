@@ -563,11 +563,30 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     if (!map) return;
     
     const pointLayerId = `layer-${layerId}-point`;
+    const lineLayerId = `layer-${layerId}-line`;
+    const polygonLayerId = `layer-${layerId}-polygon`;
     
     try {
+      // Toggle point layer
       if (map.getLayer(pointLayerId)) {
         map.setLayoutProperty(
           pointLayerId,
+          'visibility',
+          visible ? 'visible' : 'none'
+        );
+      }
+      // Toggle line layer
+      if (map.getLayer(lineLayerId)) {
+        map.setLayoutProperty(
+          lineLayerId,
+          'visibility',
+          visible ? 'visible' : 'none'
+        );
+      }
+      // Toggle polygon layer
+      if (map.getLayer(polygonLayerId)) {
+        map.setLayoutProperty(
+          polygonLayerId,
           'visibility',
           visible ? 'visible' : 'none'
         );
@@ -615,6 +634,16 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
       };
     });
   }, [focusedArea, loadInfrastructureLayer, toggleInfrastructureLayerVisibility, setLayers]);
+
+  // Reload any currently visible layers (useful after style changes)
+  const reloadVisibleLayers = useCallback(() => {
+    if (!map || !focusedArea) return;
+    Object.entries(layers).forEach(([layerId, config]) => {
+      if (layerId !== 'permitAreas' && config.visible && !loadingLayersRef.current.has(layerId)) {
+        loadInfrastructureLayer(layerId);
+      }
+    });
+  }, [map, focusedArea, layers, loadInfrastructureLayer]);
 
       // Clear focus and all infrastructure - ensure state is properly reset
   const clearFocus = useCallback(() => {
@@ -671,6 +700,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
   return {
     infrastructureData,
     toggleLayer,
-    clearFocus
+    clearFocus,
+    reloadVisibleLayers
   };
 };

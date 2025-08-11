@@ -76,6 +76,14 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   const [minAllowedZoom, setMinAllowedZoom] = useState(null); // Minimum zoom when focused
   const [isCameraAnimating, setIsCameraAnimating] = useState(false); // Track camera animation state
   const focusedAreaRef = useRef(focusedArea);
+  const listenerRefs = useRef({
+    mouseenterFill: null,
+    mouseleaveFill: null,
+    mousemoveFill: null,
+    clickPermitFill: null,
+    dblclickPermitFill: null,
+    clickGeneral: null
+  });
 
   useEffect(() => {
     focusedAreaRef.current = focusedArea;
@@ -370,22 +378,30 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     if (!map) return;
     
     console.log('Setting up permit area tooltip listeners');
-    
-    map.on('mouseenter', 'permit-areas-fill', () => {
+    // Clean up old handlers if present
+    if (listenerRefs.current.mouseenterFill) {
+      try { map.off('mouseenter', 'permit-areas-fill', listenerRefs.current.mouseenterFill); } catch {}
+    }
+    if (listenerRefs.current.mouseleaveFill) {
+      try { map.off('mouseleave', 'permit-areas-fill', listenerRefs.current.mouseleaveFill); } catch {}
+    }
+    if (listenerRefs.current.mousemoveFill) {
+      try { map.off('mousemove', 'permit-areas-fill', listenerRefs.current.mousemoveFill); } catch {}
+    }
+
+    const onMouseEnter = () => {
       // Check if draw tools are active - if so, don't show tooltip
       if (isDrawingActive()) {
         return; // Don't change cursor or show tooltip when drawing
       }
       
       map.getCanvas().style.cursor = 'pointer';
-    });
-    
-    map.on('mouseleave', 'permit-areas-fill', () => {
+    };
+    const onMouseLeave = () => {
       map.getCanvas().style.cursor = '';
       setTooltip(prev => ({ ...prev, visible: false }));
-    });
-    
-    map.on('mousemove', 'permit-areas-fill', (e) => {
+    };
+    const onMouseMove = (e) => {
       if (e.features.length === 0) return;
       
       // Check if draw tools are active - if so, don't show tooltip
@@ -405,7 +421,15 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
           content: tooltipContent
         });
       }
-    });
+    };
+
+    map.on('mouseenter', 'permit-areas-fill', onMouseEnter);
+    map.on('mouseleave', 'permit-areas-fill', onMouseLeave);
+    map.on('mousemove', 'permit-areas-fill', onMouseMove);
+
+    listenerRefs.current.mouseenterFill = onMouseEnter;
+    listenerRefs.current.mouseleaveFill = onMouseLeave;
+    listenerRefs.current.mousemoveFill = onMouseMove;
   }, [map, buildTooltipContent, isDrawingActive]);
 
   // Enhanced permit area click handling with overlap detection
@@ -413,8 +437,18 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     if (!map) return;
     
     console.log('Setting up permit area click listeners');
-    
-    map.on('click', 'permit-areas-fill', (e) => {
+    // Remove previous handlers if they exist
+    if (listenerRefs.current.clickPermitFill) {
+      try { map.off('click', 'permit-areas-fill', listenerRefs.current.clickPermitFill); } catch {}
+    }
+    if (listenerRefs.current.dblclickPermitFill) {
+      try { map.off('dblclick', 'permit-areas-fill', listenerRefs.current.dblclickPermitFill); } catch {}
+    }
+    if (listenerRefs.current.clickGeneral) {
+      try { map.off('click', listenerRefs.current.clickGeneral); } catch {}
+    }
+
+    const onClickPermitFill = (e) => {
       if (e.features.length === 0) return;
       
       // Disable permit area selection if we're focused on an area (design mode)
@@ -458,9 +492,9 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         focusOnPermitArea(allFeatures[0]);
         setShowOverlapSelector(false);
       }
-    });
-    
-    map.on('dblclick', 'permit-areas-fill', (e) => {
+    };
+
+    const onDblClickPermitFill = (e) => {
       if (e.features.length === 0) return;
       
       // Disable permit area selection if we're focused on an area (design mode)
@@ -481,9 +515,9 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       focusOnPermitArea(feature);
       setShowOverlapSelector(false);
       clearOverlapHighlights(map);
-    });
-    
-    map.on('click', (e) => {
+    };
+
+    const onClickGeneral = (e) => {
       // Disable permit area selection if we're focused on an area (design mode)
       if (focusedAreaRef.current) {
         return;
@@ -504,7 +538,15 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         setShowOverlapSelector(false);
         clearOverlapHighlights(map);
       }
-    });
+    };
+
+    map.on('click', 'permit-areas-fill', onClickPermitFill);
+    map.on('dblclick', 'permit-areas-fill', onDblClickPermitFill);
+    map.on('click', onClickGeneral);
+
+    listenerRefs.current.clickPermitFill = onClickPermitFill;
+    listenerRefs.current.dblclickPermitFill = onDblClickPermitFill;
+    listenerRefs.current.clickGeneral = onClickGeneral;
   }, [map, calculateGeometryArea, focusOnPermitArea]);
 
   // Function to load permit areas using the service

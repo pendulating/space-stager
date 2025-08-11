@@ -15,7 +15,7 @@ import { useClickToPlace } from '../hooks/useClickToPlace';
 import { useSitePlan } from '../contexts/SitePlanContext';
 import { INITIAL_LAYERS } from '../constants/layers';
 import { PLACEABLE_OBJECTS } from '../constants/placeableObjects';
-import { exportPlan, importPlan, exportPermitAreaSiteplan } from '../utils/exportUtils';
+import { exportPlan, importPlan, exportPermitAreaSiteplanV2 } from '../utils/exportUtils';
 import '../styles/eventStager-dpr.css';
 import '../styles/eventStager.css';
 
@@ -132,13 +132,14 @@ const DprStager = () => {
   };
 
   const handleExportSiteplan = (format) => {
-    exportPermitAreaSiteplan(
+    exportPermitAreaSiteplanV2(
       map,
       permitAreas.focusedArea,
       layers,
       drawTools.draw?.current ? drawTools.draw.current.getAll().features : [],
       clickToPlace.droppedObjects,
-      format
+      format,
+      infrastructure?.infrastructureData || null
     );
   };
 
@@ -261,12 +262,9 @@ const DprStager = () => {
         }
         
         // Re-initialize infrastructure layers if there's a focused area
-        if (permitAreas.focusedArea) {
-          Object.entries(layers).forEach(([layerId, config]) => {
-            if (layerId !== 'permitAreas' && config.visible) {
-              infrastructure.toggleLayer(layerId);
-            }
-          });
+        if (permitAreas.focusedArea && infrastructure.reloadVisibleLayers) {
+          // Reload any visible infra layers for the current area
+          infrastructure.reloadVisibleLayers();
         }
         
         // Re-initialize draw controls after layers are handled

@@ -1,5 +1,6 @@
 // utils/exportUtils.js
 import { PLACEABLE_OBJECTS } from '../constants/placeableObjects';
+import { getIconDataUrl, INFRASTRUCTURE_ICONS } from './iconUtils';
 
 // Export event plan
 export const exportPlan = (map, draw, droppedObjects, layers, customShapes) => {
@@ -56,566 +57,424 @@ export const importPlan = (e, map, draw, setCustomShapes, setDroppedObjects, set
   }
 };
 
-// Export permit area siteplan
-export const exportPermitAreaSiteplan = async (map, focusedArea, layers, customShapes, droppedObjects, format = 'png') => {
+// New siteplan export (PDF vector first, PNG optional). Uses offscreen map for basemap and draws vector overlays.
+export const exportPermitAreaSiteplanV2 = async (
+  map,
+  focusedArea,
+  layers,
+  customShapes,
+  droppedObjects,
+  format = 'pdf',
+  infrastructureData = null
+) => {
   if (!map || !focusedArea) {
     alert('Please focus on a permit area first');
     return;
   }
 
-  // Store current map state to restore later
-  let originalCenter, originalZoom, originalPitch, originalBearing;
-  
   try {
-    console.log('Starting export process...');
-    
-    // Store current map state to restore later
-    originalCenter = map.getCenter();
-    originalZoom = map.getZoom();
-    originalPitch = map.getPitch();
-    originalBearing = map.getBearing();
-    
-    // Set map to 2D view for export (top-down view)
-    map.setPitch(0);
-    map.setBearing(0);
-    
-    // Wait for the map to update after setting pitch and bearing
-    await new Promise(resolve => {
-      map.once('moveend', resolve);
-      // Force a move to trigger the event
-      map.triggerRepaint();
-    });
-    
-    // Get the permit area bounds and fit the map optimally to it
-    const permitBounds = getPermitAreaBounds(focusedArea);
-    if (permitBounds) {
-      console.log('Permit area bounds:', permitBounds);
-      
-      // Calculate expanded bounds to include context around the permit area
-      const permitWidth = permitBounds[1][0] - permitBounds[0][0];
-      const permitHeight = permitBounds[1][1] - permitBounds[0][1];
-      
-      // Expand by 40% of the permit area size in each direction for better context
-      const expansionFactor = 0.4;
-      const expandedBounds = [
-        [
-          permitBounds[0][0] - (permitWidth * expansionFactor),
-          permitBounds[0][1] - (permitHeight * expansionFactor)
-        ],
-        [
-          permitBounds[1][0] + (permitWidth * expansionFactor),
-          permitBounds[1][1] + (permitHeight * expansionFactor)
-        ]
-      ];
-      
-      console.log('Setting bounds for export:', expandedBounds);
-      
-      // Fit to the expanded bounds in one step for consistent alignment
-      map.fitBounds(expandedBounds, {
-        duration: 0, // Instant fit
-        padding: 20  // Minimal padding for consistent alignment
-      });
-      
-      // Wait for the fit to complete
-      await new Promise(resolve => {
-        map.once('moveend', resolve);
-      });
-    }
-    
-    // Wait for map to be ready
-    await new Promise((resolve) => {
-      if (map.loaded() && map.areTilesLoaded()) {
-        resolve();
-      } else {
-        map.once('idle', resolve);
-      }
+    // Page setup: A4 landscape in mm
+    const pageMm = { width: 297, height: 210 };
+    const mapMm = { width: pageMm.width * 0.75, height: pageMm.height };
+    const legendMm = { x: mapMm.width, y: 0, width: pageMm.width * 0.25, height: pageMm.height };
+
+    const dpi = 150; // basemap raster quality
+    const pxPerMm = dpi / 25.4;
+    const mapPx = {
+      width: Math.round(mapMm.width * pxPerMm),
+      height: Math.round(mapMm.height * pxPerMm)
+    };
+
+    // Offscreen container
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.left = '-10000px';
+    container.style.top = '-10000px';
+    container.style.width = `${mapPx.width}px`;
+    container.style.height = `${mapPx.height}px`;
+    document.body.appendChild(container);
+
+    const baseStyle = map.getStyle ? map.getStyle() : undefined;
+    if (!window.maplibregl) throw new Error('MapLibre is not available');
+    const offscreen = new window.maplibregl.Map({
+      container,
+      style: baseStyle || map.getStyle?.(),
+      preserveDrawingBuffer: true,
+      interactive: false,
+      attributionControl: false
     });
 
-    console.log('Map is ready for export');
+    offscreen.setPitch(0);
+    offscreen.setBearing(0);
 
-    // Hide UI elements that shouldn't appear in export
-    const elementsToHide = [
-      '.maplibregl-control-container',
-      '.maplibre-search-box',
-      '.active-tool-indicator',
-      '.map-tooltip',
-      '.placed-object',
-      '.custom-shape-label'
-    ];
-    
-    const hiddenElements = [];
-    elementsToHide.forEach(selector => {
-      const elements = document.querySelectorAll(selector);
-      elements.forEach(el => {
-        hiddenElements.push({ element: el, display: el.style.display });
-        el.style.display = 'none';
-      });
-    });
+    const bounds = getPermitAreaBounds(focusedArea);
+    if (!bounds) throw new Error('Invalid focused area geometry');
 
-    // Force a repaint and wait
-    map.triggerRepaint();
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    console.log('Getting canvas data...');
-    
-    // Get map canvas
-    const mapCanvas = map.getCanvas();
-    console.log('Canvas dimensions:', mapCanvas.width, 'x', mapCanvas.height);
-    
-    // Get image data
-    let mapImageData;
-    try {
-      mapImageData = mapCanvas.toDataURL('image/png');
-      console.log('Canvas export successful, data length:', mapImageData.length);
-    } catch (canvasError) {
-      console.error('Canvas export failed:', canvasError);
-      throw new Error('Cannot export map canvas - this may be due to CORS restrictions with map tiles');
-    }
-
-    // Check if we actually got image data
-    if (!mapImageData || mapImageData === 'data:,') {
-      throw new Error('Canvas appears to be empty - map may not be fully loaded');
-    }
-
-    console.log('Creating export canvas...');
-    
-    // Create export canvas
-    const exportCanvas = document.createElement('canvas');
-    const ctx = exportCanvas.getContext('2d');
-    
-    // Set dimensions for A4 paper (landscape)
-    const scale = 2;
-    const width = 1400 * scale;  // A4 landscape width
-    const height = 1000 * scale; // A4 landscape height
-    exportCanvas.width = width;
-    exportCanvas.height = height;
-    
-    ctx.scale(scale, scale);
-    
-    // White background
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, width / scale, height / scale);
-    
-    // Load map image
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    
     await new Promise((resolve, reject) => {
-      img.onload = () => {
-        console.log('Map image loaded successfully');
-        
-        try {
-          // Calculate map area to maximize space usage while leaving room for title and legend
-          const mapArea = {
-            x: 30,
-            y: 80,
-            width: 1340,  // Use ~96% of canvas width
-            height: 840   // Use ~84% of canvas height
-          };
-          
-          // Draw map image
-          ctx.drawImage(img, mapArea.x, mapArea.y, mapArea.width, mapArea.height);
-          console.log('Map image drawn to canvas');
-          
-          // Draw custom shapes (annotations) on the export canvas
-          if (customShapes && customShapes.length > 0) {
-            console.log('Drawing custom shapes:', customShapes.length);
-            drawCustomShapesOnCanvas(ctx, mapArea, map, customShapes);
-          }
-          
-          // Draw dropped objects on the export canvas
-          if (droppedObjects && droppedObjects.length > 0) {
-            console.log('Drawing dropped objects:', droppedObjects.length);
-            drawDroppedObjectsOnCanvas(ctx, mapArea, map, droppedObjects);
-          }
-          
-          // Add cartographic elements
-          addTitle(ctx, width / scale, focusedArea);
-          addLegend(ctx, mapArea, layers, customShapes, droppedObjects);
-          addScaleBar(ctx, mapArea, map);
-          addCompass(ctx, mapArea);
-          addMetadata(ctx, width / scale, height / scale);
-          
-          console.log('All elements added, creating blob...');
-          
-          // Export based on format
-          if (format === 'pdf') {
-            // For PDF, we need to convert the canvas to PDF
-            console.log('Creating PDF...');
-            // For now, we'll create a high-quality PNG and suggest using a PDF converter
-            exportCanvas.toBlob((blob) => {
-              if (blob) {
-                console.log('Blob created successfully, size:', blob.size);
-                // Convert PNG to PDF using jsPDF
-                import('jspdf').then(({ default: jsPDF }) => {
-                  const pdf = new jsPDF('landscape', 'mm', 'a4');
-                  const imgData = URL.createObjectURL(blob);
-                  
-                  pdf.addImage(imgData, 'PNG', 0, 0, 297, 210); // A4 landscape dimensions
-                  pdf.save(`siteplan-${getSafeFilename(focusedArea)}.pdf`);
-                  
-                  URL.revokeObjectURL(imgData);
-                }).catch(() => {
-                  // Fallback to PNG if jsPDF is not available
-                  downloadBlob(blob, `siteplan-${getSafeFilename(focusedArea)}.png`);
-                  alert('PDF generation failed. PNG file created instead.');
-                });
-              } else {
-                console.error('Failed to create blob');
-                alert('Failed to create export file');
-              }
-              
-              // Restore map state
-              map.setCenter(originalCenter);
-              map.setZoom(originalZoom);
-              map.setPitch(originalPitch);
-              map.setBearing(originalBearing);
-              
-              // Restore UI elements
-              hiddenElements.forEach(({ element, display }) => {
-                element.style.display = display;
-              });
-              
-              resolve();
-            }, 'image/png', 0.95);
-          } else {
-            // For PNG and JPG
-            exportCanvas.toBlob((blob) => {
-              if (blob) {
-                console.log('Blob created successfully, size:', blob.size);
-                downloadBlob(blob, `siteplan-${getSafeFilename(focusedArea)}.${format}`);
-              } else {
-                console.error('Failed to create blob');
-                alert('Failed to create export file');
-              }
-              
-              // Restore map state
-              map.setCenter(originalCenter);
-              map.setZoom(originalZoom);
-              map.setPitch(originalPitch);
-              map.setBearing(originalBearing);
-              
-              // Restore UI elements
-              hiddenElements.forEach(({ element, display }) => {
-                element.style.display = display;
-              });
-              
-              resolve();
-            }, `image/${format}`, 0.95);
-          }
-          
-        } catch (drawError) {
-          console.error('Error drawing to canvas:', drawError);
-          reject(drawError);
-        }
-      };
-      
-      img.onerror = (err) => {
-        console.error('Failed to load map image:', err);
-        reject(new Error('Failed to load captured map image'));
-      };
-      
-      console.log('Setting image source...');
-      img.src = mapImageData;
+      const timeout = setTimeout(() => reject(new Error('Offscreen map style load timeout')), 8000);
+      const ready = () => { clearTimeout(timeout); resolve(); };
+      if (offscreen.isStyleLoaded()) ready(); else offscreen.once('style.load', ready);
     });
 
+    // Fit bounds to the left 75% viewport without scaling the image output
+    offscreen.fitBounds(bounds, { padding: 12, duration: 0 });
+
+    await new Promise((resolve) => {
+      if (offscreen.loaded() && offscreen.areTilesLoaded()) resolve();
+      else offscreen.once('idle', resolve);
+    });
+
+    const baseImageUrl = offscreen.getCanvas().toDataURL('image/png');
+    if (!baseImageUrl || baseImageUrl === 'data:,') throw new Error('Failed to capture basemap image');
+
+    // Preload PNG icons for visible layers for both PDF and PNG flows
+    const pngIcons = await loadVisiblePngIcons(layers);
+
+    if (format === 'png') {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(pageMm.width * pxPerMm);
+      canvas.height = Math.round(pageMm.height * pxPerMm);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const img = await loadImage(baseImageUrl);
+      ctx.drawImage(img, 0, 0, mapPx.width, mapPx.height);
+
+      drawOverlaysOnCanvas(ctx, offscreen, mapPx, { x: 0, y: 0 }, layers, customShapes, droppedObjects, infrastructureData, focusedArea, pngIcons);
+
+      const legendPx = { x: mapPx.width, y: 0, width: canvas.width - mapPx.width, height: canvas.height };
+      const numbered = numberCustomShapes(customShapes || []);
+      drawLegendOnCanvas(ctx, legendPx, layers, numbered, droppedObjects, focusedArea, pngIcons);
+
+      canvas.toBlob((blob) => {
+        if (!blob) { alert('Failed to create PNG'); cleanupOffscreen(offscreen, container); return; }
+        downloadBlob(blob, `siteplan-${getSafeFilename(focusedArea)}.png`);
+        cleanupOffscreen(offscreen, container);
+      }, 'image/png', 0.95);
+      return;
+    }
+
+    const { default: jsPDF } = await import('jspdf');
+    const pdf = new jsPDF('landscape', 'mm', 'a4');
+    pdf.addImage(baseImageUrl, 'PNG', 0, 0, mapMm.width, mapMm.height);
+
+    const mmFromPx = { x: mapMm.width / mapPx.width, y: mapMm.height / mapPx.height };
+    const toMm = (pt) => ({ x: pt.x * mmFromPx.x, y: pt.y * mmFromPx.y });
+    const project = (lng, lat) => offscreen.project([lng, lat]);
+
+    const numberedShapes = numberCustomShapes(customShapes);
+
+    // Skip manual orange permit overlay; rely on underlying dashed permit styling if present
+    // drawPermitAreaOnPdf(pdf, focusedArea, project, toMm);
+    drawInfrastructureOnPdf(pdf, layers, infrastructureData, project, toMm, pngIcons);
+    drawDroppedObjectsOnPdf(pdf, droppedObjects, project, toMm);
+    drawCustomShapesOnPdf(pdf, numberedShapes, project, toMm);
+
+    drawLegendOnPdf(pdf, { x: legendMm.x, y: legendMm.y, width: legendMm.width, height: legendMm.height }, layers, numberedShapes, droppedObjects, focusedArea, pngIcons);
+
+    pdf.save(`siteplan-${getSafeFilename(focusedArea)}.pdf`);
+    cleanupOffscreen(offscreen, container);
   } catch (error) {
     console.error('Export failed:', error);
     alert(`Export failed: ${error.message}`);
-    
-    // Restore map state on error
-    try {
-      map.setCenter(originalCenter);
-      map.setZoom(originalZoom);
-      map.setPitch(originalPitch);
-      map.setBearing(originalBearing);
-    } catch (restoreError) {
-      console.error('Failed to restore map state:', restoreError);
-    }
-    
-    // Restore UI elements on error
-    const elementsToHide = [
-      '.maplibregl-control-container',
-      '.maplibre-search-box',
-      '.active-tool-indicator',
-      '.map-tooltip',
-      '.placed-object',
-      '.custom-shape-label'
-    ];
-    
-    elementsToHide.forEach(selector => {
-      const elements = document.querySelectorAll(selector);
-      elements.forEach(el => {
-        el.style.display = '';
-      });
-    });
   }
 };
 
-// Helper functions for siteplan export
-const addTitle = (ctx, width, focusedArea) => {
-  ctx.fillStyle = '#1f2937';
-  ctx.font = 'bold 24px Arial';
-  ctx.textAlign = 'center';
-  const title = `Site Plan: ${focusedArea.properties.name || 'Permit Area'}`;
-  ctx.fillText(title, width / 2, 40);
-  
-  // Add subtitle
-  ctx.font = '16px Arial';
-  ctx.fillStyle = '#6b7280';
-  let subtitle = '';
-  if (focusedArea.properties.propertyname) {
-    subtitle += focusedArea.properties.propertyname;
-  }
-  if (focusedArea.properties.subpropertyname) {
-    subtitle += ` › ${focusedArea.properties.subpropertyname}`;
-  }
-  if (subtitle) {
-    ctx.fillText(subtitle, width / 2, 65);
-  }
+const cleanupOffscreen = (offscreen, container) => {
+  try { offscreen.remove(); } catch {}
+  if (container && container.parentNode) container.parentNode.removeChild(container);
 };
 
-const addLegend = (ctx, mapArea, layers, customShapes, droppedObjects) => {
-  const legendX = mapArea.x + mapArea.width + 20;
-  const legendY = mapArea.y + 20;
-  let currentY = legendY;
-  
-  // Legend title
-  ctx.fillStyle = '#1f2937';
-  ctx.font = 'bold 16px Arial';
-  ctx.textAlign = 'left';
-  ctx.fillText('Legend', legendX, currentY);
-  currentY += 30;
-  
-  // Add permit area legend
-  ctx.fillStyle = layers.permitAreas.color;
-  ctx.fillRect(legendX, currentY - 10, 15, 15);
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(legendX, currentY - 10, 15, 15);
-  
-  ctx.fillStyle = '#374151';
-  ctx.font = '12px Arial';
-  ctx.fillText('Permit Area', legendX + 25, currentY);
-  currentY += 25;
-  
-  // Add visible infrastructure layers
-  Object.entries(layers).forEach(([layerId, config]) => {
-    if (layerId !== 'permitAreas' && config.visible) {
-      // Draw colored circle for point features
-      ctx.fillStyle = config.color;
-      ctx.beginPath();
-      ctx.arc(legendX + 7, currentY - 5, 6, 0, 2 * Math.PI);
-      ctx.fill();
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      
-      ctx.fillStyle = '#374151';
-      ctx.font = '12px Arial';
-      ctx.fillText(config.name, legendX + 25, currentY);
-      currentY += 20;
-    }
+const loadImage = (src) => new Promise((resolve, reject) => {
+  const img = new Image();
+  img.onload = () => resolve(img);
+  img.onerror = reject;
+  img.crossOrigin = 'anonymous';
+  img.src = src;
+});
+
+const numberCustomShapes = (features) => {
+  if (!features || features.length === 0) return [];
+  const sorted = [...features].sort((a, b) => {
+    const ta = a.geometry?.type || '';
+    const tb = b.geometry?.type || '';
+    if (ta !== tb) return ta.localeCompare(tb);
+    const la = (a.properties?.label || '').toLowerCase();
+    const lb = (b.properties?.label || '').toLowerCase();
+    return la.localeCompare(lb);
   });
-  
-  // Add custom shapes if any
-  if (customShapes && customShapes.length > 0) {
-    currentY += 10;
-    ctx.fillStyle = '#1f2937';
-    ctx.font = 'bold 14px Arial';
-    ctx.fillText('Event Fixtures', legendX, currentY);
-    currentY += 20;
-    
-    customShapes.forEach(shape => {
-      ctx.fillStyle = '#3b82f6';
-      if (shape.type === 'Point') {
-        ctx.beginPath();
-        ctx.arc(legendX + 7, currentY - 5, 4, 0, 2 * Math.PI);
-        ctx.fill();
-      } else {
-        ctx.fillRect(legendX + 3, currentY - 8, 8, 8);
+  return sorted.map((f, idx) => ({ ...f, properties: { ...f.properties, __number: idx + 1 } }));
+};
+
+const hexToRgb = (hex) => {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '#333333');
+  return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : { r: 51, g: 51, b: 51 };
+};
+
+const centroidOfRing = (ring) => {
+  let x = 0, y = 0;
+  ring.forEach(p => { x += p.x; y += p.y; });
+  return { x: x / ring.length, y: y / ring.length };
+};
+
+// Remove duplicate closing point if present (first == last)
+const normalizeRingPoints = (points) => {
+  if (!points || points.length < 2) return points || [];
+  const first = points[0];
+  const last = points[points.length - 1];
+  if (Math.abs(first.x - last.x) < 1e-6 && Math.abs(first.y - last.y) < 1e-6) {
+    return points.slice(0, -1);
+  }
+  return points;
+};
+
+const drawPermitAreaOnPdf = (pdf, focusedArea, project, toMm) => {
+  if (!focusedArea?.geometry) return;
+  const drawPolygon = (coords) => {
+    let pts = coords.map(([lng, lat]) => toMm(project(lng, lat)));
+    pts = normalizeRingPoints(pts);
+    if (pts.length < 3) return;
+    const segments = pts.slice(1).map(p => [p.x - pts[0].x, p.y - pts[0].y]);
+    // Fill (semi-transparent)
+    pdf.saveGraphicsState && pdf.saveGraphicsState();
+    const gs = new pdf.GState({ opacity: 0.12 });
+    if (pdf.setGState) pdf.setGState(gs);
+    pdf.setFillColor(249, 115, 22);
+    pdf.lines(segments, pts[0].x, pts[0].y, [1, 1], 'F', true);
+    pdf.restoreGraphicsState && pdf.restoreGraphicsState();
+    // Stroke
+    pdf.setDrawColor(249, 115, 22);
+    pdf.setLineWidth(0.5);
+    pdf.lines(segments, pts[0].x, pts[0].y, [1, 1], 'S', true);
+  };
+  if (focusedArea.geometry.type === 'Polygon') {
+    drawPolygon(focusedArea.geometry.coordinates[0]);
+  } else if (focusedArea.geometry.type === 'MultiPolygon') {
+    focusedArea.geometry.coordinates.forEach(poly => drawPolygon(poly[0]));
+  }
+};
+
+const drawInfrastructureOnPdf = (pdf, layers, infrastructureData, project, toMm, pngIcons) => {
+  if (!layers) return;
+  const entries = Object.entries(layers).filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible);
+  entries.forEach(([layerId, cfg]) => {
+    const color = hexToRgb(cfg.color || '#333333');
+    const data = infrastructureData?.[layerId];
+    if (!data?.features) return;
+    pdf.setDrawColor(color.r, color.g, color.b);
+    pdf.setFillColor(color.r, color.g, color.b);
+    data.features.forEach((feat) => {
+      const g = feat.geometry;
+      if (!g) return;
+      if (g.type === 'Point') {
+        const p = toMm(project(g.coordinates[0], g.coordinates[1]));
+        const iconSrc = pngIcons?.[layerId];
+        if (iconSrc) {
+          pdf.addImage(iconSrc, 'PNG', p.x - 1.5, p.y - 1.5, 3, 3);
+        } else {
+          pdf.circle(p.x, p.y, 1.2, 'F');
+        }
+      } else if (g.type === 'LineString') {
+        const coords = g.coordinates.map(([lng, lat]) => toMm(project(lng, lat)));
+        if (coords.length < 2) return;
+        pdf.setLineWidth(0.4);
+        pdf.lines(
+          coords.slice(1).map(p => [p.x - coords[0].x, p.y - coords[0].y]),
+          coords[0].x,
+          coords[0].y,
+          [1, 1],
+          'S',
+          false
+        );
+      } else if (g.type === 'MultiLineString') {
+        g.coordinates.forEach(line => {
+          const coords = line.map(([lng, lat]) => toMm(project(lng, lat)));
+          if (coords.length < 2) return;
+          pdf.setLineWidth(0.4);
+          pdf.lines(
+            coords.slice(1).map(p => [p.x - coords[0].x, p.y - coords[0].y]),
+            coords[0].x,
+            coords[0].y,
+            [1, 1],
+            'S',
+            false
+          );
+        });
+      } else if (g.type === 'Polygon') {
+        let ring = g.coordinates[0].map(([lng, lat]) => toMm(project(lng, lat)));
+        ring = normalizeRingPoints(ring);
+        if (ring.length < 3) return;
+        const segs = ring.slice(1).map(p => [p.x - ring[0].x, p.y - ring[0].y]);
+        // Fill light
+        pdf.saveGraphicsState && pdf.saveGraphicsState();
+        if (pdf.setGState) pdf.setGState(new pdf.GState({ opacity: 0.12 }));
+        pdf.setFillColor(color.r, color.g, color.b);
+        pdf.lines(segs, ring[0].x, ring[0].y, [1, 1], 'F', true);
+        pdf.restoreGraphicsState && pdf.restoreGraphicsState();
+        // Stroke
+        pdf.setDrawColor(color.r, color.g, color.b);
+        pdf.setLineWidth(0.4);
+        pdf.lines(segs, ring[0].x, ring[0].y, [1, 1], 'S', true);
+      } else if (g.type === 'MultiPolygon') {
+        g.coordinates.forEach(poly => {
+          let ring = poly[0].map(([lng, lat]) => toMm(project(lng, lat)));
+          ring = normalizeRingPoints(ring);
+          if (ring.length < 3) return;
+          const segs = ring.slice(1).map(p => [p.x - ring[0].x, p.y - ring[0].y]);
+          pdf.saveGraphicsState && pdf.saveGraphicsState();
+          if (pdf.setGState) pdf.setGState(new pdf.GState({ opacity: 0.12 }));
+          pdf.setFillColor(color.r, color.g, color.b);
+          pdf.lines(segs, ring[0].x, ring[0].y, [1, 1], 'F', true);
+          pdf.restoreGraphicsState && pdf.restoreGraphicsState();
+          pdf.setDrawColor(color.r, color.g, color.b);
+          pdf.setLineWidth(0.4);
+          pdf.lines(segs, ring[0].x, ring[0].y, [1, 1], 'S', true);
+        });
       }
-      
-      ctx.fillStyle = '#374151';
-      ctx.font = '11px Arial';
-      const label = shape.label || `${shape.type} (unlabeled)`;
-      ctx.fillText(label, legendX + 20, currentY);
-      currentY += 18;
     });
-  }
-  
-  // Add dropped objects if any
-  if (droppedObjects && droppedObjects.length > 0) {
-    currentY += 10;
-    ctx.fillStyle = '#1f2937';
-    ctx.font = 'bold 14px Arial';
-    ctx.fillText('Equipment', legendX, currentY);
-    currentY += 20;
-    
-    // Group by type for cleaner legend
-    const objectCounts = droppedObjects.reduce((acc, obj) => {
-      acc[obj.type] = (acc[obj.type] || 0) + 1;
-      return acc;
-    }, {});
-    
-    Object.entries(objectCounts).forEach(([type, count]) => {
-      const objectType = PLACEABLE_OBJECTS.find(p => p.id === type);
-      if (!objectType) return;
-      
-      // Draw object representation
-      ctx.fillStyle = objectType.color;
-      ctx.fillRect(legendX + 3, currentY - 8, 8, 8);
-      ctx.strokeStyle = 'white';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(legendX + 3, currentY - 8, 8, 8);
-      
-      ctx.fillStyle = '#374151';
-      ctx.font = '11px Arial';
-      ctx.fillText(`${objectType.name} (${count})`, legendX + 20, currentY);
-      currentY += 18;
-    });
-  }
-};
-
-const addScaleBar = (ctx, mapArea, map) => {
-  const scaleBarX = mapArea.x + 20;
-  const scaleBarY = mapArea.y + mapArea.height - 40;
-  
-  // Calculate scale based on current zoom
-  const zoom = map.getZoom();
-  const metersPerPixel = 40075016.686 * Math.abs(Math.cos(map.getCenter().lat * Math.PI / 180)) / Math.pow(2, zoom + 8);
-  
-  // Determine appropriate scale bar length
-  let scaleLength = 100; // pixels
-  let scaleMeters = Math.round(scaleLength * metersPerPixel);
-  
-  // Round to nice numbers
-  if (scaleMeters > 1000) {
-    scaleMeters = Math.round(scaleMeters / 1000) * 1000;
-  } else if (scaleMeters > 100) {
-    scaleMeters = Math.round(scaleMeters / 100) * 100;
-  } else if (scaleMeters > 10) {
-    scaleMeters = Math.round(scaleMeters / 10) * 10;
-  }
-  
-  scaleLength = scaleMeters / metersPerPixel;
-  
-  // Draw scale bar
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(scaleBarX, scaleBarY);
-  ctx.lineTo(scaleBarX + scaleLength, scaleBarY);
-  ctx.stroke();
-  
-  // Draw end marks
-  ctx.beginPath();
-  ctx.moveTo(scaleBarX, scaleBarY - 5);
-  ctx.lineTo(scaleBarX, scaleBarY + 5);
-  ctx.moveTo(scaleBarX + scaleLength, scaleBarY - 5);
-  ctx.lineTo(scaleBarX + scaleLength, scaleBarY + 5);
-  ctx.stroke();
-  
-  // Add scale text
-  ctx.fillStyle = '#000';
-  ctx.font = '12px Arial';
-  ctx.textAlign = 'center';
-  const scaleText = scaleMeters >= 1000 ? `${scaleMeters / 1000}km` : `${scaleMeters}m`;
-  ctx.fillText(scaleText, scaleBarX + scaleLength / 2, scaleBarY - 10);
-};
-
-const addCompass = (ctx, mapArea) => {
-  const compassX = mapArea.x + mapArea.width - 80;
-  const compassY = mapArea.y + 80;
-  const radius = 25;
-  
-  // Draw compass circle
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(compassX, compassY, radius, 0, 2 * Math.PI);
-  ctx.stroke();
-  
-  // Draw inner circle
-  ctx.beginPath();
-  ctx.arc(compassX, compassY, radius - 8, 0, 2 * Math.PI);
-  ctx.stroke();
-  
-  // Draw north arrow (pointing up)
-  ctx.fillStyle = '#dc2626'; // Red for north
-  ctx.beginPath();
-  ctx.moveTo(compassX, compassY - radius + 5);
-  ctx.lineTo(compassX - 6, compassY - 5);
-  ctx.lineTo(compassX + 6, compassY - 5);
-  ctx.closePath();
-  ctx.fill();
-  
-  // Draw south arrow (pointing down)
-  ctx.fillStyle = '#6b7280'; // Gray for south
-  ctx.beginPath();
-  ctx.moveTo(compassX, compassY + radius - 5);
-  ctx.lineTo(compassX - 4, compassY + 5);
-  ctx.lineTo(compassX + 4, compassY + 5);
-  ctx.closePath();
-  ctx.fill();
-  
-  // Draw cardinal directions
-  ctx.fillStyle = '#000';
-  ctx.font = 'bold 12px Arial';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  
-  // North
-  ctx.fillText('N', compassX, compassY - radius - 8);
-  
-  // South
-  ctx.fillText('S', compassX, compassY + radius + 12);
-  
-  // East
-  ctx.fillText('E', compassX + radius + 8, compassY);
-  
-  // West
-  ctx.fillText('W', compassX - radius - 8, compassY);
-  
-  // Add intermediate directions
-  ctx.font = '10px Arial';
-  
-  // Northeast
-  ctx.fillText('NE', compassX + radius * 0.7, compassY - radius * 0.7);
-  
-  // Northwest
-  ctx.fillText('NW', compassX - radius * 0.7, compassY - radius * 0.7);
-  
-  // Southeast
-  ctx.fillText('SE', compassX + radius * 0.7, compassY + radius * 0.7);
-  
-  // Southwest
-  ctx.fillText('SW', compassX - radius * 0.7, compassY + radius * 0.7);
-  
-  // Draw center dot
-  ctx.fillStyle = '#000';
-  ctx.beginPath();
-  ctx.arc(compassX, compassY, 2, 0, 2 * Math.PI);
-  ctx.fill();
-};
-
-const addMetadata = (ctx, width, height) => {
-  ctx.fillStyle = '#6b7280';
-  ctx.font = '10px Arial';
-  ctx.textAlign = 'left';
-  
-  const metadata = [
-    `Generated: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
-    'NYC Public Space Event Stager',
-    'Data: NYC Open Data Portal'
-  ];
-  
-  let y = height - 30;
-  metadata.forEach(line => {
-    ctx.fillText(line, 50, y);
-    y += 12;
   });
 };
+
+const drawDroppedObjectsOnPdf = (pdf, droppedObjects, project, toMm) => {
+  if (!droppedObjects || droppedObjects.length === 0) return;
+  droppedObjects.forEach((obj) => {
+    const p = toMm(project(obj.position.lng, obj.position.lat));
+    pdf.setFillColor(40, 40, 40);
+    pdf.circle(p.x, p.y, 1.8, 'F');
+  });
+};
+
+const drawCustomShapesOnPdf = (pdf, shapes, project, toMm) => {
+  if (!shapes || shapes.length === 0) return;
+  pdf.setDrawColor(59, 130, 246);
+  pdf.setFillColor(59, 130, 246);
+  shapes.forEach((shape) => {
+    const g = shape.geometry;
+    if (!g) return;
+    let labelPoint = null;
+    if (g.type === 'Point') {
+      const p = toMm(project(g.coordinates[0], g.coordinates[1]));
+      pdf.circle(p.x, p.y, 1.2, 'F');
+      labelPoint = p;
+    } else if (g.type === 'LineString') {
+      const coords = g.coordinates.map(([lng, lat]) => toMm(project(lng, lat)));
+      if (coords.length < 2) return;
+      pdf.setLineWidth(0.5);
+      pdf.lines(
+        coords.slice(1).map(p => [p.x - coords[0].x, p.y - coords[0].y]),
+        coords[0].x,
+        coords[0].y,
+        [1, 1],
+        'S',
+        false
+      );
+      labelPoint = coords[Math.floor(coords.length / 2)];
+    } else if (g.type === 'Polygon') {
+      const ring = g.coordinates[0].map(([lng, lat]) => toMm(project(lng, lat)));
+      if (ring.length < 2) return;
+      pdf.lines(
+        ring.slice(1).map(p => [p.x - ring[0].x, p.y - ring[0].y]),
+        ring[0].x,
+        ring[0].y,
+        [1, 1],
+        'FD',
+        true
+      );
+      labelPoint = centroidOfRing(ring);
+    }
+    if (labelPoint) drawBadge(pdf, labelPoint.x, labelPoint.y, String(shape.properties?.__number || '?'));
+  });
+};
+
+const drawBadge = (pdf, x, y, text) => {
+  const r = 3.2;
+  pdf.setFillColor(255, 255, 255);
+  pdf.circle(x, y, r, 'F');
+  pdf.setDrawColor(59, 130, 246);
+  pdf.setLineWidth(0.4);
+  pdf.circle(x, y, r, 'S');
+  pdf.setTextColor(59, 130, 246);
+  pdf.setFontSize(8);
+  pdf.text(text, x, y + 2.2, { align: 'center', baseline: 'middle' });
+};
+
+const drawLegendOnPdf = (pdf, rect, layers, numberedShapes, droppedObjects, focusedArea, pngIcons) => {
+  // Solid white background behind legend so map content doesn't show through
+  pdf.setFillColor(255, 255, 255);
+  pdf.rect(rect.x, rect.y, rect.width, rect.height, 'F');
+
+  const margin = 6;
+  let cursorY = rect.y + margin;
+  const leftX = rect.x + margin;
+  pdf.setTextColor(31, 41, 55);
+  pdf.setFontSize(14);
+  pdf.text(`Site Plan: ${focusedArea?.properties?.name || 'Permit Area'}`.slice(0, 80), leftX, cursorY);
+  cursorY += 8;
+  pdf.setFontSize(10);
+  pdf.setTextColor(55, 65, 81);
+  pdf.text('Layers', leftX, cursorY);
+  cursorY += 5;
+  Object.entries(layers)
+    .filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible)
+    .forEach(([id, cfg]) => {
+      // Try to use real icon if available
+      const icon = INFRASTRUCTURE_ICONS[id];
+      const png = pngIcons?.[id] || (icon && icon.type === 'png' ? icon.src : null);
+      if (png) {
+        // Embed PNG icon
+        pdf.addImage(png, 'PNG', leftX, cursorY - 6, 6, 6);
+      } else if (icon && icon.type === 'svg') {
+        // Fallback: colored square using configured color
+        const c = hexToRgb(cfg.color || '#333');
+        pdf.setFillColor(c.r, c.g, c.b);
+        pdf.rect(leftX, cursorY - 3.5, 6, 6, 'F');
+      } else {
+        const c = hexToRgb(cfg.color || '#333');
+        pdf.setFillColor(c.r, c.g, c.b);
+        pdf.rect(leftX, cursorY - 3.5, 6, 6, 'F');
+      }
+      pdf.setTextColor(55, 65, 81);
+      pdf.text(String(cfg.name || id), leftX + 9, cursorY);
+      cursorY += 6;
+    });
+  cursorY += 2;
+  pdf.setTextColor(55, 65, 81);
+  pdf.text('Equipment', leftX, cursorY);
+  cursorY += 5;
+  const counts = (droppedObjects || []).reduce((acc, o) => { acc[o.type] = (acc[o.type] || 0) + 1; return acc; }, {});
+  Object.entries(counts).forEach(([type, count]) => {
+    // Use the object icon if available
+    const objType = PLACEABLE_OBJECTS.find(p => p.id === type);
+    if (objType && objType.icon) {
+      pdf.setTextColor(55, 65, 81);
+      pdf.text(objType.icon, leftX + 3, cursorY + 1, { align: 'center', baseline: 'middle' });
+    } else {
+      pdf.setFillColor(100, 100, 100);
+      pdf.rect(leftX, cursorY - 3.5, 6, 6, 'F');
+    }
+    pdf.setTextColor(55, 65, 81);
+    pdf.text(`${objType?.name || type} (${count})`, leftX + 9, cursorY);
+    cursorY += 6;
+  });
+  cursorY += 2;
+  pdf.setTextColor(55, 65, 81);
+  pdf.text('Annotations', leftX, cursorY);
+  cursorY += 5;
+  (numberedShapes || []).forEach((shape) => {
+    const num = shape.properties?.__number;
+    const label = shape.properties?.label || shape.geometry?.type || 'Shape';
+    pdf.setTextColor(31, 41, 55);
+    pdf.text(`${num}. ${label}`.slice(0, 80), leftX, cursorY);
+    cursorY += 5;
+  });
+};
+
+// (Old scale bar and compass helpers removed in V2 export)
+
+// (Old compass helper removed in V2 export)
+
+// (Old metadata helper removed in V2 export)
 
 const getSafeFilename = (focusedArea) => {
   const name = focusedArea?.properties?.name || 'permit-area';
@@ -666,6 +525,68 @@ const getPermitAreaBounds = (focusedArea) => {
     console.error('Error calculating permit area bounds:', error);
     return null;
   }
+};
+
+// Preload PNG icons for visible layers; returns a map { layerId: src }
+const loadVisiblePngIcons = async (layers) => {
+  const result = {};
+  try {
+    Object.entries(layers)
+      .filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible)
+      .forEach(([id]) => {
+        const icon = INFRASTRUCTURE_ICONS[id];
+        if (icon && icon.type === 'png' && icon.src) {
+          result[id] = icon.src; // Same-origin PNGs in /public
+        }
+      });
+  } catch {}
+  return result;
+};
+
+// Draw visible infrastructure overlays onto PNG canvas (points with icons, lines with stroke; polygons skipped)
+const drawOverlaysOnCanvas = (ctx, offscreen, mapPx, originPx, layers, customShapes, droppedObjects, infrastructureData, focusedArea, pngIcons) => {
+  const project = (lng, lat) => offscreen.project([lng, lat]);
+  Object.entries(layers)
+    .filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible)
+    .forEach(([id, cfg]) => {
+      const data = infrastructureData?.[id];
+      if (!data?.features) return;
+      const color = cfg.color || '#333333';
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      data.features.forEach((feat) => {
+        const g = feat.geometry;
+        if (!g) return;
+        if (g.type === 'Point') {
+          const p = project(g.coordinates[0], g.coordinates[1]);
+          const iconSrc = pngIcons?.[id];
+          if (iconSrc) {
+            const img = new Image();
+            img.onload = () => ctx.drawImage(img, p.x + originPx.x - 6, p.y + originPx.y - 6, 12, 12);
+            img.src = iconSrc;
+          } else {
+            ctx.beginPath();
+            ctx.arc(p.x + originPx.x, p.y + originPx.y, 3, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else if (g.type === 'LineString') {
+          const pts = g.coordinates.map(([lng, lat]) => project(lng, lat));
+          ctx.beginPath();
+          pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x + originPx.x, p.y + originPx.y) : ctx.lineTo(p.x + originPx.x, p.y + originPx.y));
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        } else if (g.type === 'MultiLineString') {
+          g.coordinates.forEach(line => {
+            const pts = line.map(([lng, lat]) => project(lng, lat));
+            ctx.beginPath();
+            pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x + originPx.x, p.y + originPx.y) : ctx.lineTo(p.x + originPx.x, p.y + originPx.y));
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          });
+        }
+        // Intentionally skip Polygon/MultiPolygon to avoid misalignment and unwanted fills
+      });
+    });
 };
 
 // Draw custom shapes (annotations) on the export canvas
