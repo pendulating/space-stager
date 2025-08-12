@@ -116,6 +116,25 @@ export const exportPermitAreaSiteplanV2 = async (
       if (offscreen.isStyleLoaded()) ready(); else offscreen.once('style.load', ready);
     });
 
+    // Ensure only the focused permit area is visible on the offscreen map
+    try {
+      const system = focusedArea?.properties?.system || '';
+      if (offscreen.getLayer('permit-areas-fill')) {
+        offscreen.setLayoutProperty('permit-areas-fill', 'visibility', 'none');
+      }
+      if (offscreen.getLayer('permit-areas-outline')) {
+        offscreen.setLayoutProperty('permit-areas-outline', 'visibility', 'none');
+      }
+      if (offscreen.getLayer('permit-areas-focused-fill')) {
+        offscreen.setFilter('permit-areas-focused-fill', ['==', ['get', 'system'], system]);
+        offscreen.setLayoutProperty('permit-areas-focused-fill', 'visibility', 'visible');
+      }
+      if (offscreen.getLayer('permit-areas-focused-outline')) {
+        offscreen.setFilter('permit-areas-focused-outline', ['==', ['get', 'system'], system]);
+        offscreen.setLayoutProperty('permit-areas-focused-outline', 'visibility', 'visible');
+      }
+    } catch (_) {}
+
     // Fit bounds to the left 75% viewport without scaling the image output
     offscreen.fitBounds(bounds, { padding: 12, duration: 0 });
 

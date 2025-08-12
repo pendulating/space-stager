@@ -76,6 +76,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   const [minAllowedZoom, setMinAllowedZoom] = useState(null); // Minimum zoom when focused
   const [isCameraAnimating, setIsCameraAnimating] = useState(false); // Track camera animation state
   const focusedAreaRef = useRef(focusedArea);
+  const prevPermitVisibilityRef = useRef({ fill: null, outline: null });
   const listenerRefs = useRef({
     mouseenterFill: null,
     mouseleaveFill: null,
@@ -181,6 +182,29 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         map.setFilter('permit-areas-focused-fill', ['==', ['get', 'system'], areaSystem]);
         map.setFilter('permit-areas-focused-outline', ['==', ['get', 'system'], areaSystem]);
       }
+      // Hide all non-focused permit areas while focused
+      try {
+        // Snapshot current base layer visibility to restore later
+        if (map.getLayer('permit-areas-fill')) {
+          prevPermitVisibilityRef.current.fill = map.getLayoutProperty('permit-areas-fill', 'visibility') || 'visible';
+        }
+        if (map.getLayer('permit-areas-outline')) {
+          prevPermitVisibilityRef.current.outline = map.getLayoutProperty('permit-areas-outline', 'visibility') || 'visible';
+        }
+        if (map.getLayer('permit-areas-fill')) {
+          map.setLayoutProperty('permit-areas-fill', 'visibility', 'none');
+        }
+        if (map.getLayer('permit-areas-outline')) {
+          map.setLayoutProperty('permit-areas-outline', 'visibility', 'none');
+        }
+        // Ensure focused layers are visible
+        if (map.getLayer('permit-areas-focused-fill')) {
+          map.setLayoutProperty('permit-areas-focused-fill', 'visibility', 'visible');
+        }
+        if (map.getLayer('permit-areas-focused-outline')) {
+          map.setLayoutProperty('permit-areas-focused-outline', 'visibility', 'visible');
+        }
+      } catch (_) {}
     }
     // Fit map to oriented minimum bounding box of the focused area
     try {
@@ -706,7 +730,39 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       map.setFilter('permit-areas-focused-fill', ['==', ['get', 'system'], '']);
       map.setFilter('permit-areas-focused-outline', ['==', ['get', 'system'], '']);
     }
+    // Restore base permit area layers when exiting focus
+    try {
+      if (map && map.getLayer('permit-areas-fill')) {
+        const vis = prevPermitVisibilityRef.current.fill ?? 'visible';
+        map.setLayoutProperty('permit-areas-fill', 'visibility', vis);
+      }
+      if (map && map.getLayer('permit-areas-outline')) {
+        const vis = prevPermitVisibilityRef.current.outline ?? 'visible';
+        map.setLayoutProperty('permit-areas-outline', 'visibility', vis);
+      }
+      if (map && map.getLayer('permit-areas-focused-fill')) {
+        map.setLayoutProperty('permit-areas-focused-fill', 'visibility', 'visible');
+      }
+      if (map && map.getLayer('permit-areas-focused-outline')) {
+        map.setLayoutProperty('permit-areas-focused-outline', 'visibility', 'visible');
+      }
+    } catch (_) {}
   }, [map]);
+
+  // Enforce hiding base permit areas while focused, in case UI toggles attempt to show them
+  useEffect(() => {
+    if (!map) return;
+    if (focusedArea) {
+      try {
+        if (map.getLayer('permit-areas-fill')) {
+          map.setLayoutProperty('permit-areas-fill', 'visibility', 'none');
+        }
+        if (map.getLayer('permit-areas-outline')) {
+          map.setLayoutProperty('permit-areas-outline', 'visibility', 'none');
+        }
+      } catch (_) {}
+    }
+  }, [map, focusedArea]);
 
   // Search functionality using the service
   useEffect(() => {
