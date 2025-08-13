@@ -17,8 +17,29 @@ export const INFRASTRUCTURE_ENDPOINTS = {
   },
   subwayEntrances: {
     baseUrl: 'https://data.ny.gov/resource/i9wp-a4ja.geojson',
-    geoField: 'the_geom',
-    isLocal: false
+    // Socrata dataset uses entrance_latitude/entrance_longitude and a location field entrance_georeference
+    // Prefer numeric lat/lon filtering for reliability
+    geoField: 'entrance_georeference',
+    latField: 'entrance_latitude',
+    lngField: 'entrance_longitude',
+    isLocal: false,
+    selectFields: [
+      'division',
+      'line',
+      'borough',
+      'stop_name',
+      'complex_id',
+      'constituent_station_name',
+      'station_id',
+      'gtfs_stop_id',
+      'daytime_routes',
+      'entrance_type',
+      'entry_allowed',
+      'exit_allowed',
+      'entrance_latitude',
+      'entrance_longitude',
+      'entrance_georeference'
+    ]
   },
   fireLanes: {
     baseUrl: 'https://data.cityofnewyork.us/resource/inkn-q76z.geojson',
@@ -42,7 +63,15 @@ export const INFRASTRUCTURE_ENDPOINTS = {
   parkingMeters: {
     baseUrl: 'https://data.cityofnewyork.us/resource/693u-uax6.geojson',
     geoField: 'location',
-    isLocal: false
+    isLocal: false,
+    // Also pull regulation fields used for export summary
+    selectFields: [
+      'on_street',
+      'from_street',
+      'to_street',
+      'side_of_street',
+      // These fields exist in 693u-uax6; order_number/sign_description do not and will be left blank in export
+    ]
   },
   linknycKiosks: {
     baseUrl: 'https://data.cityofnewyork.us/resource/s4kf-3yrf.json',
@@ -84,6 +113,22 @@ export const INFRASTRUCTURE_ENDPOINTS = {
     geoField: 'point',
     isLocal: false
   },
+  streetParkingSigns: {
+    // NYC Parking Regulation signs dataset (Socrata)
+    // Replace with the correct dataset if different
+    baseUrl: 'https://data.cityofnewyork.us/resource/hv9n-xgy4.geojson',
+    geoField: 'point',
+    isLocal: false,
+    // Ensure required fields are selected for export table
+    selectFields: [
+      'order_number',
+      'on_street',
+      'from_street',
+      'to_street',
+      'side_of_street',
+      'sign_description'
+    ]
+  },
   trees: {
     baseUrl: 'https://data.cityofnewyork.us/resource/hn5i-inap.geojson',
     geoField: 'location',
@@ -105,4 +150,10 @@ export const INFRASTRUCTURE_ENDPOINTS = {
     geoField: 'the_geom',
     isLocal: false
   }
+};
+
+export const GEOGRAPHY_ENDPOINTS = {
+  parks: '/data/permit-areas/nyc-permit-areas-minified.geojson',
+  plazas: '/data/static/nyc_public_plazas_enriched.geojson',
+  intersections: '/data/static/nyc_cscl_intersections.geojson'
 };

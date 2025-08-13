@@ -11,8 +11,10 @@ const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects }) =
       return { display: 'none' };
     }
 
-    // Use the object's defined size or default to 24px
-    const iconSize = Math.max(objectType.size.width, objectType.size.height, 24);
+    // Use the object's defined size or default to 24px, then scale up slightly for clearer preview
+    const baseSize = Math.max(objectType.size.width, objectType.size.height, 24);
+    const previewScale = 1.25;
+    const iconSize = baseSize * previewScale;
     const halfSize = iconSize / 2;
     const fontSize = Math.max(iconSize * 0.6, 14);
 
@@ -43,18 +45,25 @@ const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects }) =
     const objectType = placeableObjects.find(p => p.id === placementMode.objectType.id);
     if (!objectType) return {};
 
-    const iconSize = Math.max(objectType.size.width, objectType.size.height, 24);
+    const baseSize = Math.max(objectType.size.width, objectType.size.height, 24);
+    const previewScale = 1.25;
+    const iconSize = baseSize * previewScale;
     const fontSize = Math.max(iconSize * 0.6, 14);
 
     if (objectType.imageUrl) {
-      return { width: iconSize, height: iconSize };
+      return { 
+        width: iconSize, 
+        height: iconSize,
+        transform: placementMode.isFlipped ? 'scaleX(-1)' : undefined
+      };
     }
 
     return {
       color: objectType.color,
       fontSize: `${fontSize}px`,
       lineHeight: '1',
-      opacity: 0.8
+      opacity: 0.8,
+      transform: placementMode.isFlipped ? 'scaleX(-1)' : undefined
     };
   }, [placementMode, placeableObjects]);
 

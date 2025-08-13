@@ -2,6 +2,7 @@
 import React from 'react';
 import PermitAreaSearch from './PermitAreaSearch';
 import LayersPanel from './LayersPanel';
+import GeographyCompactSelector from './GeographyCompactSelector';
 import BasemapToggle from './BasemapToggle';
 
 const Sidebar = ({ 
@@ -13,13 +14,20 @@ const Sidebar = ({
   infrastructure,
   map,
   onStyleChange,
-  isSitePlanMode = false
+  isSitePlanMode = false,
+  geographyType
 }) => {
   return (
     <div className={`${isSitePlanMode ? 'w-80' : 'w-96'} bg-white shadow-lg z-10 flex flex-col transition-all duration-300 h-full`}>
       <BasemapToggle 
         map={map}
         onStyleChange={onStyleChange}
+      />
+
+      <GeographyCompactSelector
+        onConfirmChange={() => {
+          // noop here; SpaceStager will react to geography change by clearing states
+        }}
       />
 
       <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
@@ -44,6 +52,7 @@ const Sidebar = ({
           onToggleLayer={onToggleLayer}
           onClearFocus={onClearFocus}
           isSitePlanMode={isSitePlanMode}
+          geographyType={geographyType}
         />
       </div>
     </div>

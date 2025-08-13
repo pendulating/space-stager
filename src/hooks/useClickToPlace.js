@@ -116,7 +116,8 @@ export const useClickToPlace = (map) => {
       properties: {
         ...placementMode.objectType,
         label: placementMode.objectType.name,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        flipped: !!placementMode.isFlipped
       }
     };
     
@@ -142,7 +143,8 @@ export const useClickToPlace = (map) => {
       // Activate placement mode for new object
       setPlacementMode({
         objectType,
-        isBatchMode
+        isBatchMode,
+        isFlipped: false
       });
       if (DEBUG) console.log('ClickToPlace: Activated placement mode for', objectType.name, 'batch:', isBatchMode);
     }
@@ -193,6 +195,24 @@ export const useClickToPlace = (map) => {
     setPlacementMode(null);
     setCursorPosition(null);
   }, []);
+
+  // Keyboard: toggle horizontal flip during placement with '<' or '>'
+  useEffect(() => {
+    if (!placementMode) return;
+    const onKeyDown = (e) => {
+      // Support both comma/period keys (with or without Shift) and literal '<'/'>'
+      const isComma = e.code === 'Comma' || e.key === ',';
+      const isPeriod = e.code === 'Period' || e.key === '.';
+      const isLeftAngle = e.key === '<';
+      const isRightAngle = e.key === '>';
+      if (isComma || isPeriod || isLeftAngle || isRightAngle) {
+        e.preventDefault();
+        setPlacementMode(prev => prev ? { ...prev, isFlipped: !prev.isFlipped } : prev);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown, { passive: false });
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [placementMode]);
 
   return {
     droppedObjects,

@@ -76,7 +76,7 @@ const RightSidebar = ({
           {/* Export Event Plan */}
           <button 
             onClick={onExport}
-            className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2"
+            className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2 export-button export-event-plan"
           >
             <Download className="w-4 h-4" />
             <span>Export Event Plan</span>
@@ -87,7 +87,7 @@ const RightSidebar = ({
             <button
               onClick={() => setShowExportMenu(!showExportMenu)}
               disabled={!focusedArea}
-              className={`w-full px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center space-x-2 ${
+              className={`w-full px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center space-x-2 export-button export-siteplan ${
                 focusedArea 
                   ? 'bg-green-600 text-white hover:bg-green-700' 
                   : 'bg-gray-300 text-gray-500 cursor-not-allowed'

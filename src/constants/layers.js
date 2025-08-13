@@ -5,7 +5,7 @@ export const LAYER_GROUPS = {
   'public-infrastructure': {
     name: 'Public Infrastructure',
     icon: '🏛️',
-    layers: ['hydrants', 'busStops', 'subwayEntrances', 'benches', 'publicRestrooms', 'drinkingFountains', 'sprayShowers', 'linknycKiosks', 'parkingMeters', 'pedestrianRamps']
+    layers: ['hydrants', 'busStops', 'subwayEntrances', 'benches', 'publicRestrooms', 'drinkingFountains', 'sprayShowers', 'linknycKiosks', 'parkingMeters', 'streetParkingSigns', 'pedestrianRamps']
   },
   'lanes': {
     name: 'Lanes',
@@ -39,7 +39,7 @@ export const STARTER_SET_LAYERS = [
 export const INITIAL_LAYERS = {
   permitAreas: { 
     visible: true, 
-    name: 'NYC Permit Areas', 
+    name: 'Zone', 
     color: '#f97316', 
     loading: true, 
     loaded: false,
@@ -108,6 +108,14 @@ export const INITIAL_LAYERS = {
     loading: false,
     loaded: false,
     endpoint: '/api/parking-meters'
+  },
+  streetParkingSigns: {
+    visible: false,
+    name: 'Street Parking Regulations',
+    color: '#111827',
+    loading: false,
+    loaded: false,
+    endpoint: '/api/street-parking-signs'
   },
   linknycKiosks: {
     visible: false,

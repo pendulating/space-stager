@@ -57,7 +57,7 @@ const OverlapSelector = ({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-800">Multiple Areas Found</h3>
+          <h3 className="text-sm font-semibold text-gray-800">Multiple Zones Found</h3>
           <button 
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600"
@@ -68,7 +68,7 @@ const OverlapSelector = ({
         </div>
         
         <p className="text-xs text-gray-600 mb-3">
-          {overlappingAreas.length} overlapping permit areas detected. Smaller areas shown first:
+          {overlappingAreas.length} overlapping zones detected. Smaller areas shown first:
         </p>
         
         <div className="space-y-2 max-h-48 overflow-y-auto">

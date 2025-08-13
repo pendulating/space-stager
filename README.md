@@ -16,7 +16,7 @@ Space Stager transforms complex urban planning into an intuitive visual experien
 
 ### 📍 **NYC Permit Area Explorer**
 - Search and focus on specific permit zones
-- View overlapping permit areas with smart selection
+- View overlapping zones with smart selection
 - Zoom restrictions to maintain context during exploration
 
 ### 🏗️ **Infrastructure Visualization**
@@ -50,14 +50,14 @@ Comprehensive infrastructure layers organized by category:
 - **Dynamic Loading**: Infrastructure data loads only for focused areas
 
 ### 🎯 **Focus Mode**
-- Click permit areas to zoom and focus
+- Click zones to zoom and focus
 - Automatic infrastructure loading for the selected zone
 - Zoom restrictions to maintain planning context
 - Clear focus to return to city-wide view
 
 ## How It Works
 
-1. **Search & Focus**: Use the search bar to find specific permit areas or manually explore the map
+1. **Search & Focus**: Use the search bar to find specific zones or manually explore the map
 2. **Select Your Area**: Click on permit zones to focus and load relevant infrastructure data
 3. **Choose Your Layers**: Use the Starter Set for common needs, or customize with specific infrastructure categories
 4. **Plan Your Event**: Visualize existing infrastructure to inform your space planning decisions

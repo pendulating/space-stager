@@ -36,13 +36,13 @@ const PlaceableObjectsPanel = ({
                 <img
                   src={obj.imageUrl}
                   alt={obj.name}
-                  className="w-8 h-8 mb-2 rounded"
+                  className="w-12 h-12 mb-2 rounded"
                   style={{ objectFit: 'contain' }}
                   draggable={false}
                 />
               ) : (
                 <div 
-                  className="w-8 h-8 mb-2 rounded-full flex items-center justify-center text-white text-sm font-medium"
+                  className="w-12 h-12 mb-2 rounded-full flex items-center justify-center text-white text-sm font-medium"
                   style={{ backgroundColor: obj.color }}
                 >
                   {obj.icon}

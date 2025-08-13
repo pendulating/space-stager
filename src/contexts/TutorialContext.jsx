@@ -21,19 +21,19 @@ export const TUTORIAL_CONTENT = {
   [TUTORIAL_STEPS.SEARCH]: {
     title: 'Find a Permit Area',
     content: 'Search for a specific park or public space to start designing.',
-    position: 'bottom',
+    position: 'right',
     target: '.permit-area-search'
   },
   [TUTORIAL_STEPS.FOCUS_AREA]: {
     title: 'Focus on an Area',
     content: 'Click on a search result to focus and start designing.',
-    position: 'bottom',
+    position: 'right',
     target: '.search-result'
   },
   [TUTORIAL_STEPS.LAYERS]: {
     title: 'Add Infrastructure',
     content: 'Toggle layers to see relevant infrastructure like water fountains, bathrooms, and more.',
-    position: 'left',
+    position: 'right',
     target: '.layers-panel'
   },
   [TUTORIAL_STEPS.DRAWING]: {
@@ -45,8 +45,8 @@ export const TUTORIAL_CONTENT = {
   [TUTORIAL_STEPS.EXPORT]: {
     title: 'Export Your Site Plan',
     content: 'Export your completed site plan for permits and planning.',
-    position: 'top',
-    target: '.export-button'
+    position: 'left',
+    target: '.export-siteplan'
   }
 };
 

@@ -94,3 +94,68 @@
 .shake-animation {
   animation: shake 0.5s ease-in-out;
 }
+
+/* Stadia MapLibre Search Box theming to match app */
+.maplibregl-ctrl.maplibre-searchbox,
+.maplibregl-ctrl .maplibre-searchbox,
+.maplibregl-ctrl .searchbox,
+.maplibregl-ctrl .input-container {
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.1);
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: #ffffff;
+}
+
+.maplibre-searchbox-input,
+.maplibregl-ctrl .input-container input[type="text"] {
+  padding: 8px 10px !important;
+  font-size: 14px !important;
+  border: none !important;
+  outline: none !important;
+  background-color: #ffffff !important;
+  color: #111827 !important;
+}
+
+.maplibre-searchbox-button,
+.maplibregl-ctrl .input-container .cancel,
+.maplibregl-ctrl .input-container .spinner {
+  color: #374151 !important;
+}
+
+/* Results dropdown: solid background (not transparent) and app-style borders */
+.maplibre-searchbox-results,
+.maplibregl-ctrl .results {
+  background-color: #ffffff !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.12) !important;
+  overflow: hidden !important;
+}
+
+.maplibre-searchbox-result,
+.maplibregl-ctrl .results-list .result {
+  background-color: #ffffff !important;
+  border-bottom: 1px solid #f3f4f6 !important;
+  padding: 8px 10px !important;
+}
+
+.maplibre-searchbox-result:hover,
+.maplibregl-ctrl .results-list .result:hover,
+.maplibregl-ctrl .results-list .result.hover {
+  background-color: #f9fafb !important;
+}
+
+.maplibre-searchbox-no-results,
+.maplibregl-ctrl .results .no-results {
+  background-color: #ffffff !important;
+  color: #6b7280 !important;
+}
+
+.maplibre-searchbox-footer,
+.maplibregl-ctrl .search-attribution {
+  background-color: #f9fafb !important;
+  color: #6b7280 !important;
+  padding: 6px 8px !important;
+}

@@ -1,191 +1,115 @@
 // utils/iconUtils.js
 
-// Icons for infrastructure layers (supports both SVG and PNG)
+// Icons for infrastructure layers (load from public/data/icons/layers/*.svg)
+// We treat file-based SVGs as "png" type in our code paths so they render via <img> and load into Maplibre via Image().
 export const INFRASTRUCTURE_ICONS = {
   trees: {
     id: 'tree-icon',
     type: 'png',
-    src: '/data/icons/street-tree.png'
+    src: '/data/icons/layers/tree.svg',
+    areaScale: 1
   },
   hydrants: {
     id: 'hydrant-icon',
     type: 'png',
-    src: '/data/icons/fire-hydrant.png'
+    src: '/data/icons/layers/fire-hydrant.svg',
+    areaScale: 1
   },
   benches: {
     id: 'bench-icon',
     type: 'png',
-    src: '/data/icons/bench.png'
+    src: '/data/icons/layers/bench.svg',
+    areaScale: 1
   },
   busStops: {
     id: 'bus-stop-icon',
-    type: 'svg',
-    svg: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="6" y="8" width="12" height="8" fill="currentColor"/>
-      <rect x="8" y="10" width="8" height="4" fill="white"/>
-      <circle cx="12" cy="12" r="1" fill="currentColor"/>
-      <rect x="10" y="16" width="4" height="2" fill="currentColor"/>
-    </svg>`
-  },
-  parking: {
-    id: 'parking-icon',
-    type: 'svg',
-    svg: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="4" y="4" width="16" height="16" fill="currentColor"/>
-      <path d="M8 8H12C13.1046 8 14 8.89543 14 10V14C14 15.1046 13.1046 16 12 16H8V8Z" fill="white"/>
-      <path d="M10 10V14H12C12.5523 14 13 13.5523 13 13V11C13 10.4477 12.5523 10 12 10H10Z" fill="currentColor"/>
-    </svg>`
+    type: 'png',
+    src: '/data/icons/layers/bus-stop.svg',
+    areaScale: 1
   },
   bikeParking: {
     id: 'bike-parking-icon',
     type: 'png',
-    src: '/data/icons/bike-parking.png'
+    src: '/data/icons/layers/bike-rack.svg',
+    areaScale: 1
   },
   citibikeStations: {
     id: 'citibike-station-icon',
-    type: 'svg',
-    svg: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="12" cy="12" r="8" fill="currentColor"/>
-      <circle cx="12" cy="12" r="6" fill="white"/>
-      <circle cx="12" cy="12" r="4" fill="currentColor"/>
-      <circle cx="12" cy="12" r="2" fill="white"/>
-      <rect x="10" y="4" width="4" height="2" fill="currentColor"/>
-      <rect x="10" y="18" width="4" height="2" fill="currentColor"/>
-      <rect x="4" y="10" width="2" height="4" fill="currentColor"/>
-      <rect x="18" y="10" width="2" height="4" fill="currentColor"/>
-    </svg>`
+    type: 'png',
+    src: '/data/icons/layers/citibike.svg',
+    areaScale: 1
   },
   subwayEntrances: {
     id: 'subway-entrance-icon',
-    type: 'svg',
-    svg: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="4" y="4" width="16" height="16" fill="currentColor"/>
-      <rect x="6" y="6" width="12" height="12" fill="white"/>
-      <rect x="8" y="8" width="8" height="8" fill="currentColor"/>
-      <rect x="10" y="10" width="4" height="4" fill="white"/>
-      <rect x="11" y="11" width="2" height="2" fill="currentColor"/>
-      <rect x="9" y="18" width="6" height="2" fill="currentColor"/>
-      <rect x="10" y="20" width="4" height="2" fill="currentColor"/>
-    </svg>`
+    type: 'png',
+    src: '/data/icons/layers/subway-entrance.svg',
+    areaScale: 1
   },
   fireLanes: {
     id: 'fire-lane-icon',
-    type: 'svg',
-    svg: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="4" y="4" width="16" height="16" fill="currentColor"/>
-      <rect x="6" y="6" width="12" height="12" fill="white"/>
-      <rect x="8" y="8" width="8" height="8" fill="currentColor"/>
-      <rect x="10" y="10" width="4" height="4" fill="white"/>
-      <rect x="11" y="11" width="2" height="2" fill="currentColor"/>
-      <rect x="9" y="18" width="6" height="2" fill="currentColor"/>
-      <rect x="10" y="20" width="4" height="2" fill="currentColor"/>
-    </svg>`
+    type: 'png',
+    src: '/data/icons/layers/parking.svg', // placeholder; lines use color, icon used only in panel
+    areaScale: 1
   },
   specialDisasterRoutes: {
     id: 'special-disaster-route-icon',
-    type: 'svg',
-    svg: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="4" y="4" width="16" height="16" fill="currentColor"/>
-      <rect x="6" y="6" width="12" height="12" fill="white"/>
-      <rect x="8" y="8" width="8" height="8" fill="currentColor"/>
-      <rect x="10" y="10" width="4" height="4" fill="white"/>
-      <rect x="11" y="11" width="2" height="2" fill="currentColor"/>
-      <rect x="9" y="18" width="6" height="2" fill="currentColor"/>
-      <rect x="10" y="20" width="4" height="2" fill="currentColor"/>
-    </svg>`
+    type: 'png',
+    src: '/data/icons/layers/parking.svg', // placeholder
+    areaScale: 1
   },
   pedestrianRamps: {
     id: 'pedestrian-ramp-icon',
-    type: 'svg',
-    svg: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M4 20L20 20L20 4L4 4L4 20Z" fill="currentColor"/>
-      <path d="M6 18L18 18L18 6L6 6L6 18Z" fill="white"/>
-      <path d="M8 16L16 16L16 8L8 8L8 16Z" fill="currentColor"/>
-      <path d="M10 14L14 14L14 10L10 10L10 14Z" fill="white"/>
-      <path d="M12 12L12 12" stroke="currentColor" stroke-width="2"/>
-    </svg>`
+    type: 'png',
+    src: '/data/icons/layers/ped-ramp.svg',
+    areaScale: 0.25
   },
   parkingMeters: {
     id: 'parking-meter-icon',
-    type: 'svg',
-    svg: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="8" y="4" width="8" height="16" fill="currentColor"/>
-      <rect x="10" y="6" width="4" height="12" fill="white"/>
-      <circle cx="12" cy="10" r="1" fill="currentColor"/>
-      <circle cx="12" cy="14" r="1" fill="currentColor"/>
-      <rect x="11" y="16" width="2" height="2" fill="currentColor"/>
-    </svg>`
+    type: 'png',
+    src: '/data/icons/layers/parking-meter.svg',
+    areaScale: 1
   },
   linknycKiosks: {
     id: 'linknyc-kiosk-icon',
     type: 'png',
-    src: '/data/icons/linknyc.png'
+    src: '/data/icons/layers/linknyc.svg',
+    areaScale: 1
   },
   publicRestrooms: {
     id: 'public-restroom-icon',
-    type: 'svg',
-    svg: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="4" y="4" width="16" height="16" fill="currentColor"/>
-      <rect x="6" y="6" width="12" height="12" fill="white"/>
-      <circle cx="9" cy="10" r="1.5" fill="currentColor"/>
-      <circle cx="15" cy="10" r="1.5" fill="currentColor"/>
-      <rect x="8" y="12" width="2" height="4" fill="currentColor"/>
-      <rect x="14" y="12" width="2" height="4" fill="currentColor"/>
-      <rect x="7" y="16" width="3" height="2" fill="currentColor"/>
-      <rect x="14" y="16" width="3" height="2" fill="currentColor"/>
-    </svg>`
+    type: 'png',
+    src: '/data/icons/layers/public-restroom.svg',
+    areaScale: 1
   },
   drinkingFountains: {
     id: 'drinking-fountain-icon',
-    type: 'svg',
-    svg: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="8" y="4" width="8" height="16" fill="currentColor"/>
-      <rect x="10" y="6" width="4" height="12" fill="white"/>
-      <circle cx="12" cy="8" r="1" fill="currentColor"/>
-      <rect x="11" y="10" width="2" height="6" fill="currentColor"/>
-      <rect x="10" y="16" width="4" height="2" fill="currentColor"/>
-      <rect x="9" y="18" width="6" height="2" fill="currentColor"/>
-    </svg>`
+    type: 'png',
+    src: '/data/icons/layers/drinking-fountain.svg',
+    areaScale: 1
   },
   sprayShowers: {
     id: 'spray-shower-icon',
-    type: 'svg',
-    svg: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="12" cy="8" r="3" fill="currentColor"/>
-      <rect x="10" y="11" width="4" height="8" fill="currentColor"/>
-      <rect x="11" y="19" width="2" height="3" fill="currentColor"/>
-      <circle cx="8" cy="6" r="1" fill="white"/>
-      <circle cx="16" cy="6" r="1" fill="white"/>
-      <circle cx="10" cy="10" r="1" fill="white"/>
-      <circle cx="14" cy="10" r="1" fill="white"/>
-      <path d="M6 4 L8 6 M18 4 L16 6 M6 12 L8 10 M18 12 L16 10" stroke="currentColor" stroke-width="1" fill="none"/>
-    </svg>`
+    type: 'png',
+    src: '/data/icons/layers/spray-area.svg',
+    areaScale: 1
   },
   iceLadders: {
     id: 'ice-ladder-icon',
-    type: 'svg',
-    svg: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="8" y="4" width="8" height="16" fill="currentColor"/>
-      <rect x="10" y="6" width="4" height="12" fill="white"/>
-      <rect x="11" y="8" width="2" height="2" fill="currentColor"/>
-      <rect x="11" y="12" width="2" height="2" fill="currentColor"/>
-      <rect x="11" y="16" width="2" height="2" fill="currentColor"/>
-      <rect x="9" y="20" width="6" height="2" fill="currentColor"/>
-      <path d="M6 6 L8 8 M18 6 L16 8 M6 18 L8 16 M18 18 L16 16" stroke="currentColor" stroke-width="1" fill="none"/>
-    </svg>`
+    type: 'png',
+    src: '/data/icons/layers/parking.svg', // placeholder
+    areaScale: 1
   },
   parksSigns: {
     id: 'parks-sign-icon',
-    type: 'svg',
-    svg: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="6" y="4" width="12" height="16" fill="currentColor"/>
-      <rect x="8" y="6" width="8" height="12" fill="white"/>
-      <rect x="10" y="8" width="4" height="2" fill="currentColor"/>
-      <rect x="10" y="12" width="4" height="2" fill="currentColor"/>
-      <rect x="10" y="16" width="4" height="2" fill="currentColor"/>
-      <rect x="9" y="20" width="6" height="2" fill="currentColor"/>
-      <circle cx="12" cy="11" r="1" fill="currentColor"/>
-    </svg>`
+    type: 'png',
+    src: '/data/icons/layers/park-sign.svg',
+    areaScale: 1
+  },
+  streetParkingSigns: {
+    id: 'street-parking-signs-icon',
+    type: 'png',
+    src: '/data/icons/layers/parking.svg',
+    areaScale: 1
   }
 };
 

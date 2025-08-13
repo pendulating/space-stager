@@ -36,7 +36,7 @@ const PermitAreaSearch = ({
 
   return (
     <div className="p-4 border-b border-gray-200">
-      <h3 className="text-sm font-medium text-gray-700 mb-3">Search Permit Areas</h3>
+      <h3 className="text-sm font-medium text-gray-700 mb-3">Search Zones</h3>
       
       {/* Search Input */}
       <div className="relative permit-area-search">
@@ -47,7 +47,7 @@ const PermitAreaSearch = ({
           type="text"
           value={searchQuery || ''}
           onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
-          placeholder="Search for permit areas..."
+          placeholder="Search zones..."
           className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
         />
       </div>
@@ -70,7 +70,7 @@ const PermitAreaSearch = ({
               className="p-2 hover:bg-blue-50 cursor-pointer rounded-md transition-colors search-result"
             >
               <div className="font-medium text-sm text-gray-800">
-                {highlightSearchTerm(result.properties.name || '(Unnamed)', searchQuery)}
+                {highlightSearchTerm(result.properties.name || result.properties.FSN_1 || '(Unnamed)', searchQuery)}
               </div>
               {result.properties.propertyname && (
                 <div className="text-xs text-gray-600">
@@ -95,7 +95,7 @@ const PermitAreaSearch = ({
       {/* No Results Message */}
       {searchQuery && searchQuery.length >= 2 && searchResults && searchResults.length === 0 && !isSearching && (
         <div className="mt-2 py-2 text-center text-xs text-gray-500">
-          No matching permit areas found
+          No matching zones found
         </div>
       )}
     </div>

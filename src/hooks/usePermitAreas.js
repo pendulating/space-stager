@@ -1,6 +1,9 @@
 // hooks/usePermitAreas.js
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { loadPermitAreas as loadPermitAreasService, searchPermitAreas, highlightOverlappingAreas, clearOverlapHighlights } from '../services/permitAreaService';
+import { searchPermitAreas, highlightOverlappingAreas, clearOverlapHighlights } from '../services/permitAreaService';
+import { loadPolygonAreas, loadPointAreas } from '../services/geographyService';
+import { ensureBaseLayers as ensureGeoBaseLayers, setBaseVisibility as setGeoBaseVisibility, unload as unloadGeo } from '../services/geographyLayerManager';
+import { GEOGRAPHIES } from '../constants/geographies';
 import bbox from '@turf/bbox';
 
 // Minimal oriented minimum bounding box (rotating calipers) implementation
@@ -71,7 +74,10 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   const [clickPosition, setClickPosition] = useState({ x: 0, y: 0 });
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
-  const [mode, setMode] = useState('parks'); // Always parks mode
+  const [mode, setMode] = useState(options.mode || 'parks');
+  const requestIdRef = useRef(0);
+  const abortControllerRef = useRef(null);
+  const cachedDataRef = useRef({}); // keyed by idPrefix -> GeoJSON
   const [initialFocusZoom, setInitialFocusZoom] = useState(null); // Track initial zoom when focused
   const [minAllowedZoom, setMinAllowedZoom] = useState(null); // Minimum zoom when focused
   const [isCameraAnimating, setIsCameraAnimating] = useState(false); // Track camera animation state
@@ -89,6 +95,23 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   useEffect(() => {
     focusedAreaRef.current = focusedArea;
   }, [focusedArea]);
+
+  // Respond to external mode changes
+  useEffect(() => {
+    if (!options || !options.mode) return;
+    if (options.mode === mode) return;
+    // Clear focus and unload previous layers when switching modes
+    clearFocus();
+    try {
+      // Abort any in-flight fetches
+      if (abortControllerRef.current) { try { abortControllerRef.current.abort(); } catch (_) {} }
+      // Unload previous geography layers using manager
+      unloadGeo(map, mode === 'parks' ? 'permit-areas' : (mode === 'plazas' ? 'plaza-areas' : 'intersections'));
+    } catch (_) {}
+    setPermitAreas([]);
+    setMode(options.mode);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options.mode]);
 
   // Calculate area of a geometry to determine layering order
   const calculateGeometryArea = useCallback((geometry) => {
@@ -171,45 +194,61 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       setTimeout(() => focusOnPermitArea(permitArea), 100);
       return;
     }
-    console.log('Focusing on permit area:', permitArea.properties);
+    console.log('Focusing on area:', permitArea.properties);
     setFocusedArea(permitArea);
     setShowFocusInfo(true);
-    // Use the 'system' property as the unique identifier
-    const areaSystem = permitArea.properties.system;
-    console.log('Focusing on permit area with system:', areaSystem);
-    if (areaSystem) {
-      if (map.getLayer('permit-areas-focused-fill')) {
-        map.setFilter('permit-areas-focused-fill', ['==', ['get', 'system'], areaSystem]);
-        map.setFilter('permit-areas-focused-outline', ['==', ['get', 'system'], areaSystem]);
+    // Focus filtering and base layer visibility handling by mode
+    const activeMode = options.mode || mode;
+    const idPrefix = activeMode === 'parks' ? 'permit-areas' : (activeMode === 'plazas' ? 'plaza-areas' : 'intersections');
+    const isPoint = permitArea?.geometry?.type === 'Point';
+    try {
+      if (isPoint) {
+        if (map.getLayer(`${idPrefix}-focused-points`)) {
+          map.setFilter(`${idPrefix}-focused-points`, ['==', ['id'], permitArea.id || '']);
+        }
+        if (map.getLayer(`${idPrefix}-points`)) {
+          prevPermitVisibilityRef.current.fill = map.getLayoutProperty(`${idPrefix}-points`, 'visibility') || 'visible';
+          map.setLayoutProperty(`${idPrefix}-points`, 'visibility', 'none');
+        }
+      } else {
+        if (map.getLayer(`${idPrefix}-focused-fill`)) {
+          if (activeMode === 'parks') {
+            const areaSystem = permitArea.properties?.system || '';
+            map.setFilter(`${idPrefix}-focused-fill`, ['==', ['get', 'system'], areaSystem]);
+            if (map.getLayer(`${idPrefix}-focused-outline`)) map.setFilter(`${idPrefix}-focused-outline`, ['==', ['get', 'system'], areaSystem]);
+          } else {
+            const featureId = permitArea.id || '';
+            map.setFilter(`${idPrefix}-focused-fill`, ['==', ['id'], featureId]);
+            if (map.getLayer(`${idPrefix}-focused-outline`)) map.setFilter(`${idPrefix}-focused-outline`, ['==', ['id'], featureId]);
+          }
+        }
+        // Hide base polygon layers
+        try {
+          if (map.getLayer(`${idPrefix}-fill`)) {
+            prevPermitVisibilityRef.current.fill = map.getLayoutProperty(`${idPrefix}-fill`, 'visibility') || 'visible';
+            map.setLayoutProperty(`${idPrefix}-fill`, 'visibility', 'none');
+          }
+          if (map.getLayer(`${idPrefix}-outline`)) {
+            prevPermitVisibilityRef.current.outline = map.getLayoutProperty(`${idPrefix}-outline`, 'visibility') || 'visible';
+            map.setLayoutProperty(`${idPrefix}-outline`, 'visibility', 'none');
+          }
+          if (map.getLayer(`${idPrefix}-focused-fill`)) map.setLayoutProperty(`${idPrefix}-focused-fill`, 'visibility', 'visible');
+          if (map.getLayer(`${idPrefix}-focused-outline`)) map.setLayoutProperty(`${idPrefix}-focused-outline`, 'visibility', 'visible');
+        } catch (_) {}
       }
-      // Hide all non-focused permit areas while focused
-      try {
-        // Snapshot current base layer visibility to restore later
-        if (map.getLayer('permit-areas-fill')) {
-          prevPermitVisibilityRef.current.fill = map.getLayoutProperty('permit-areas-fill', 'visibility') || 'visible';
-        }
-        if (map.getLayer('permit-areas-outline')) {
-          prevPermitVisibilityRef.current.outline = map.getLayoutProperty('permit-areas-outline', 'visibility') || 'visible';
-        }
-        if (map.getLayer('permit-areas-fill')) {
-          map.setLayoutProperty('permit-areas-fill', 'visibility', 'none');
-        }
-        if (map.getLayer('permit-areas-outline')) {
-          map.setLayoutProperty('permit-areas-outline', 'visibility', 'none');
-        }
-        // Ensure focused layers are visible
-        if (map.getLayer('permit-areas-focused-fill')) {
-          map.setLayoutProperty('permit-areas-focused-fill', 'visibility', 'visible');
-        }
-        if (map.getLayer('permit-areas-focused-outline')) {
-          map.setLayoutProperty('permit-areas-focused-outline', 'visibility', 'visible');
-        }
-      } catch (_) {}
-    }
-    // Fit map to oriented minimum bounding box of the focused area
+    } catch (_) {}
+
+    // Fit/zoom behavior
     try {
       const geom = permitArea.geometry;
       if (!geom) throw new Error('No geometry');
+      if (geom.type === 'Point') {
+        setInitialFocusZoom(18);
+        setIsCameraAnimating(true);
+        map.easeTo({ center: geom.coordinates, zoom: 18, duration: 800 });
+        setTimeout(() => { setMinAllowedZoom(16); setIsCameraAnimating(false); }, 900);
+        return;
+      }
       let coords = [];
       if (geom.type === 'Polygon') {
         coords = geom.coordinates;
@@ -300,7 +339,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       setTimeout(() => {
         setMinAllowedZoom(Math.max(1, optimalZoom - 2));
         setIsCameraAnimating(false);
-        console.log('Camera animation complete, zoom restrictions now active:', {
+       console.log('Camera animation complete, zoom restrictions now active:', {
           minAllowedZoom: Math.max(1, optimalZoom - 2)
         });
       }, 1700); // Total animation time: 1000ms + 700ms buffer for rotation
@@ -401,29 +440,59 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   const setupTooltipListeners = useCallback(() => {
     if (!map) return;
     
-    console.log('Setting up permit area tooltip listeners');
+    const activeMode = options.mode || mode;
+    console.log('Setting up area tooltip listeners for mode', activeMode);
     // Clean up old handlers if present
     if (listenerRefs.current.mouseenterFill) {
       try { map.off('mouseenter', 'permit-areas-fill', listenerRefs.current.mouseenterFill); } catch {}
+      try { map.off('mouseenter', 'plaza-areas-fill', listenerRefs.current.mouseenterFill); } catch {}
+      try { map.off('mouseenter', 'intersections-points', listenerRefs.current.mouseenterFill); } catch {}
     }
     if (listenerRefs.current.mouseleaveFill) {
       try { map.off('mouseleave', 'permit-areas-fill', listenerRefs.current.mouseleaveFill); } catch {}
+      try { map.off('mouseleave', 'plaza-areas-fill', listenerRefs.current.mouseleaveFill); } catch {}
+      try { map.off('mouseleave', 'intersections-points', listenerRefs.current.mouseleaveFill); } catch {}
     }
     if (listenerRefs.current.mousemoveFill) {
       try { map.off('mousemove', 'permit-areas-fill', listenerRefs.current.mousemoveFill); } catch {}
+      try { map.off('mousemove', 'plaza-areas-fill', listenerRefs.current.mousemoveFill); } catch {}
+      try { map.off('mousemove', 'intersections-points', listenerRefs.current.mousemoveFill); } catch {}
     }
 
-    const onMouseEnter = () => {
+    const idPrefix = activeMode === 'parks' ? 'permit-areas' : (activeMode === 'plazas' ? 'plaza-areas' : 'intersections');
+    const hoverLayerId = activeMode === 'intersections' ? `${idPrefix}-points` : `${idPrefix}-fill`;
+
+    const onMouseEnter = (e) => {
       // Check if draw tools are active - if so, don't show tooltip
       if (isDrawingActive()) {
         return; // Don't change cursor or show tooltip when drawing
       }
       
       map.getCanvas().style.cursor = 'pointer';
+      if (activeMode === 'intersections' && e?.features?.length) {
+        try {
+          const id = e.features[0].id;
+          if (id !== undefined && id !== null) {
+            // Start smooth progress animation to 1
+            animateHoverProgress(map, 'intersections', id, 1);
+          }
+        } catch (_) {}
+      }
     };
-    const onMouseLeave = () => {
+    const onMouseLeave = (e) => {
       map.getCanvas().style.cursor = '';
       setTooltip(prev => ({ ...prev, visible: false }));
+      if (activeMode === 'intersections') {
+        try {
+          if (e?.features?.length) {
+            const id = e.features[0].id;
+            if (id !== undefined && id !== null) {
+              // Animate back to 0
+              animateHoverProgress(map, 'intersections', id, 0);
+            }
+          }
+        } catch (_) {}
+      }
     };
     const onMouseMove = (e) => {
       if (e.features.length === 0) return;
@@ -432,6 +501,14 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       if (isDrawingActive()) {
         setTooltip(prev => ({ ...prev, visible: false }));
         return; // Don't show tooltip when drawing
+      }
+      if (activeMode === 'intersections') {
+        try {
+          const id = e.features[0].id;
+          if (id !== undefined && id !== null) {
+            animateHoverProgress(map, 'intersections', id, 1);
+          }
+        } catch (_) {}
       }
       
       const feature = e.features[0].properties;
@@ -447,30 +524,72 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       }
     };
 
-    map.on('mouseenter', 'permit-areas-fill', onMouseEnter);
-    map.on('mouseleave', 'permit-areas-fill', onMouseLeave);
-    map.on('mousemove', 'permit-areas-fill', onMouseMove);
+    map.on('mouseenter', hoverLayerId, onMouseEnter);
+    map.on('mouseleave', hoverLayerId, onMouseLeave);
+    map.on('mousemove', hoverLayerId, onMouseMove);
 
     listenerRefs.current.mouseenterFill = onMouseEnter;
     listenerRefs.current.mouseleaveFill = onMouseLeave;
     listenerRefs.current.mousemoveFill = onMouseMove;
-  }, [map, buildTooltipContent, isDrawingActive]);
+  }, [map, buildTooltipContent, isDrawingActive, mode, options.mode]);
+
+  // Smoothly animate feature-state hoverProgress between 0 and 1
+  const animateHoverProgress = useCallback((mapInstance, sourceId, featureId, toValue) => {
+    try {
+      const key = `${sourceId}:${featureId}`;
+      if (!animateHoverProgress.anim) animateHoverProgress.anim = new Map();
+      const existing = animateHoverProgress.anim.get(key);
+      if (existing && existing.to === toValue) return; // already animating to same target
+      if (existing && existing.raf) cancelAnimationFrame(existing.raf);
+
+      const from = (existing && typeof existing.value === 'number') ? existing.value : 0;
+      const start = performance.now();
+      const duration = 180; // ms, smooth
+
+      function step(now) {
+        const t = Math.min(1, (now - start) / duration);
+        // easeOutCubic
+        const eased = 1 - Math.pow(1 - t, 3);
+        const val = from + (toValue - from) * eased;
+        try { mapInstance.setFeatureState({ source: sourceId, id: featureId }, { hoverProgress: val }); } catch (_) {}
+        animateHoverProgress.anim.set(key, { to: toValue, value: val, raf: null });
+        if (t < 1) {
+          const raf = requestAnimationFrame(step);
+          animateHoverProgress.anim.set(key, { to: toValue, value: val, raf });
+        } else {
+          // snap to target to avoid drift
+          try { mapInstance.setFeatureState({ source: sourceId, id: featureId }, { hoverProgress: toValue }); } catch (_) {}
+          animateHoverProgress.anim.delete(key);
+        }
+      }
+
+      const raf = requestAnimationFrame(step);
+      animateHoverProgress.anim.set(key, { to: toValue, value: from, raf });
+    } catch (_) {}
+  }, []);
 
   // Enhanced permit area click handling with overlap detection
   const setupPermitAreaClickListeners = useCallback(() => {
     if (!map) return;
     
-    console.log('Setting up permit area click listeners');
+    const activeMode = options.mode || mode;
+    console.log('Setting up area click listeners for mode', activeMode);
     // Remove previous handlers if they exist
     if (listenerRefs.current.clickPermitFill) {
       try { map.off('click', 'permit-areas-fill', listenerRefs.current.clickPermitFill); } catch {}
+      try { map.off('click', 'plaza-areas-fill', listenerRefs.current.clickPermitFill); } catch {}
+      try { map.off('click', 'intersections-points', listenerRefs.current.clickPermitFill); } catch {}
     }
     if (listenerRefs.current.dblclickPermitFill) {
       try { map.off('dblclick', 'permit-areas-fill', listenerRefs.current.dblclickPermitFill); } catch {}
+      try { map.off('dblclick', 'plaza-areas-fill', listenerRefs.current.dblclickPermitFill); } catch {}
+      try { map.off('dblclick', 'intersections-points', listenerRefs.current.dblclickPermitFill); } catch {}
     }
     if (listenerRefs.current.clickGeneral) {
       try { map.off('click', listenerRefs.current.clickGeneral); } catch {}
     }
+
+    const hoverLayerId = activeMode === 'intersections' ? 'intersections-points' : (activeMode === 'plazas' ? 'plaza-areas-fill' : 'permit-areas-fill');
 
     const onClickPermitFill = (e) => {
       if (e.features.length === 0) return;
@@ -491,18 +610,17 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       
       const point = [e.point.x, e.point.y];
       const allFeatures = map.queryRenderedFeatures(point, {
-        layers: ['permit-areas-fill']
+        layers: [hoverLayerId]
       });
       
       console.log(`Found ${allFeatures.length} overlapping features at click point`);
       
       if (allFeatures.length > 1) {
-        const sortedFeatures = allFeatures
-          .map(feature => ({
-            ...feature,
-            calculatedArea: calculateGeometryArea(feature.geometry)
-          }))
-          .sort((a, b) => a.calculatedArea - b.calculatedArea);
+        const sortedFeatures = mode === 'intersections'
+          ? allFeatures // points: keep order
+          : allFeatures
+            .map(feature => ({ ...feature, calculatedArea: calculateGeometryArea(feature.geometry) }))
+            .sort((a, b) => a.calculatedArea - b.calculatedArea);
         
         console.log('Multiple areas detected, showing selector with smallest areas first');
         setOverlappingAreas(sortedFeatures);
@@ -510,7 +628,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         setShowOverlapSelector(true);
         setClickPosition({ x: e.point.x, y: e.point.y });
         
-        highlightOverlappingAreas(map, sortedFeatures);
+      if (activeMode === 'parks') highlightOverlappingAreas(map, sortedFeatures);
       } else {
         console.log('Single area detected, focusing directly');
         focusOnPermitArea(allFeatures[0]);
@@ -538,7 +656,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       const feature = e.features[0];
       focusOnPermitArea(feature);
       setShowOverlapSelector(false);
-      clearOverlapHighlights(map);
+      if (activeMode === 'parks') clearOverlapHighlights(map);
     };
 
     const onClickGeneral = (e) => {
@@ -554,24 +672,24 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       }
       
       const features = map.queryRenderedFeatures(e.point, {
-        layers: ['permit-areas-fill']
+        layers: [hoverLayerId]
       });
       
       if (features.length === 0) {
         console.log('Clicked outside permit areas, hiding selector');
         setShowOverlapSelector(false);
-        clearOverlapHighlights(map);
+        if (mode === 'parks') clearOverlapHighlights(map);
       }
     };
 
-    map.on('click', 'permit-areas-fill', onClickPermitFill);
-    map.on('dblclick', 'permit-areas-fill', onDblClickPermitFill);
+    map.on('click', hoverLayerId, onClickPermitFill);
+    map.on('dblclick', hoverLayerId, onDblClickPermitFill);
     map.on('click', onClickGeneral);
 
     listenerRefs.current.clickPermitFill = onClickPermitFill;
     listenerRefs.current.dblclickPermitFill = onDblClickPermitFill;
     listenerRefs.current.clickGeneral = onClickGeneral;
-  }, [map, calculateGeometryArea, focusOnPermitArea]);
+  }, [map, calculateGeometryArea, focusOnPermitArea, mode, options.mode]);
 
   // Function to load permit areas using the service
   const loadInFlightRef = useRef(false);
@@ -587,24 +705,16 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     
     console.log('PermitAreas: loadPermitAreas called', { mapLoaded, mapExists: !!map });
     
-    // Check if already fully initialized (source + all expected layers)
-    if (map.getSource('permit-areas')) {
-      const requiredLayers = [
-        'permit-areas-fill',
-        'permit-areas-outline',
-        'permit-areas-focused-fill',
-        'permit-areas-focused-outline'
-      ];
-      const allLayersExist = requiredLayers.every(id => map.getLayer && map.getLayer(id));
-      if (allLayersExist) {
-        console.log('PermitAreas: Already fully initialized, skipping');
-        return;
-      }
-      console.log('PermitAreas: Source exists but layers missing, proceeding to (re)load');
-    }
+    // No early-exit check; mode may change datasets
     
     console.log('PermitAreas: Starting to load permit areas using service');
     loadInFlightRef.current = true;
+    // Start a new generation and abort previous
+    const reqId = ++requestIdRef.current;
+    if (abortControllerRef.current) {
+      try { abortControllerRef.current.abort(); } catch (_) {}
+    }
+    abortControllerRef.current = new AbortController();
     setIsLoading(true);
     setLoadError(null);
 
@@ -627,32 +737,59 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         checkReady();
       });
 
-      console.log('PermitAreas: Map confirmed ready, calling service');
-      const features = await loadPermitAreasService(map);
-      
-      // Verify layers were created successfully
-      const requiredLayers = ['permit-areas-fill', 'permit-areas-outline', 'permit-areas-focused-fill', 'permit-areas-focused-outline'];
-      
-      // Wait a bit for layers to be fully registered
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      for (const layerId of requiredLayers) {
-        const layer = map.getLayer(layerId);
-        if (!layer) {
-          throw new Error(`Required layer not found: ${layerId}`);
+      const activeMode = options.mode || mode;
+      console.log('PermitAreas: Map confirmed ready, loading via unified geography service for mode', activeMode);
+
+      const cfg = GEOGRAPHIES[activeMode];
+      const idPrefix = cfg.idPrefix;
+      const type = cfg.type;
+
+      // Proactively unload non-active geographies to prevent stray visibility
+      const allPrefixes = ['permit-areas', 'plaza-areas', 'intersections'];
+      for (const p of allPrefixes) {
+        if (p !== idPrefix) {
+          try { unloadGeo(map, p); } catch (_) {}
         }
-        // Ensure layers are visible if user toggled permitAreas on
-        try {
-          const visibility = map.getLayoutProperty(layerId, 'visibility');
-          if (visibility !== 'visible') {
-            map.setLayoutProperty(layerId, 'visibility', 'visible');
-          }
-        } catch (_) {}
       }
 
-      // Defensive: ensure features is an array
+      // Use unified geography loaders for all modes (polygon and point)
+      // They safely add sources/layers if missing and update data with cache-busting
+      let features = [];
+      if (type === 'polygon') {
+        const res = await loadPolygonAreas(map, { idPrefix, url: cfg.datasetUrl, signal: abortControllerRef.current.signal });
+        features = res.features;
+      } else if (type === 'point') {
+        const res = await loadPointAreas(map, { idPrefix, url: cfg.datasetUrl, signal: abortControllerRef.current.signal });
+        features = res.features;
+      }
+
+      // Normalize display name for search/results
+      try {
+        const normalized = (features || []).map((feat) => {
+          const p = feat.properties || {};
+          let name = p.name;
+          if ((options.mode || mode) === 'plazas') {
+            const parts = [p.FSN_1, p.FSN_2, p.FSN_3, p.FSN_4].filter(Boolean);
+            if (parts.length > 0) name = parts.join(' & ');
+          } else if ((options.mode || mode) === 'intersections') {
+            const parts = [p.FSN_1, p.FSN_2].filter(Boolean);
+            if (parts.length > 0) name = parts.join(' & ');
+          }
+          return name ? { ...feat, properties: { ...p, name } } : feat;
+        });
+        features = normalized;
+      } catch (_) {}
+
+      // Cache data for future style reloads
+      try {
+        cachedDataRef.current[idPrefix] = { type: 'FeatureCollection', features: Array.isArray(features) ? features : [] };
+      } catch (_) {}
+
+      // Stale request guard
+      if (reqId !== requestIdRef.current) return;
+
       setPermitAreas(Array.isArray(features) ? features : []);
-      console.log(`PermitAreas: Successfully loaded ${features.length} permit areas`);
+      console.log(`Areas: Successfully loaded ${features.length} features for mode ${activeMode}`);
       
       // Set up event listeners after successful load
       setupTooltipListeners();
@@ -666,53 +803,103 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       
       // Clean up on failure
       try {
-        if (map.getSource('permit-areas')) {
-          const layersToRemove = ['permit-areas-focused-outline', 'permit-areas-focused-fill', 'permit-areas-outline', 'permit-areas-fill'];
-          layersToRemove.forEach(layerId => {
-            if (map.getLayer(layerId)) {
-              map.removeLayer(layerId);
-            }
-          });
-          map.removeSource('permit-areas');
-        }
+        unloadGeo(map, 'plaza-areas');
+        unloadGeo(map, 'intersections');
+        unloadGeo(map, 'permit-areas');
       } catch (cleanupError) {
         console.warn('Error during cleanup:', cleanupError);
       }
     } finally {
       loadInFlightRef.current = false;
     }
-  }, [map, mapLoaded, setupTooltipListeners, setupPermitAreaClickListeners, mode]);
+  }, [map, mapLoaded, setupTooltipListeners, setupPermitAreaClickListeners, mode, options.mode]);
 
   // Watchdog: verify permit area layers shortly after mount/style changes and retry if missing
   useEffect(() => {
     if (!map) return;
     let canceled = false;
-    const requiredLayers = [
-      'permit-areas-fill',
-      'permit-areas-outline',
-      'permit-areas-focused-fill',
-      'permit-areas-focused-outline'
-    ];
+    let requiredLayers = [];
+    const activeMode = options.mode || mode;
+    if (activeMode === 'parks') {
+      requiredLayers = ['permit-areas-fill','permit-areas-outline','permit-areas-focused-fill','permit-areas-focused-outline'];
+    } else if (activeMode === 'plazas') {
+      requiredLayers = ['plaza-areas-fill','plaza-areas-outline','plaza-areas-focused-fill','plaza-areas-focused-outline'];
+    } else {
+      requiredLayers = ['intersections-points','intersections-focused-points'];
+    }
     let attempts = 0;
     const maxAttempts = 4;
 
     const verifyAndRepair = async () => {
       if (canceled) return;
-      const hasSource = !!(map.getSource && map.getSource('permit-areas'));
+      const hasSource = !!(map.getSource && map.getSource(activeMode === 'parks' ? 'permit-areas' : (activeMode === 'plazas' ? 'plaza-areas' : 'intersections')));
       const allLayers = requiredLayers.every(id => map.getLayer && map.getLayer(id));
       if (hasSource && allLayers) return; // all good
       if (attempts >= maxAttempts) return; // give up silently
       attempts += 1;
-      try {
-        await loadPermitAreas();
-      } catch (_) {}
+      try { await loadPermitAreas(); } catch (_) {}
       setTimeout(() => { if (!canceled) verifyAndRepair(); }, 300);
     };
 
-    // Kick off verification shortly after mount/style ready
     const t = setTimeout(verifyAndRepair, 200);
     return () => { canceled = true; clearTimeout(t); };
-  }, [map, loadPermitAreas]);
+  }, [map, loadPermitAreas, mode, options.mode]);
+
+  // Rehydrate on style load externally via SpaceStager -> this hook exposes helpers
+  const rehydrateActiveGeography = useCallback(() => {
+    if (!map) return;
+    const activeMode = options.mode || mode;
+    const cfg = GEOGRAPHIES[activeMode];
+    const idPrefix = cfg.idPrefix;
+    const type = cfg.type;
+
+    // Proactively unload non-active geographies to prevent stray visibility
+    const allPrefixes = ['permit-areas', 'plaza-areas', 'intersections'];
+    for (const p of allPrefixes) {
+      if (p !== idPrefix) {
+        try { unloadGeo(map, p); } catch (_) {}
+      }
+    }
+    ensureGeoBaseLayers(map, idPrefix, type);
+    setGeoBaseVisibility(map, idPrefix, type, true);
+    const cached = cachedDataRef.current[idPrefix];
+    if (cached && map.getSource(idPrefix)) {
+      try { map.getSource(idPrefix).setData(cached); } catch (_) {}
+      // Re-apply focused filter and visibility if a selection exists
+      try {
+        const fa = focusedAreaRef.current;
+        if (fa) {
+          if (type === 'point') {
+            if (map.getLayer(`${idPrefix}-focused-points`)) {
+              const featureId = fa.id || '';
+              map.setFilter(`${idPrefix}-focused-points`, ['==', ['id'], featureId]);
+              map.setLayoutProperty(`${idPrefix}-focused-points`, 'visibility', 'visible');
+            }
+            if (map.getLayer(`${idPrefix}-points`)) map.setLayoutProperty(`${idPrefix}-points`, 'visibility', 'none');
+          } else {
+            if (map.getLayer(`${idPrefix}-focused-fill`)) {
+              if (activeMode === 'parks') {
+                const areaSystem = fa.properties?.system || '';
+                map.setFilter(`${idPrefix}-focused-fill`, ['==', ['get', 'system'], areaSystem]);
+                if (map.getLayer(`${idPrefix}-focused-outline`)) map.setFilter(`${idPrefix}-focused-outline`, ['==', ['get', 'system'], areaSystem]);
+              } else {
+                const featureId = fa.id || '';
+                map.setFilter(`${idPrefix}-focused-fill`, ['==', ['id'], featureId]);
+                if (map.getLayer(`${idPrefix}-focused-outline`)) map.setFilter(`${idPrefix}-focused-outline`, ['==', ['id'], featureId]);
+              }
+              map.setLayoutProperty(`${idPrefix}-focused-fill`, 'visibility', 'visible');
+              if (map.getLayer(`${idPrefix}-focused-outline`)) map.setLayoutProperty(`${idPrefix}-focused-outline`, 'visibility', 'visible');
+            }
+            if (map.getLayer(`${idPrefix}-fill`)) map.setLayoutProperty(`${idPrefix}-fill`, 'visibility', 'none');
+            if (map.getLayer(`${idPrefix}-outline`)) map.setLayoutProperty(`${idPrefix}-outline`, 'visibility', 'none');
+          }
+        }
+      } catch (_) {}
+    } else {
+      // Fire a fresh load if no cache
+      setTimeout(() => { try { loadPermitAreas(); } catch (_) {} }, 0);
+    }
+  }, [map, mode, options.mode, loadPermitAreas]);
 
   // Clear focus function
   const clearFocus = useCallback(() => {
@@ -726,43 +913,54 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     setIsCameraAnimating(false);
     clearOverlapHighlights(map);
     
-    if (map && map.getLayer('permit-areas-focused-fill')) {
-      map.setFilter('permit-areas-focused-fill', ['==', ['get', 'system'], '']);
-      map.setFilter('permit-areas-focused-outline', ['==', ['get', 'system'], '']);
-    }
-    // Restore base permit area layers when exiting focus
+    const activeMode = options.mode || mode;
+    const idPrefix = activeMode === 'parks' ? 'permit-areas' : (activeMode === 'plazas' ? 'plaza-areas' : 'intersections');
+    // Reset focused filters
     try {
-      if (map && map.getLayer('permit-areas-fill')) {
-        const vis = prevPermitVisibilityRef.current.fill ?? 'visible';
-        map.setLayoutProperty('permit-areas-fill', 'visibility', vis);
-      }
-      if (map && map.getLayer('permit-areas-outline')) {
-        const vis = prevPermitVisibilityRef.current.outline ?? 'visible';
-        map.setLayoutProperty('permit-areas-outline', 'visibility', vis);
-      }
-      if (map && map.getLayer('permit-areas-focused-fill')) {
-        map.setLayoutProperty('permit-areas-focused-fill', 'visibility', 'visible');
-      }
-      if (map && map.getLayer('permit-areas-focused-outline')) {
-        map.setLayoutProperty('permit-areas-focused-outline', 'visibility', 'visible');
-      }
+      if (map && map.getLayer(`${idPrefix}-focused-fill`)) map.setFilter(`${idPrefix}-focused-fill`, ['==', ['id'], '']);
+      if (map && map.getLayer(`${idPrefix}-focused-outline`)) map.setFilter(`${idPrefix}-focused-outline`, ['==', ['id'], '']);
+      if (map && map.getLayer(`${idPrefix}-focused-points`)) map.setFilter(`${idPrefix}-focused-points`, ['==', ['id'], '']);
     } catch (_) {}
-  }, [map]);
+    // Restore base layers when exiting focus but keep focused overlays visible reset
+    try {
+      if (map && map.getLayer(`${idPrefix}-fill`)) {
+        const vis = prevPermitVisibilityRef.current.fill ?? 'visible';
+        map.setLayoutProperty(`${idPrefix}-fill`, 'visibility', vis);
+      }
+      if (map && map.getLayer(`${idPrefix}-outline`)) {
+        const vis = prevPermitVisibilityRef.current.outline ?? 'visible';
+        map.setLayoutProperty(`${idPrefix}-outline`, 'visibility', vis);
+      }
+      if (map && map.getLayer(`${idPrefix}-points`)) {
+        const vis = prevPermitVisibilityRef.current.fill ?? 'visible';
+        map.setLayoutProperty(`${idPrefix}-points`, 'visibility', vis);
+      }
+      if (map && map.getLayer(`${idPrefix}-focused-fill`)) map.setLayoutProperty(`${idPrefix}-focused-fill`, 'visibility', 'visible');
+      if (map && map.getLayer(`${idPrefix}-focused-outline`)) map.setLayoutProperty(`${idPrefix}-focused-outline`, 'visibility', 'visible');
+      if (map && map.getLayer(`${idPrefix}-focused-points`)) map.setLayoutProperty(`${idPrefix}-focused-points`, 'visibility', 'visible');
+    } catch (_) {}
+  }, [map, mode]);
 
-  // Enforce hiding base permit areas while focused, in case UI toggles attempt to show them
+  // Enforce hiding base geometry while focused, in case UI toggles attempt to show them
   useEffect(() => {
     if (!map) return;
-    if (focusedArea) {
-      try {
-        if (map.getLayer('permit-areas-fill')) {
-          map.setLayoutProperty('permit-areas-fill', 'visibility', 'none');
-        }
-        if (map.getLayer('permit-areas-outline')) {
-          map.setLayoutProperty('permit-areas-outline', 'visibility', 'none');
-        }
-      } catch (_) {}
-    }
-  }, [map, focusedArea]);
+    if (!focusedArea) return;
+    const activeMode = options.mode || mode;
+    const cfg = GEOGRAPHIES[activeMode];
+    const idPrefix = cfg?.idPrefix;
+    if (!idPrefix) return;
+    try {
+      if (map.getLayer(`${idPrefix}-fill`)) {
+        map.setLayoutProperty(`${idPrefix}-fill`, 'visibility', 'none');
+      }
+      if (map.getLayer(`${idPrefix}-outline`)) {
+        map.setLayoutProperty(`${idPrefix}-outline`, 'visibility', 'none');
+      }
+      if (map.getLayer(`${idPrefix}-points`)) {
+        map.setLayoutProperty(`${idPrefix}-points`, 'visibility', 'none');
+      }
+    } catch (_) {}
+  }, [map, focusedArea, mode, options.mode]);
 
   // Search functionality using the service
   useEffect(() => {
@@ -774,13 +972,20 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     setIsSearching(true);
 
     const timer = setTimeout(() => {
-      const results = searchPermitAreas(permitAreas, searchQuery);
+      let results = [];
+      if (mode === 'parks') {
+        results = searchPermitAreas(permitAreas, searchQuery);
+      } else {
+        const keys = GEOGRAPHIES[mode]?.searchKeys || [];
+        const query = searchQuery.toLowerCase().trim();
+        results = permitAreas.filter(area => keys.some(k => ((area.properties?.[k] || '').toString().toLowerCase()).includes(query))).slice(0, 10);
+      }
       setSearchResults(results);
       setIsSearching(false);
     }, 250);
     
     return () => clearTimeout(timer);
-  }, [searchQuery, permitAreas]);
+  }, [searchQuery, permitAreas, mode]);
 
   // Function to select from overlapping areas
   const selectOverlappingArea = useCallback((index) => {
@@ -840,6 +1045,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     loadPermitAreas,
     initialFocusZoom,
     minAllowedZoom,
-    isCameraAnimating
+    isCameraAnimating,
+    rehydrateActiveGeography
   };
 };

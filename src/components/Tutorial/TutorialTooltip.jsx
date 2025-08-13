@@ -15,6 +15,7 @@ const TutorialTooltip = () => {
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const [isVisible, setIsVisible] = useState(false);
   const tooltipRef = useRef(null);
+  const retryTimerRef = useRef(null);
 
   const currentContent = getCurrentStepContent();
 
@@ -24,76 +25,97 @@ const TutorialTooltip = () => {
       return;
     }
 
-    // Find the target element
-    const targetElement = document.querySelector(currentContent.target);
-    if (!targetElement) {
-      // If target not found, wait a bit and try again
-      const timer = setTimeout(() => {
-        setIsVisible(true);
-      }, 500);
-      return () => clearTimeout(timer);
-    }
+    let cleanupTarget = null;
+    let attempts = 0;
 
-    // Calculate position
-    const rect = targetElement.getBoundingClientRect();
-    const tooltipRect = tooltipRef.current?.getBoundingClientRect();
-    
-    let top = 0;
-    let left = 0;
+    const computePosition = () => {
+      const targetElement = document.querySelector(currentContent.target);
+      if (!targetElement) {
+        attempts += 1;
+        if (attempts <= 20) {
+          retryTimerRef.current = setTimeout(computePosition, 250);
+        }
+        return;
+      }
 
-    switch (currentContent.position) {
-      case 'top':
-        top = rect.top - (tooltipRect?.height || 0) - 10;
-        left = rect.left + rect.width / 2;
-        break;
-      case 'bottom':
-        top = rect.bottom + 10;
-        left = rect.left + rect.width / 2;
-        break;
-      case 'left':
-        top = rect.top + rect.height / 2;
-        left = rect.left - (tooltipRect?.width || 0) - 10;
-        break;
-      case 'right':
-        top = rect.top + rect.height / 2;
-        left = rect.right + 10;
-        break;
-      default:
-        top = rect.bottom + 10;
-        left = rect.left + rect.width / 2;
-    }
+      // Ensure the element is visible in the viewport
+      try {
+        targetElement.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+      } catch (_) {}
 
-    // Ensure tooltip stays within viewport
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    const tooltipWidth = tooltipRect?.width || 300;
-    const tooltipHeight = tooltipRect?.height || 150;
+      // Calculate position
+      const rect = targetElement.getBoundingClientRect();
+      const tooltipRect = tooltipRef.current?.getBoundingClientRect();
 
-    if (left + tooltipWidth > viewportWidth) {
-      left = viewportWidth - tooltipWidth - 20;
-    }
-    if (left < 20) {
-      left = 20;
-    }
-    if (top + tooltipHeight > viewportHeight) {
-      top = viewportHeight - tooltipHeight - 20;
-    }
-    if (top < 20) {
-      top = 20;
-    }
+      let top = 0;
+      let left = 0;
 
-    setPosition({ top, left });
-    setIsVisible(true);
+      switch (currentContent.position) {
+        case 'top':
+          top = rect.top - (tooltipRect?.height || 0) - 10;
+          left = rect.left + rect.width / 2;
+          break;
+        case 'bottom':
+          top = rect.bottom + 10;
+          left = rect.left + rect.width / 2;
+          break;
+        case 'left':
+          top = rect.top + rect.height / 2;
+          left = rect.left - (tooltipRect?.width || 0) - 10;
+          break;
+        case 'right':
+          top = rect.top + rect.height / 2;
+          left = rect.right + 10;
+          break;
+        default:
+          top = rect.bottom + 10;
+          left = rect.left + rect.width / 2;
+      }
 
-    // Highlight target element
-    targetElement.style.outline = '2px solid #3b82f6';
-    targetElement.style.outlineOffset = '2px';
-    targetElement.style.borderRadius = '4px';
+      // Ensure tooltip stays within viewport
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const tooltipWidth = tooltipRect?.width || 300;
+      const tooltipHeight = tooltipRect?.height || 150;
+
+      if (left + tooltipWidth > viewportWidth) {
+        left = Math.max(20, viewportWidth - tooltipWidth - 20);
+      }
+      if (left < 20) {
+        left = 20;
+      }
+      if (top + tooltipHeight > viewportHeight) {
+        top = Math.max(20, viewportHeight - tooltipHeight - 20);
+      }
+      if (top < 20) {
+        top = 20;
+      }
+
+      setPosition({ top, left });
+      setIsVisible(true);
+
+      // Highlight target element
+      cleanupTarget = targetElement;
+      targetElement.style.outline = '2px solid #3b82f6';
+      targetElement.style.outlineOffset = '2px';
+      targetElement.style.borderRadius = '4px';
+    };
+
+    // Initial compute and wire up listeners for reflow
+    computePosition();
+    const handleReflow = () => computePosition();
+    window.addEventListener('resize', handleReflow);
+    window.addEventListener('scroll', handleReflow, true);
 
     return () => {
-      targetElement.style.outline = '';
-      targetElement.style.outlineOffset = '';
-      targetElement.style.borderRadius = '';
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      window.removeEventListener('resize', handleReflow);
+      window.removeEventListener('scroll', handleReflow, true);
+      if (cleanupTarget) {
+        cleanupTarget.style.outline = '';
+        cleanupTarget.style.outlineOffset = '';
+        cleanupTarget.style.borderRadius = '';
+      }
     };
   }, [isTutorialActive, currentStep, currentContent]);
 
@@ -140,17 +162,34 @@ const TutorialTooltip = () => {
       style={{
         top: `${position.top}px`,
         left: `${position.left}px`,
-        transform: 'translateX(-50%)'
+        transform: currentContent.position === 'top' || currentContent.position === 'bottom'
+          ? 'translateX(-50%)'
+          : currentContent.position === 'left' || currentContent.position === 'right'
+            ? 'translateY(-50%)'
+            : 'translateX(-50%)'
       }}
     >
       {/* Arrow */}
-      <div className="absolute w-3 h-3 bg-white border-l border-t border-gray-200 transform rotate-45" 
-           style={{
-             top: currentContent.position === 'bottom' ? '-6px' : 'auto',
-             bottom: currentContent.position === 'top' ? '-6px' : 'auto',
-             left: '50%',
-             transform: 'translateX(-50%) rotate(45deg)'
-           }} />
+      <div
+        className="absolute w-3 h-3 bg-white transform rotate-45"
+        style={{
+          // Position the arrow based on tooltip placement
+          bottom: currentContent.position === 'top' ? '-6px' : 'auto',
+          left: currentContent.position === 'right' || currentContent.position === 'left' ? 'auto' : '50%',
+          right: currentContent.position === 'left' ? '-6px' : 'auto',
+          // For side placements, center vertically
+          marginTop: currentContent.position === 'left' || currentContent.position === 'right' ? '-6px' : '0',
+          top: currentContent.position === 'right' || currentContent.position === 'left' ? '50%' : (currentContent.position === 'bottom' ? '-6px' : 'auto'),
+          transform: (currentContent.position === 'top' || currentContent.position === 'bottom')
+            ? 'translateX(-50%) rotate(45deg)'
+            : 'translateY(-50%) rotate(45deg)',
+          // Borders to create the arrow outline
+          borderLeft: '1px solid #E5E7EB',
+          borderTop: '1px solid #E5E7EB',
+          borderRight: currentContent.position === 'left' ? '1px solid #E5E7EB' : 'none',
+          borderBottom: currentContent.position === 'right' ? '1px solid #E5E7EB' : 'none'
+        }}
+      />
 
       {/* Content */}
       <div className="p-4">

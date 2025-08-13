@@ -52,8 +52,13 @@ const DroppedObjects = ({
         trigger: objectUpdateTrigger
       });
       
-      // Use the object's defined size or default to 24px
-      const iconSize = Math.max(objectType.size.width, objectType.size.height, 24);
+      // Compute zoom-based scale so icons shrink when zoomed out and grow when zoomed in
+      const zoom = typeof map.getZoom === 'function' ? map.getZoom() : 16;
+      const zoomScale = Math.min(1.6, Math.max(0.6, 0.6 + (zoom - 12) * 0.1));
+
+      // Use the object's defined size or default to 24px, scaled by zoom
+      const baseSize = Math.max(objectType.size.width, objectType.size.height, 24);
+      const iconSize = baseSize * zoomScale;
       const halfSize = iconSize / 2;
       
       return {
@@ -103,7 +108,10 @@ const DroppedObjects = ({
       if (style.display === 'none') return null;
       
       // Calculate icon size for font sizing
-      const iconSize = Math.max(objectType.size.width, objectType.size.height, 24);
+      const zoom = typeof map.getZoom === 'function' ? map.getZoom() : 16;
+      const zoomScale = Math.min(1.6, Math.max(0.6, 0.6 + (zoom - 12) * 0.1));
+      const baseSize = Math.max(objectType.size.width, objectType.size.height, 24);
+      const iconSize = baseSize * zoomScale;
       const fontSize = Math.max(iconSize * 0.6, 14);
       
       return (
@@ -118,7 +126,7 @@ const DroppedObjects = ({
             <img
               src={objectType.imageUrl}
               alt={objectType.name}
-              style={{ width: iconSize, height: iconSize, objectFit: 'contain' }}
+              style={{ width: iconSize, height: iconSize, objectFit: 'contain', transform: obj?.properties?.flipped ? 'scaleX(-1)' : undefined }}
               draggable={false}
             />
           ) : (
@@ -126,7 +134,8 @@ const DroppedObjects = ({
               style={{ 
                 color: objectType.color,
                 fontSize: `${fontSize}px`,
-                lineHeight: '1'
+                lineHeight: '1',
+                transform: obj?.properties?.flipped ? 'scaleX(-1)' : undefined
               }}
             >
               {objectType.icon}

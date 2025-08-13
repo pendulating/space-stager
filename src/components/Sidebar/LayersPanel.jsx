@@ -9,7 +9,8 @@ const LayersPanel = ({
   focusedArea, 
   onToggleLayer, 
   onClearFocus,
-  isSitePlanMode = false
+  isSitePlanMode = false,
+  geographyType
 }) => {
   // State for tracking which groups are expanded
   const [expandedGroups, setExpandedGroups] = useState(new Set(['public-infrastructure', 'nyc-parks'])); // Start with some groups expanded
@@ -82,22 +83,20 @@ const LayersPanel = ({
       );
     }
 
+    // Treat all as image-based for simplicity and to use your provided SVG assets
     if (icon.type === 'svg') {
-      // For SVG icons, render as inline SVG with proper styling
       return (
         <div 
           className={`w-4 h-4 flex items-center justify-center ${config.loading ? 'animate-pulse' : ''}`}
           style={{ opacity: config.visible ? 1 : 0.3 }}
         >
-          <div 
-            className="w-4 h-4"
-            style={{ 
-              color: config.loading ? '#9CA3AF' : config.color,
+          <img 
+            src={svgToDataUrl(icon.svg)} 
+            alt={config.name}
+            className="w-5 h-5 object-contain"
+            style={{
+              filter: config.loading ? 'grayscale(100%)' : 'none',
               opacity: config.visible ? 1 : 0.6
-            }}
-            dangerouslySetInnerHTML={{ 
-              __html: icon.svg.replace(/fill="currentColor"/g, `fill="${config.loading ? '#9CA3AF' : config.color}"`)
-                              .replace(/stroke="currentColor"/g, `stroke="${config.loading ? '#9CA3AF' : config.color}"`)
             }}
           />
         </div>
@@ -224,7 +223,7 @@ const LayersPanel = ({
           <span className={`text-sm font-medium ${
             config.visible && isEnabled ? 'text-gray-800' : 'text-gray-500'
           }`}>
-            {config.name}
+            {layerId === 'permitAreas' ? (geographyType === 'plazas' ? 'Plazas' : geographyType === 'intersections' ? 'Intersections' : 'Parks') : (config.name)}
             {isLoading && (
               <span className="ml-1 text-xs text-gray-500">(Loading...)</span>
             )}
@@ -296,8 +295,8 @@ const LayersPanel = ({
           </div>
         </div>
 
-        {/* NYC Permit Areas - Always Fixed */}
-        {permitAreasLayer && renderLayerItem('permitAreas', permitAreasLayer)}
+      {/* Zone geometry - Always Fixed */}
+      {permitAreasLayer && renderLayerItem('permitAreas', permitAreasLayer)}
         
         {/* Focus Area Info - Enhanced */}
         {focusedArea && (
@@ -327,7 +326,7 @@ const LayersPanel = ({
         
         {!focusedArea && (
           <div className="bg-amber-50 p-2 rounded-md text-xs text-amber-700">
-            Click on permit areas to explore overlapping zones. 
+            Click on the zone geometry to explore overlapping areas.
             Multiple areas? Use the selector popup.
           </div>
         )}
