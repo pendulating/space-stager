@@ -7,6 +7,7 @@ import FocusInfoPanel from './Modals/FocusInfoPanel';
 import WelcomeOverlay from './Tutorial/WelcomeOverlay';
 import TutorialTooltip from './Tutorial/TutorialTooltip';
 import RightSidebar from './Sidebar/RightSidebar';
+import NudgeCenter from './Nudges/NudgeCenter';
 import { useMap } from '../hooks/useMap';
 import { useDrawTools } from '../hooks/useDrawTools';
 import { usePermitAreas } from '../hooks/usePermitAreas';
@@ -16,6 +17,7 @@ import { useSitePlan } from '../contexts/SitePlanContext';
 import { INITIAL_LAYERS } from '../constants/layers';
 import { PLACEABLE_OBJECTS } from '../constants/placeableObjects';
 import { exportPlan, importPlan, exportPermitAreaSiteplanV2 } from '../utils/exportUtils';
+import { useNudges } from '../hooks/useNudges';
 import '../styles/eventStager-dpr.css';
 import '../styles/eventStager.css';
 
@@ -25,6 +27,8 @@ const DprStager = () => {
   const [layers, setLayers] = useState(INITIAL_LAYERS);
   const [showInfo, setShowInfo] = useState(false);
   const [isShaking, setIsShaking] = useState(false);
+  const labelSigRef = useRef('');
+  const [labelScanFlag, setLabelScanFlag] = useState(false);
   
   // Use custom hooks for different functionalities
   const permitAreas = usePermitAreas(map, mapLoaded);
@@ -75,8 +79,26 @@ const DprStager = () => {
       const currentZoom = map.getZoom();
       updateSitePlanMode(permitAreas.focusedArea, currentZoom);
       
-      // Listen for zoom changes with restrictions when focused
-      const handleZoom = () => {
+      // Pan/zoom guardrails in Site Plan mode
+      const focusAnchorRef = { current: null };
+      const lastAllowedCenterRef = { current: null };
+      const lastAllowedZoomRef = { current: null };
+      const getAllowedRadiusPx = () => {
+        const canvas = map.getCanvas();
+        return Math.max(0, (canvas?.width || 0) * 0.5);
+      };
+
+      // Initialize or refresh anchor after animations complete
+      const ensureAnchor = () => {
+        if (!permitAreas.focusedArea || permitAreas.isCameraAnimating) return;
+        if (!focusAnchorRef.current) {
+          focusAnchorRef.current = map.getCenter();
+          lastAllowedCenterRef.current = focusAnchorRef.current;
+          lastAllowedZoomRef.current = map.getZoom();
+        }
+      };
+
+      const handleCamera = () => {
         const zoom = map.getZoom();
         
         // Check zoom restrictions when a permit area is focused and camera animation is complete
@@ -91,21 +113,61 @@ const DprStager = () => {
             cameraAnimating: permitAreas.isCameraAnimating
           });
           
-          // Prevent further zoom out and trigger shake
-          map.setZoom(permitAreas.minAllowedZoom);
+          // Prevent further zoom out WITHOUT changing camera center
+          const prevCenter = lastAllowedCenterRef.current || map.getCenter();
+          map.stop();
+          map.jumpTo({
+            center: prevCenter,
+            zoom: permitAreas.minAllowedZoom,
+            bearing: map.getBearing(),
+            pitch: map.getPitch()
+          });
           triggerShake();
-          return;
+          return; // avoid applying further adjustments in this frame
         }
         
+        // Pan restriction: clamp map center within a radius of 50% viewport width from anchor
+        if (permitAreas.focusedArea && !permitAreas.isCameraAnimating) {
+          ensureAnchor();
+          if (focusAnchorRef.current) {
+            const anchor = focusAnchorRef.current;
+            const nowCenter = map.getCenter();
+            const anchorPx = map.project([anchor.lng, anchor.lat]);
+            const nowPx = map.project([nowCenter.lng, nowCenter.lat]);
+            const dx = nowPx.x - anchorPx.x;
+            const dy = nowPx.y - anchorPx.y;
+            const dist = Math.hypot(dx, dy);
+            const allowed = getAllowedRadiusPx();
+            if (dist > allowed) {
+              const clampedX = anchorPx.x + (dx * (allowed / dist));
+              const clampedY = anchorPx.y + (dy * (allowed / dist));
+              const clampedLngLat = map.unproject([clampedX, clampedY]);
+              map.stop();
+              map.jumpTo({ center: clampedLngLat, zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() });
+              triggerShake();
+              // Update last allowed after correction
+              lastAllowedCenterRef.current = clampedLngLat;
+              lastAllowedZoomRef.current = map.getZoom();
+              return;
+            }
+          }
+        }
+
+        // Update last allowed camera state
+        lastAllowedCenterRef.current = map.getCenter();
+        lastAllowedZoomRef.current = zoom;
+
         updateSitePlanMode(permitAreas.focusedArea, zoom);
       };
       
-      map.on('zoom', handleZoom);
-      map.on('move', handleZoom);
+      map.on('zoom', handleCamera);
+      map.on('move', handleCamera);
+      map.on('resize', ensureAnchor);
       
       return () => {
-        map.off('zoom', handleZoom);
-        map.off('move', handleZoom);
+        map.off('zoom', handleCamera);
+        map.off('move', handleCamera);
+        map.off('resize', ensureAnchor);
       };
     }
   }, [map, permitAreas.focusedArea, permitAreas.minAllowedZoom, permitAreas.initialFocusZoom, permitAreas.isCameraAnimating, updateSitePlanMode, triggerShake]);
@@ -261,6 +323,32 @@ const DprStager = () => {
     }
   }, [map, permitAreas, layers, infrastructure, drawTools.forceReinitialize]);
 
+  // Contextual nudges (evaluated only when prerequisites are visible)
+  const customShapes = drawTools.draw?.current ? drawTools.draw.current.getAll().features : [];
+  // Detect label changes to trigger text-rule scans only when needed
+  useEffect(() => {
+    try {
+      const sig = (customShapes || [])
+        .map(f => `${f.id || ''}:${(f.properties?.label || '').toLowerCase()}`)
+        .sort()
+        .join('|');
+      if (sig !== labelSigRef.current) {
+        labelSigRef.current = sig;
+        setLabelScanFlag(true);
+        const t = setTimeout(() => setLabelScanFlag(false), 400); // keep true through debounce window
+        return () => clearTimeout(t);
+      }
+    } catch (_) {}
+  }, [customShapes]);
+  const { nudges, dismiss: dismissNudge, zoomTo: zoomToNudge, highlight: highlightNudge, highlightedIds } = useNudges({
+    map,
+    droppedObjects: clickToPlace.droppedObjects,
+    customShapes,
+    infrastructureData: infrastructure?.infrastructureData || {},
+    layers,
+    labelScan: labelScanFlag
+  });
+
   return (
     <div className={`h-screen w-full flex flex-col bg-gray-50 ${isShaking ? 'shake-animation' : ''}`}>
       <Header 
@@ -337,6 +425,17 @@ const DprStager = () => {
           clickToPlace={clickToPlace}
           permitAreas={permitAreas}
           placeableObjects={PLACEABLE_OBJECTS}
+          nudges={nudges}
+          highlightedIds={highlightedIds}
+          onDismissNudge={dismissNudge}
+        />
+
+        {/* Center-bottom contextual nudges */}
+        <NudgeCenter
+          nudges={nudges}
+          onZoom={zoomToNudge}
+          onHighlight={highlightNudge}
+          onDismiss={dismissNudge}
         />
 
         {/* Right Sidebar for Site Plan Mode */}

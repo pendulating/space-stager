@@ -19,18 +19,22 @@
     "url": "https://github.com/pendulating/space-stager.git"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "node scripts/copy-vendor.mjs && vite",
+    "build": "node scripts/copy-vendor.mjs && vite build",
     "preview": "vite preview",
     "predeploy": "pnpm run build",
     "deploy": "gh-pages -d dist",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
-    "format": "prettier --write \"src/**/*.{js,jsx,json,css,md}\""
+    "format": "prettier --write \"src/**/*.{js,jsx,json,css,md}\"",
+    "test:unit": "vitest run --coverage --passWithNoTests",
+    "size": "size-limit",
+    "postinstall": "node scripts/copy-vendor.mjs"
   },
   "dependencies": {
     "@mapbox/mapbox-gl-draw": "^1.4.3",
     "@turf/bbox": "^7.2.0",
     "@turf/turf": "^7.2.0",
+    "@stadiamaps/maplibre-search-box": "^2.0.0",
     "jspdf": "^2.5.2",
     "lucide-react": "^0.294.0",
     "maplibre-gl": "^3.6.2",
@@ -49,11 +53,24 @@
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
     "gh-pages": "^6.3.0",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/jsdom": "^21.1.6",
+    "@vitest/coverage-v8": "^2.0.5",
+    "jsdom": "^24.1.0",
     "postcss": "^8.4.32",
     "prettier": "^3.1.1",
+    "size-limit": "^11.1.6",
     "tailwindcss": "^3.3.6",
-    "vite": "^5.0.8"
+    "vite": "^5.0.8",
+    "vitest": "^2.0.5"
   },
+  "size-limit": [
+    {
+      "path": "dist/assets/*.js",
+      "limit": "300 KB"
+    }
+  ],
   "browserslist": {
     "production": [
       ">0.2%",

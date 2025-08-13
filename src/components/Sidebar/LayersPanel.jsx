@@ -8,7 +8,8 @@ const LayersPanel = ({
   layers, 
   focusedArea, 
   onToggleLayer, 
-  onClearFocus
+  onClearFocus,
+  isSitePlanMode = false
 }) => {
   // State for tracking which groups are expanded
   const [expandedGroups, setExpandedGroups] = useState(new Set(['public-infrastructure', 'nyc-parks'])); // Start with some groups expanded
@@ -258,35 +259,41 @@ const LayersPanel = ({
           NYC Infrastructure Layers
         </h3>
         
-        {/* Starter Set Toggle */}
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-3 rounded-lg border border-blue-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Layers className="w-4 h-4 text-blue-600" />
-              <span className="text-sm font-medium text-blue-900">Starter Set</span>
-              <span className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
-                {STARTER_SET_LAYERS.length} layers
-              </span>
+        {/* Starter Set Toggle - revealed only in Site Plan (design) mode */}
+        <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
+          isSitePlanMode
+            ? 'max-h-96 opacity-100 transform translate-y-0'
+            : 'max-h-0 opacity-0 transform -translate-y-2'
+        }`}>
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-3 rounded-lg border border-blue-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Layers className="w-4 h-4 text-blue-600" />
+                <span className="text-sm font-medium text-blue-900">Starter Set</span>
+                <span className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                  {STARTER_SET_LAYERS.length} layers
+                </span>
+              </div>
+              <button
+                onClick={handleStarterSetToggle}
+                className="flex items-center space-x-1 text-blue-700 hover:text-blue-800 transition-colors"
+                disabled={!focusedArea}
+                title={!focusedArea ? "Select a permit area first" : `${starterSetActive ? 'Hide' : 'Show'} essential layers`}
+              >
+                {starterSetActive ? (
+                  <ToggleRight className="w-5 h-5 text-blue-600" />
+                ) : (
+                  <ToggleLeft className="w-5 h-5 text-gray-400" />
+                )}
+                <span className="text-xs font-medium">
+                  {starterSetActive ? 'ON' : 'OFF'}
+                </span>
+              </button>
             </div>
-            <button
-              onClick={handleStarterSetToggle}
-              className="flex items-center space-x-1 text-blue-700 hover:text-blue-800 transition-colors"
-              disabled={!focusedArea}
-              title={!focusedArea ? "Select a permit area first" : `${starterSetActive ? 'Hide' : 'Show'} essential layers`}
-            >
-              {starterSetActive ? (
-                <ToggleRight className="w-5 h-5 text-blue-600" />
-              ) : (
-                <ToggleLeft className="w-5 h-5 text-gray-400" />
-              )}
-              <span className="text-xs font-medium">
-                {starterSetActive ? 'ON' : 'OFF'}
-              </span>
-            </button>
+            <p className="text-xs text-blue-700 mt-1">
+              Essential layers from across all groups: trees, hydrants, bus stops, benches, bike parking & restrooms
+            </p>
           </div>
-          <p className="text-xs text-blue-700 mt-1">
-            Essential layers from across all groups: trees, hydrants, bus stops, benches, bike parking & restrooms
-          </p>
         </div>
 
         {/* NYC Permit Areas - Always Fixed */}

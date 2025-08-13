@@ -1,0 +1,46 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "area-a",
+        "name": "Test Area A",
+        "system": "SYS-A",
+        "propertyname": "Test Park",
+        "subpropertyname": "North"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-73.9860, 40.7580],
+          [-73.9848, 40.7580],
+          [-73.9848, 40.7590],
+          [-73.9860, 40.7590],
+          [-73.9860, 40.7580]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "area-b",
+        "name": "Test Area B",
+        "system": "SYS-B",
+        "propertyname": "Test Park",
+        "subpropertyname": "Overlap"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-73.9856, 40.7584],
+          [-73.9844, 40.7584],
+          [-73.9844, 40.7594],
+          [-73.9856, 40.7594],
+          [-73.9856, 40.7584]
+        ]]
+      }
+    }
+  ]
+}
+

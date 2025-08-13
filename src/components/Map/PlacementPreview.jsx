@@ -46,6 +46,10 @@ const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects }) =
     const iconSize = Math.max(objectType.size.width, objectType.size.height, 24);
     const fontSize = Math.max(iconSize * 0.6, 14);
 
+    if (objectType.imageUrl) {
+      return { width: iconSize, height: iconSize };
+    }
+
     return {
       color: objectType.color,
       fontSize: `${fontSize}px`,
@@ -65,9 +69,11 @@ const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects }) =
 
   return (
     <div style={previewStyle}>
-      <div style={iconStyle}>
-        {objectType.icon}
-      </div>
+      {objectType.imageUrl ? (
+        <img src={objectType.imageUrl} alt={objectType.name} style={iconStyle} draggable={false} />
+      ) : (
+        <div style={iconStyle}>{objectType.icon}</div>
+      )}
     </div>
   );
 };

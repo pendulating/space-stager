@@ -133,6 +133,16 @@ export const exportPermitAreaSiteplanV2 = async (
         offscreen.setFilter('permit-areas-focused-outline', ['==', ['get', 'system'], system]);
         offscreen.setLayoutProperty('permit-areas-focused-outline', 'visibility', 'visible');
       }
+      // Hide any MapboxDraw layers on the offscreen style; we render annotations ourselves
+      try {
+        const style = offscreen.getStyle();
+        style.layers?.forEach(layer => {
+          const id = layer.id || '';
+          if (id.startsWith('mapbox-gl-draw') || id.startsWith('gl-draw')) {
+            try { offscreen.setLayoutProperty(id, 'visibility', 'none'); } catch (_) {}
+          }
+        });
+      } catch (_) {}
     } catch (_) {}
 
     // Fit bounds to the left 75% viewport without scaling the image output
@@ -148,6 +158,7 @@ export const exportPermitAreaSiteplanV2 = async (
 
     // Preload PNG icons for visible layers for both PDF and PNG flows
     const pngIcons = await loadVisiblePngIcons(layers);
+    const droppedObjectImages = await preloadDroppedObjectImages(droppedObjects);
 
     if (format === 'png') {
       const canvas = document.createElement('canvas');
@@ -161,10 +172,12 @@ export const exportPermitAreaSiteplanV2 = async (
       ctx.drawImage(img, 0, 0, mapPx.width, mapPx.height);
 
       drawOverlaysOnCanvas(ctx, offscreen, mapPx, { x: 0, y: 0 }, layers, customShapes, droppedObjects, infrastructureData, focusedArea, pngIcons);
+      // Draw dropped objects on top of basemap and overlays
+      await drawDroppedObjectsOnCanvas(ctx, { x: 0, y: 0, width: mapPx.width, height: mapPx.height }, offscreen, droppedObjects);
 
       const legendPx = { x: mapPx.width, y: 0, width: canvas.width - mapPx.width, height: canvas.height };
       const numbered = numberCustomShapes(customShapes || []);
-      drawLegendOnCanvas(ctx, legendPx, layers, numbered, droppedObjects, focusedArea, pngIcons);
+      await drawLegendOnCanvas(ctx, legendPx, layers, numbered, droppedObjects, focusedArea, pngIcons, droppedObjectImages);
 
       canvas.toBlob((blob) => {
         if (!blob) { alert('Failed to create PNG'); cleanupOffscreen(offscreen, container); return; }
@@ -187,10 +200,10 @@ export const exportPermitAreaSiteplanV2 = async (
     // Skip manual orange permit overlay; rely on underlying dashed permit styling if present
     // drawPermitAreaOnPdf(pdf, focusedArea, project, toMm);
     drawInfrastructureOnPdf(pdf, layers, infrastructureData, project, toMm, pngIcons);
-    drawDroppedObjectsOnPdf(pdf, droppedObjects, project, toMm);
+    drawDroppedObjectsOnPdf(pdf, droppedObjects, project, toMm, droppedObjectImages);
     drawCustomShapesOnPdf(pdf, numberedShapes, project, toMm);
 
-    drawLegendOnPdf(pdf, { x: legendMm.x, y: legendMm.y, width: legendMm.width, height: legendMm.height }, layers, numberedShapes, droppedObjects, focusedArea, pngIcons);
+    drawLegendOnPdf(pdf, { x: legendMm.x, y: legendMm.y, width: legendMm.width, height: legendMm.height }, layers, numberedShapes, droppedObjects, focusedArea, pngIcons, droppedObjectImages);
 
     pdf.save(`siteplan-${getSafeFilename(focusedArea)}.pdf`);
     cleanupOffscreen(offscreen, container);
@@ -212,6 +225,98 @@ const loadImage = (src) => new Promise((resolve, reject) => {
   img.crossOrigin = 'anonymous';
   img.src = src;
 });
+
+// Canvas legend renderer (for PNG export)
+const drawLegendOnCanvas = async (ctx, rectPx, layers, numberedShapes, droppedObjects, focusedArea, pngIcons, droppedObjectImages) => {
+  // background
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(rectPx.x, rectPx.y, rectPx.width, rectPx.height);
+
+  const margin = 12;
+  let cursorY = rectPx.y + margin;
+  const leftX = rectPx.x + margin;
+
+  // Title
+  ctx.fillStyle = '#1f2937';
+  ctx.font = 'bold 18px Arial';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  const title = `Site Plan: ${(focusedArea?.properties?.name || 'Permit Area')}`.slice(0, 80);
+  ctx.fillText(title, leftX, cursorY);
+
+  // Layers header
+  cursorY += 24;
+  ctx.fillStyle = '#374151';
+  ctx.font = '12px Arial';
+  ctx.fillText('Layers', leftX, cursorY);
+  cursorY += 8;
+
+  // Visible layers list with PNG icons if available
+  for (const [id, cfg] of Object.entries(layers)) {
+    if (id === 'permitAreas' || !cfg.visible) continue;
+    const png = pngIcons?.[id];
+    if (png) {
+      try {
+        const img = await loadImage(png);
+        ctx.drawImage(img, leftX, cursorY - 10, 12, 12);
+      } catch {}
+    } else {
+      // fallback colored square
+      ctx.fillStyle = cfg.color || '#333333';
+      ctx.fillRect(leftX, cursorY - 8, 10, 10);
+    }
+    ctx.fillStyle = '#374151';
+    ctx.font = '12px Arial';
+    ctx.fillText(String(cfg.name || id), leftX + 16, cursorY);
+    cursorY += 16;
+  }
+
+  // Equipment header
+  cursorY += 4;
+  ctx.fillStyle = '#374151';
+  ctx.font = '12px Arial';
+  ctx.fillText('Equipment', leftX, cursorY);
+  cursorY += 8;
+
+  // Aggregated dropped objects with images
+  const counts = (droppedObjects || []).reduce((acc, o) => { acc[o.type] = (acc[o.type] || 0) + 1; return acc; }, {});
+  for (const [type, count] of Object.entries(counts)) {
+    const objType = PLACEABLE_OBJECTS.find(p => p.id === type);
+    if (objType?.imageUrl) {
+      try {
+        const img = await loadImage(objType.imageUrl);
+        ctx.drawImage(img, leftX, cursorY - 10, 14, 14);
+      } catch {
+        ctx.fillStyle = '#666666';
+        ctx.fillRect(leftX, cursorY - 8, 10, 10);
+      }
+    } else {
+      ctx.fillStyle = '#666666';
+      ctx.fillRect(leftX, cursorY - 8, 10, 10);
+    }
+    ctx.fillStyle = '#374151';
+    ctx.font = '12px Arial';
+    ctx.fillText(`${objType?.name || type} (${count})`, leftX + 18, cursorY);
+    cursorY += 16;
+  }
+
+  // Annotations header
+  cursorY += 4;
+  ctx.fillStyle = '#374151';
+  ctx.font = '12px Arial';
+  ctx.fillText('Annotations', leftX, cursorY);
+  cursorY += 8;
+
+  // Numbered annotations list
+  (numberedShapes || []).forEach((shape) => {
+    const num = shape.properties?.__number;
+    const label = shape.properties?.label || shape.geometry?.type || 'Shape';
+    ctx.fillStyle = '#1f2937';
+    ctx.font = '12px Arial';
+    ctx.fillText(`${num}. ${label}`.slice(0, 80), leftX, cursorY);
+    cursorY += 14;
+  });
+};
 
 const numberCustomShapes = (features) => {
   if (!features || features.length === 0) return [];
@@ -355,26 +460,40 @@ const drawInfrastructureOnPdf = (pdf, layers, infrastructureData, project, toMm,
   });
 };
 
-const drawDroppedObjectsOnPdf = (pdf, droppedObjects, project, toMm) => {
+const drawDroppedObjectsOnPdf = (pdf, droppedObjects, project, toMm, droppedObjectImages) => {
   if (!droppedObjects || droppedObjects.length === 0) return;
   droppedObjects.forEach((obj) => {
     const p = toMm(project(obj.position.lng, obj.position.lat));
-    pdf.setFillColor(40, 40, 40);
-    pdf.circle(p.x, p.y, 1.8, 'F');
+    const objType = PLACEABLE_OBJECTS.find(p => p.id === obj.type);
+    const imgSrc = objType?.imageUrl;
+    if (imgSrc) {
+      try {
+        // Scale up 3x compared to base size
+        const basePx = Math.max((objType.size?.width || 28), (objType.size?.height || 28)) * 3;
+        const sizeMm = basePx * 0.2645 / 3; // rough px->mm mapping aligned to earlier scale
+        pdf.addImage(imgSrc, 'PNG', p.x - sizeMm / 2, p.y - sizeMm / 2, sizeMm, sizeMm);
+      } catch (e) {
+        pdf.setFillColor(40, 40, 40);
+        pdf.circle(p.x, p.y, 1.8, 'F');
+      }
+    } else {
+      pdf.setFillColor(40, 40, 40);
+      pdf.circle(p.x, p.y, 1.8, 'F');
+    }
   });
 };
 
 const drawCustomShapesOnPdf = (pdf, shapes, project, toMm) => {
   if (!shapes || shapes.length === 0) return;
   pdf.setDrawColor(59, 130, 246);
-  pdf.setFillColor(59, 130, 246);
+  // Remove fills for custom annotations to avoid mismatched geometry rendering
   shapes.forEach((shape) => {
     const g = shape.geometry;
     if (!g) return;
     let labelPoint = null;
     if (g.type === 'Point') {
       const p = toMm(project(g.coordinates[0], g.coordinates[1]));
-      pdf.circle(p.x, p.y, 1.2, 'F');
+      pdf.circle(p.x, p.y, 1.2, 'S');
       labelPoint = p;
     } else if (g.type === 'LineString') {
       const coords = g.coordinates.map(([lng, lat]) => toMm(project(lng, lat)));
@@ -392,12 +511,14 @@ const drawCustomShapesOnPdf = (pdf, shapes, project, toMm) => {
     } else if (g.type === 'Polygon') {
       const ring = g.coordinates[0].map(([lng, lat]) => toMm(project(lng, lat)));
       if (ring.length < 2) return;
+      // Stroke-only outline, no fill, to avoid incorrect polygon fills
+      pdf.setLineWidth(0.6);
       pdf.lines(
         ring.slice(1).map(p => [p.x - ring[0].x, p.y - ring[0].y]),
         ring[0].x,
         ring[0].y,
         [1, 1],
-        'FD',
+        'S',
         true
       );
       labelPoint = centroidOfRing(ring);
@@ -418,7 +539,7 @@ const drawBadge = (pdf, x, y, text) => {
   pdf.text(text, x, y + 2.2, { align: 'center', baseline: 'middle' });
 };
 
-const drawLegendOnPdf = (pdf, rect, layers, numberedShapes, droppedObjects, focusedArea, pngIcons) => {
+const drawLegendOnPdf = (pdf, rect, layers, numberedShapes, droppedObjects, focusedArea, pngIcons, droppedObjectImages) => {
   // Solid white background behind legend so map content doesn't show through
   pdf.setFillColor(255, 255, 255);
   pdf.rect(rect.x, rect.y, rect.width, rect.height, 'F');
@@ -465,10 +586,16 @@ const drawLegendOnPdf = (pdf, rect, layers, numberedShapes, droppedObjects, focu
   Object.entries(counts).forEach(([type, count]) => {
     // Use the object icon if available
     const objType = PLACEABLE_OBJECTS.find(p => p.id === type);
-    if (objType && objType.icon) {
-      pdf.setTextColor(55, 65, 81);
-      pdf.text(objType.icon, leftX + 3, cursorY + 1, { align: 'center', baseline: 'middle' });
+    const iconSrc = objType?.imageUrl;
+    if (iconSrc) {
+      try {
+        pdf.addImage(iconSrc, 'PNG', leftX, cursorY - 4.5, 7, 7);
+      } catch {
+        pdf.setFillColor(100, 100, 100);
+        pdf.rect(leftX, cursorY - 3.5, 6, 6, 'F');
+      }
     } else {
+      // Fallback to emoji if needed (but this can sometimes render oddly in PDFs)
       pdf.setFillColor(100, 100, 100);
       pdf.rect(leftX, cursorY - 3.5, 6, 6, 'F');
     }
@@ -560,6 +687,25 @@ const loadVisiblePngIcons = async (layers) => {
       });
   } catch {}
   return result;
+};
+
+// Preload dropped object images to ensure consistency in canvas and PDF
+const preloadDroppedObjectImages = async (droppedObjects) => {
+  const map = {};
+  if (!droppedObjects || droppedObjects.length === 0) return map;
+  const uniqueTypes = Array.from(new Set(droppedObjects.map(o => o.type)));
+  for (const type of uniqueTypes) {
+    const objType = PLACEABLE_OBJECTS.find(p => p.id === type);
+    if (objType?.imageUrl) {
+      try {
+        const img = await loadImage(objType.imageUrl);
+        map[type] = img;
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return map;
 };
 
 // Draw visible infrastructure overlays onto PNG canvas (points with icons, lines with stroke; polygons skipped)
@@ -706,10 +852,9 @@ const drawCustomShapesOnCanvas = (ctx, mapArea, map, customShapes) => {
         }
         
       } else if (shape.geometry.type === 'Polygon') {
-        // Draw polygon annotation
-        ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
-        ctx.strokeStyle = '#3b82f6';
-        ctx.lineWidth = 2;
+      // Draw polygon annotation (stroke only to avoid mismatched fills)
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = 2;
         
         ctx.beginPath();
         shape.geometry.coordinates[0].forEach((coord, index) => {
@@ -726,9 +871,8 @@ const drawCustomShapesOnCanvas = (ctx, mapArea, map, customShapes) => {
             ctx.lineTo(mapPixelX, mapPixelY);
           }
         });
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
+      ctx.closePath();
+      ctx.stroke();
         
         // Draw label at centroid if available
         if (shape.properties && shape.properties.label) {
@@ -773,12 +917,13 @@ const drawCustomShapesOnCanvas = (ctx, mapArea, map, customShapes) => {
 };
 
 // Draw dropped objects on the export canvas
-const drawDroppedObjectsOnCanvas = (ctx, mapArea, map, droppedObjects) => {
+const drawDroppedObjectsOnCanvas = async (ctx, mapArea, map, droppedObjects) => {
   if (!droppedObjects || droppedObjects.length === 0) return;
   
   console.log('Drawing', droppedObjects.length, 'dropped objects on export canvas');
   
-  droppedObjects.forEach((obj, index) => {
+  for (let index = 0; index < droppedObjects.length; index += 1) {
+    const obj = droppedObjects[index];
     const objectType = PLACEABLE_OBJECTS.find(p => p.id === obj.type);
     if (!objectType) {
       console.warn('Object type not found for:', obj.type);
@@ -811,29 +956,29 @@ const drawDroppedObjectsOnCanvas = (ctx, mapArea, map, droppedObjects) => {
         canvas: { x: mapPixelX, y: mapPixelY }
       });
       
-      // Draw the object with better styling
-      const objSize = Math.max(objectType.size.width, objectType.size.height, 28);
-      
-      // Draw background circle
-      ctx.fillStyle = objectType.color;
-      ctx.beginPath();
-      ctx.arc(mapPixelX, mapPixelY, objSize / 2, 0, 2 * Math.PI);
-      ctx.fill();
-      
-      // Draw border
-      ctx.strokeStyle = 'white';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-      
-      // Draw icon
-      ctx.fillStyle = 'white';
-      ctx.font = `bold ${objSize * 0.6}px Arial`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(objectType.icon, mapPixelX, mapPixelY);
+      // Draw the object icon (prefer PNG image if available)
+      const objSize = Math.max(objectType.size.width, objectType.size.height, 28) * 3;
+      if (objectType.imageUrl) {
+        const img = await loadImage(objectType.imageUrl);
+        ctx.drawImage(img, mapPixelX - objSize / 2, mapPixelY - objSize / 2, objSize, objSize);
+      } else {
+        // Fallback simple marker
+        ctx.fillStyle = objectType.color;
+        ctx.beginPath();
+        ctx.arc(mapPixelX, mapPixelY, objSize / 2, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.fillStyle = 'white';
+        ctx.font = `bold ${objSize * 0.6}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(objectType.icon, mapPixelX, mapPixelY);
+      }
       
     } catch (error) {
       console.error('Error drawing dropped object:', error, obj);
     }
-  });
+  }
 };

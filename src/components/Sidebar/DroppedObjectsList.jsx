@@ -22,12 +22,21 @@ const DroppedObjectsList = ({
               className="flex items-center justify-between px-3 py-2 text-sm bg-white hover:bg-gray-100 rounded transition-colors"
             >
               <div className="flex items-center space-x-2">
-                <div 
-                  className="w-4 h-4 rounded flex items-center justify-center text-white text-xs"
-                  style={{ backgroundColor: objectType?.color || '#gray' }}
-                >
-                  {objectType?.icon}
-                </div>
+                {objectType?.imageUrl ? (
+                  <img
+                    src={objectType.imageUrl}
+                    alt={objectType?.name}
+                    className="w-4 h-4 rounded object-contain"
+                    draggable={false}
+                  />
+                ) : (
+                  <div 
+                    className="w-4 h-4 rounded flex items-center justify-center text-white text-xs"
+                    style={{ backgroundColor: objectType?.color || '#gray' }}
+                  >
+                    {objectType?.icon}
+                  </div>
+                )}
                 <span className="text-gray-700">{obj.name}</span>
               </div>
               <button

@@ -4,6 +4,7 @@ import MapTooltip from './MapTooltip';
 import OverlapSelector from './OverlapSelector';
 import DroppedObjects from './DroppedObjects';
 import CustomShapeLabels from './CustomShapeLabels';
+import NudgeMarkers from './NudgeMarkers';
 import ActiveToolIndicator from './ActiveToolIndicator';
 import LoadingOverlay from './LoadingOverlay';
 import PlacementPreview from './PlacementPreview';
@@ -19,6 +20,9 @@ const MapContainer = forwardRef(({
   permitAreas,
   placeableObjects,
   infrastructure,
+  nudges,
+  highlightedIds,
+  onDismissNudge,
   onMapClick,
   onObjectDrop,
   onObjectUpdate,
@@ -129,6 +133,15 @@ const MapContainer = forwardRef(({
         placementMode={placementMode}
         cursorPosition={cursorPosition}
         placeableObjects={placeableObjects}
+      />
+
+      {/* Floating per-instance nudge markers */}
+      <NudgeMarkers
+        nudges={nudges}
+        map={map}
+        objectUpdateTrigger={clickToPlace.objectUpdateTrigger}
+        onDismiss={onDismissNudge}
+        highlightedIds={highlightedIds}
       />
       
       {!mapLoaded && <LoadingOverlay />}

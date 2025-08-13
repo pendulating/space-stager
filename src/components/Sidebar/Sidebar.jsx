@@ -43,6 +43,7 @@ const Sidebar = ({
           focusedArea={focusedArea}
           onToggleLayer={onToggleLayer}
           onClearFocus={onClearFocus}
+          isSitePlanMode={isSitePlanMode}
         />
       </div>
     </div>

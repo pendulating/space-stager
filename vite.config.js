@@ -4,6 +4,15 @@ import react from '@vitejs/plugin-react'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: [],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'lcov']
+    }
+  },
   server: {
     port: 3001,
     open: true

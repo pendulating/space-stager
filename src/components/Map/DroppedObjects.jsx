@@ -114,15 +114,24 @@ const DroppedObjects = ({
           title={`${obj.name} - Click to remove`}
           className="group relative placed-object"
         >
-          <div 
-            style={{ 
-              color: objectType.color,
-              fontSize: `${fontSize}px`,
-              lineHeight: '1'
-            }}
-          >
-            {objectType.icon}
-          </div>
+          {objectType.imageUrl ? (
+            <img
+              src={objectType.imageUrl}
+              alt={objectType.name}
+              style={{ width: iconSize, height: iconSize, objectFit: 'contain' }}
+              draggable={false}
+            />
+          ) : (
+            <div 
+              style={{ 
+                color: objectType.color,
+                fontSize: `${fontSize}px`,
+                lineHeight: '1'
+              }}
+            >
+              {objectType.icon}
+            </div>
+          )}
           
           {/* Remove button overlay */}
           <div className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity">

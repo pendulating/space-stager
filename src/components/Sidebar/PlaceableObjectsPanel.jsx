@@ -32,12 +32,22 @@ const PlaceableObjectsPanel = ({
               }`}
               title={`Click to place ${obj.name}${isActive ? ' (click again to cancel)' : ''}`}
             >
-              <div 
-                className="w-8 h-8 mb-2 rounded-full flex items-center justify-center text-white text-sm font-medium"
-                style={{ backgroundColor: obj.color }}
-              >
-                {obj.icon}
-              </div>
+              {obj.imageUrl ? (
+                <img
+                  src={obj.imageUrl}
+                  alt={obj.name}
+                  className="w-8 h-8 mb-2 rounded"
+                  style={{ objectFit: 'contain' }}
+                  draggable={false}
+                />
+              ) : (
+                <div 
+                  className="w-8 h-8 mb-2 rounded-full flex items-center justify-center text-white text-sm font-medium"
+                  style={{ backgroundColor: obj.color }}
+                >
+                  {obj.icon}
+                </div>
+              )}
               <span className="text-xs text-gray-700 text-center font-medium">
                 {obj.name}
               </span>

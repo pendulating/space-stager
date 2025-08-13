@@ -5,8 +5,10 @@ export const loadCSS = () => {
   const cssLinks = [
     { id: 'maplibre-gl.css', href: MAP_LIBRARIES.maplibre.css },
     { id: 'mapbox-gl-draw.css', href: MAP_LIBRARIES.draw.css },
-    { id: 'maplibre-search-box.css', href: MAP_LIBRARIES.searchBox.css }
   ];
+  if (!MAP_LIBRARIES.searchBox.optional) {
+    cssLinks.push({ id: 'maplibre-search-box.css', href: MAP_LIBRARIES.searchBox.css });
+  }
 
   cssLinks.forEach(({ id, href }) => {
     if (!document.querySelector(`link[href*="${id}"]`)) {
@@ -42,17 +44,22 @@ export const loadMapLibraries = async () => {
   console.log('MapLibre loaded');
 
   // Load other libraries in parallel
-  await Promise.all([
-    loadScript(MAP_LIBRARIES.draw.js, () => window.MapboxDraw),
-    loadScript(MAP_LIBRARIES.searchBox.js, () => window.maplibreSearchBox)
-  ]);
+  const loaders = [loadScript(MAP_LIBRARIES.draw.js, () => window.MapboxDraw)];
+  if (!MAP_LIBRARIES.searchBox.optional) {
+    loaders.push(loadScript(MAP_LIBRARIES.searchBox.js, () => window.maplibreSearchBox));
+  }
+  await Promise.all(loaders);
   console.log('All libraries loaded');
 };
 
 export const initializeMap = async (container) => {
+  const styleUrl = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_MAP_STYLE_URL)
+    ? import.meta.env.VITE_MAP_STYLE_URL
+    : BASEMAP_OPTIONS.carto.url;
+
   const mapInstance = new window.maplibregl.Map({
     container,
-    style: BASEMAP_OPTIONS.carto.url,
+    style: styleUrl,
     center: MAP_CONFIG.center,
     zoom: MAP_CONFIG.zoom,
     preserveDrawingBuffer: MAP_CONFIG.preserveDrawingBuffer,
@@ -242,7 +249,12 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
             minzoom: 8,
             bounds: [-74.25909, 40.477399, -73.700181, 40.916178] // NYC bounds
           });
-          
+          // Insert below the first symbol layer so labels/roads remain on top
+          const style = map.getStyle();
+          // Prefer placing satellite beneath permit fills if present, else at the very bottom (above background)
+          const beforeId = map.getLayer('permit-areas-fill')
+            ? 'permit-areas-fill'
+            : (style.layers?.find(l => l.type !== 'background')?.id);
           map.addLayer({
             id: 'nyc-satellite-layer',
             type: 'raster',
@@ -252,7 +264,7 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
               'raster-opacity': 1,
               'raster-resampling': 'linear'
             }
-          }, map.getLayer('permit-areas-fill') ? 'permit-areas-fill' : undefined);
+          }, beforeId);
           
           console.log(`switchBasemap: Successfully added NYC satellite layer`);
         } catch (e) {
@@ -261,63 +273,38 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
           return;
         }
         
-        // NOW hide layers after satellite is added
+        // Snapshot and hide base fill/background/raster layers (keep lines/symbols and app overlays)
         try {
-          const style = map.getStyle();
-          console.log(`switchBasemap: All available layers in current style:`, style.layers?.map(l => l.id) || []);
-          
-          // More comprehensive approach: Hide all layers except specific ones we want to keep
-          const layersToKeep = [
-            'permit-areas-fill',
-            'permit-areas-outline', 
-            'permit-areas-focused-fill',
-            'permit-areas-focused-outline',
-            'nyc-satellite-layer', // Our satellite layer
-            // Road and place labels (using actual Carto layer names)
-            'roadname_minor',
-            'roadname_sec',
-            'roadname_pri',
-            'roadname_major',
-            'place_hamlet',
-            'place_suburbs',
-            'place_villages',
-            'place_town',
-            'place_country_2',
-            'place_country_1',
-            'place_state',
-            'place_continent',
-            'place_city_r6',
-            'place_city_r5',
-            'place_city_dot_r7',
-            'place_city_dot_r4',
-            'place_city_dot_r2',
-            'place_city_dot_z7',
-            'place_capital_dot_z7',
-            'poi_stadium',
-            'poi_park',
-            'watername_ocean',
-            'watername_sea',
-            'watername_lake',
-            'watername_lake_line',
-            'housenumber'
-          ];
-          
-          let hiddenCount = 0;
-          style.layers?.forEach(layer => {
-            if (!layersToKeep.includes(layer.id)) {
+          const style2 = map.getStyle();
+          const hidden = [];
+          style2.layers?.forEach(layer => {
+            const id = layer.id;
+            if (
+              id === 'nyc-satellite-layer' ||
+              id.startsWith('permit-areas') ||
+              id.startsWith('mapbox-gl-draw') ||
+              id.startsWith('gl-draw')
+            ) {
+              return;
+            }
+            // Hide only background/fill/raster/hillshade to let satellite show through
+            if (['background', 'fill', 'raster', 'hillshade'].includes(layer.type)) {
               try {
-                map.setLayoutProperty(layer.id, 'visibility', 'none');
-                console.log(`switchBasemap: Hidden layer: ${layer.id}`);
-                hiddenCount++;
-              } catch (e) {
-                console.log(`switchBasemap: Error hiding layer ${layer.id}:`, e);
+                const prev = map.getLayoutProperty(id, 'visibility') || 'visible';
+                if (prev !== 'none') {
+                  hidden.push({ id, visibility: prev });
+                  map.setLayoutProperty(id, 'visibility', 'none');
+                }
+              } catch (_) {
+                // ignore
               }
             }
           });
-          console.log(`switchBasemap: Hidden ${hiddenCount} layers, kept ${layersToKeep.length} layers`);
+          map.__basemapState = map.__basemapState || {};
+          map.__basemapState.hiddenLayers = hidden;
+          console.log(`switchBasemap: Snapshot/hid ${hidden.length} base layers`);
         } catch (e) {
-          console.error(`switchBasemap: Error hiding layers:`, e);
-          // Don't reject here, satellite layer is already added
+          console.error(`switchBasemap: Error snapshotting/hiding base layers:`, e);
         }
         
         if (onStyleChange && typeof onStyleChange === 'function') {
@@ -329,10 +316,22 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
         resolve();
         
       } else if (basemapKey === 'carto') {
-        // For carto, remove NYC satellite layer and restore hidden carto layers
-        console.log(`switchBasemap: Switching back to carto style`);
-        
-        // Remove NYC satellite layers if they exist
+        // For carto, remove satellite and restore any hidden layers from snapshot; avoid style reload
+        console.log(`switchBasemap: Switching back to carto style (restore snapshot)`);
+        try {
+          if (map.__basemapState?.hiddenLayers?.length) {
+            map.__basemapState.hiddenLayers.forEach(({ id, visibility }) => {
+              try { map.setLayoutProperty(id, 'visibility', visibility); } catch (_) {}
+            });
+            console.log(`switchBasemap: Restored ${map.__basemapState.hiddenLayers.length} hidden layers`);
+          }
+          // Clear snapshot
+          if (map.__basemapState) map.__basemapState.hiddenLayers = [];
+        } catch (e) {
+          console.error(`switchBasemap: Error restoring hidden layers:`, e);
+        }
+
+        // Remove NYC satellite overlay
         try {
           if (map.getLayer('nyc-satellite-layer')) {
             map.removeLayer('nyc-satellite-layer');
@@ -343,141 +342,14 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
         } catch (e) {
           console.log(`switchBasemap: Error removing satellite layers:`, e);
         }
-        
-        // Instead of reloading the entire style, restore visibility of hidden layers
-        try {
-          const style = map.getStyle();
-          console.log(`switchBasemap: Restoring visibility of carto layers`);
-          
-          // List of layers that should be visible in carto mode
-          const cartoLayersToShow = [
-            // Background and basic layers
-            'background',
-            'landuse',
-            'landcover',
-            'water',
-            'waterway',
-            'building',
-            'building-outline',
-            'tunnel',
-            'road',
-            'bridge',
-            // Road labels
-            'roadname_minor',
-            'roadname_sec', 
-            'roadname_pri',
-            'roadname_major',
-            // Place labels
-            'place_hamlet',
-            'place_suburbs',
-            'place_villages', 
-            'place_town',
-            'place_country_2',
-            'place_country_1',
-            'place_state',
-            'place_continent',
-            'place_city_r6',
-            'place_city_r5',
-            'place_city_dot_r7',
-            'place_city_dot_r4',
-            'place_city_dot_r2',
-            'place_city_dot_z7',
-            'place_capital_dot_z7',
-            // POI and other labels
-            'poi_stadium',
-            'poi_park',
-            'watername_ocean',
-            'watername_sea',
-            'watername_lake',
-            'watername_lake_line',
-            'housenumber'
-          ];
-          
-          let restoredCount = 0;
-          style.layers?.forEach(layer => {
-            // Show carto layers
-            if (cartoLayersToShow.includes(layer.id) || 
-                layer.id.startsWith('landuse') ||
-                layer.id.startsWith('admin') ||
-                layer.id.startsWith('natural') ||
-                layer.id.startsWith('transportation') ||
-                layer.id.startsWith('boundary')) {
-              try {
-                map.setLayoutProperty(layer.id, 'visibility', 'visible');
-                restoredCount++;
-              } catch (e) {
-                // Ignore errors for layers that don't support visibility
-              }
-            }
-          });
-          
-          console.log(`switchBasemap: Restored visibility for ${restoredCount} carto layers`);
-          
-          // No need to call onStyleChange since we didn't change the style
-          // Just resolve immediately
-          console.log(`switchBasemap: Successfully switched to ${basemapKey} (fast mode)`);
-          resolve();
-          
-        } catch (e) {
-          console.error(`switchBasemap: Error in fast carto switch, falling back to full reload:`, e);
-          
-          // Fallback: full style reload (original logic)
-          const newStyle = basemapOption.url;
-          console.log(`switchBasemap: Falling back to full style reload: ${newStyle}`);
-          
-          const styleLoadTimeout = setTimeout(() => {
-            console.warn(`switchBasemap: Style load timeout, proceeding anyway`);
-            try {
-              map.setCenter(center);
-              map.setZoom(zoom);
-              map.setBearing(bearing);
-              map.setPitch(pitch);
-              
-              if (onStyleChange && typeof onStyleChange === 'function') {
-                setTimeout(() => {
-                  onStyleChange({ type: 'style' });
-                }, 100);
-              }
-              
-              console.log(`switchBasemap: Successfully switched to ${basemapKey} (timeout fallback)`);
-              resolve();
-            } catch (error) {
-              console.error(`switchBasemap: Error in timeout fallback:`, error);
-              reject(error);
-            }
-          }, 5000);
-          
-          map.setStyle(newStyle);
-          
-          map.once('style.load', () => {
-            clearTimeout(styleLoadTimeout);
-            console.log(`switchBasemap: Carto style loaded successfully!`);
-            try {
-              map.setCenter(center);
-              map.setZoom(zoom);
-              map.setBearing(bearing);
-              map.setPitch(pitch);
-              
-              if (onStyleChange && typeof onStyleChange === 'function') {
-                setTimeout(() => {
-                  onStyleChange({ type: 'style' });
-                }, 100);
-              }
-              
-              console.log(`switchBasemap: Successfully switched to ${basemapKey}`);
-              resolve();
-            } catch (error) {
-              console.error(`switchBasemap: Error restoring view state:`, error);
-              reject(error);
-            }
-          });
-          
-          map.once('error', (error) => {
-            clearTimeout(styleLoadTimeout);
-            console.error(`switchBasemap: Map error during style switch:`, error);
-            reject(new Error(`Failed to load basemap style: ${error.error}`));
-          });
+
+        // Notify overlay change only (no full style reload)
+        if (onStyleChange && typeof onStyleChange === 'function') {
+          setTimeout(() => onStyleChange({ type: 'overlay' }), 100);
         }
+
+        console.log(`switchBasemap: Successfully restored carto without style reload`);
+        resolve();
       }
       
     } catch (error) {
