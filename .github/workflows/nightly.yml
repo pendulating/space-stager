@@ -1,0 +1,68 @@
+name: Nightly Matrix (skeleton)
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  nightly-e2e:
+    name: Nightly E2E Matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build app
+        run: pnpm run build
+        env:
+          VITE_MAP_STYLE_URL: /styles/blank.json
+
+      - name: Install Playwright browsers
+        run: npx -y @playwright/test@latest install --with-deps
+
+      - name: Start preview server
+        run: pnpm run preview -- --host --port 4173 &
+
+      - name: Wait for preview
+        run: |
+          for i in {1..30}; do
+            if curl -sSf http://127.0.0.1:4173 > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "Preview server did not become ready" >&2
+          exit 1
+
+      - name: Run Playwright tests (matrix)
+        env:
+          BASE_URL: http://127.0.0.1:4173
+        run: npx -y @playwright/test@latest test --project=${{ matrix.browser }} --reporter=list
+
+      - name: Upload Playwright artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-${{ matrix.browser }}-artifacts
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+
+

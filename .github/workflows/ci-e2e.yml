@@ -1,0 +1,77 @@
+name: CI - E2E (Playwright)
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  e2e:
+    name: Playwright E2E
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build app
+        run: pnpm run build
+        env:
+          VITE_MAP_STYLE_URL: /styles/blank.json
+
+      - name: Check for Playwright tests
+        id: check
+        shell: bash
+        run: |
+          count=$(git ls-files | grep -E "(e2e|playwright).*(spec|test)\.(ts|tsx|js|jsx)$" | wc -l)
+          if [ "$count" -gt 0 ]; then echo "has_tests=true" >> "$GITHUB_OUTPUT"; else echo "has_tests=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Install Playwright browsers
+        if: steps.check.outputs.has_tests == 'true'
+        run: npx -y @playwright/test@latest install --with-deps
+
+      - name: Start preview server
+        if: steps.check.outputs.has_tests == 'true'
+        run: pnpm run preview -- --host --port 4173 &
+
+      - name: Wait for preview
+        if: steps.check.outputs.has_tests == 'true'
+        run: |
+          for i in {1..30}; do
+            if curl -sSf http://127.0.0.1:4173 > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "Preview server did not become ready" >&2
+          exit 1
+
+      - name: Run Playwright tests
+        if: steps.check.outputs.has_tests == 'true'
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: results.json
+          BASE_URL: http://127.0.0.1:4173
+        run: npx -y @playwright/test@latest test --reporter=list
+
+      - name: Upload Playwright report (if exists)
+        if: steps.check.outputs.has_tests == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+
+
