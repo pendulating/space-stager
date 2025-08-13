@@ -87,10 +87,30 @@
     "node": ">=18.0.0",
     "npm": ">=9.0.0"
   },
+  "packageManager": "pnpm@9.12.1",
   "eslintConfig": {
+    "env": {
+      "browser": true,
+      "es2023": true,
+      "node": true
+    },
     "extends": [
-      "react-app"
+      "eslint:recommended",
+      "plugin:react/recommended",
+      "plugin:react-hooks/recommended"
     ],
+    "parserOptions": {
+      "ecmaVersion": 2023,
+      "sourceType": "module",
+      "ecmaFeatures": {
+        "jsx": true
+      }
+    },
+    "settings": {
+      "react": {
+        "version": "detect"
+      }
+    },
     "rules": {
       "react/prop-types": "off"
     }
