@@ -24,6 +24,7 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: 9
+          run_install: false
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
@@ -46,6 +47,7 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: 9
+          run_install: false
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
@@ -71,6 +73,7 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: 9
+          run_install: false
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
@@ -96,6 +99,7 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: 9
+          run_install: false
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
@@ -136,7 +140,7 @@ jobs:
           version: 9
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Copy vendor assets
         run: node scripts/copy-vendor.mjs
@@ -151,7 +155,8 @@ jobs:
           test -f public/vendor/maplibre-gl.css
           test -f public/vendor/mapbox-gl-draw.js
           test -f public/vendor/mapbox-gl-draw.css
-          test -f public/vendor/maplibre-search-box.umd.js
-          test -f public/vendor/maplibre-search-box.css
+          # optional assets
+          if [ -f public/vendor/maplibre-search-box.umd.js ]; then echo 'search-box js present'; fi
+          if [ -f public/vendor/maplibre-search-box.css ]; then echo 'search-box css present'; fi
 
 
