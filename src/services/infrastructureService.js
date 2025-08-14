@@ -595,11 +595,13 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     case 'busStops':
       if (hasIconDef) {
+        const base = 0.9 * sizeScale;
+        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         return {
           type: 'symbol',
           layout: {
             'icon-image': 'bus-stop-icon',
-            'icon-size': 0.9 * sizeScale,
+            'icon-size': iconSize,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true
           },
@@ -814,7 +816,7 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
           type: 'symbol',
           layout: {
             'icon-image': 'parking-meter-icon',
-            'icon-size': 0.4 * sizeScale,
+            'icon-size': iconSize,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true
           },
