@@ -92,7 +92,7 @@ const MapContainer = forwardRef(({
         style={{ pointerEvents: 'none' }}
       >
         <button
-          className="bg-white shadow-lg border border-gray-200 rounded-full w-12 h-12 flex items-center justify-center transition-transform hover:scale-105 active:scale-95"
+          className="bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 rounded-full w-12 h-12 flex items-center justify-center transition-transform hover:scale-105 active:scale-95"
           style={{
             transform: `rotate(${-bearing}deg)`,
             pointerEvents: 'auto',
@@ -102,7 +102,7 @@ const MapContainer = forwardRef(({
           onClick={handleCompassClick}
         >
           <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-            <circle cx="16" cy="16" r="15" stroke="#d1d5db" strokeWidth="2" fill="#fff" />
+            <circle cx="16" cy="16" r="15" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" fill="currentColor" fillOpacity="0.9" className="text-white dark:text-gray-800" />
             <polygon points="16,6 19,18 16,15 13,18" fill="#2563eb" />
             <text x="16" y="26" textAnchor="middle" fontSize="10" fill="#374151" fontWeight="bold">N</text>
           </svg>

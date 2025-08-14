@@ -73,8 +73,8 @@ const RightSidebar = ({
 
 
       {/* Export Section */}
-      <div className="p-4 border-t border-gray-200 bg-gray-50 mt-auto">
-        <h3 className="text-sm font-medium text-gray-700 mb-3">Export Options</h3>
+      <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 mt-auto">
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-3">Export Options</h3>
         <div className="space-y-2">
           {/* Import Plan (JSON) */}
           <input
@@ -90,7 +90,7 @@ const RightSidebar = ({
           />
           <button
             onClick={() => fileInputRef.current && fileInputRef.current.click()}
-            className="w-full bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors flex items-center justify-center space-x-2"
+            className="w-full bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors flex items-center justify-center space-x-2"
           >
             <span>Import Plan (JSON)</span>
           </button>
@@ -120,9 +120,9 @@ const RightSidebar = ({
             </button>
             
             {showExportMenu && focusedArea && (
-              <div className="absolute bottom-full left-0 right-0 mb-1 bg-white rounded-lg shadow-lg border border-gray-200 z-[9999]">
+              <div className="absolute bottom-full left-0 right-0 mb-1 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-[9999]">
                 <div className="p-2">
-                  <div className="text-xs font-medium text-gray-500 mb-2 px-2">Export Site Plan</div>
+                  <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 px-2">Export Site Plan</div>
                   <button
                     type="button"
                     onClick={() => {
@@ -130,7 +130,7 @@ const RightSidebar = ({
                       onExportSiteplan('png');
                       setShowExportMenu(false);
                     }}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 rounded flex items-center space-x-2 cursor-pointer"
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded flex items-center space-x-2 cursor-pointer"
                   >
                     <FileImage className="w-4 h-4" />
                     <span>PNG Image</span>
@@ -142,7 +142,7 @@ const RightSidebar = ({
                       onExportSiteplan('jpg');
                       setShowExportMenu(false);
                     }}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 rounded flex items-center space-x-2 cursor-pointer"
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded flex items-center space-x-2 cursor-pointer"
                   >
                     <FileImage className="w-4 h-4" />
                     <span>JPG Image</span>
@@ -154,7 +154,7 @@ const RightSidebar = ({
                       onExportSiteplan('pdf');
                       setShowExportMenu(false);
                     }}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 rounded flex items-center space-x-2 cursor-pointer"
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded flex items-center space-x-2 cursor-pointer"
                   >
                     <FileText className="w-4 h-4" />
                     <span>PDF Document</span>

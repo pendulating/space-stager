@@ -9,8 +9,8 @@ const DroppedObjectsList = ({
   if (!objects || objects.length === 0) return null;
 
   return (
-    <div className="p-4 border-t border-gray-200 bg-gray-50">
-      <h3 className="text-sm font-medium text-gray-700 mb-3">
+    <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+      <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-3">
         Placed Objects ({objects.length})
       </h3>
       <div className="space-y-1 max-h-32 overflow-y-auto">
@@ -19,7 +19,7 @@ const DroppedObjectsList = ({
           return (
             <div
               key={obj.id}
-              className="flex items-center justify-between px-3 py-2 text-sm bg-white hover:bg-gray-100 rounded transition-colors"
+              className="flex items-center justify-between px-3 py-2 text-sm bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
             >
               <div className="flex items-center space-x-2">
                 {objectType?.imageUrl ? (
@@ -37,11 +37,11 @@ const DroppedObjectsList = ({
                     {objectType?.icon}
                   </div>
                 )}
-                <span className="text-gray-700">{obj.name}</span>
+                <span className="text-gray-700 dark:text-gray-200">{obj.name}</span>
               </div>
               <button
                 onClick={() => onRemove && onRemove(obj.id)}
-                className="text-red-500 hover:text-red-700 p-1"
+                className="text-red-500 hover:text-red-700 dark:hover:text-red-400 p-1"
                 title="Remove object"
               >
                 <X className="w-3 h-3" />

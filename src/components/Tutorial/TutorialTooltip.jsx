@@ -158,7 +158,7 @@ const TutorialTooltip = () => {
   return (
     <div
       ref={tooltipRef}
-      className="fixed z-50 bg-white rounded-lg shadow-xl border border-gray-200 max-w-sm animate-fadeIn"
+      className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 max-w-sm animate-fadeIn"
       style={{
         top: `${position.top}px`,
         left: `${position.left}px`,
@@ -171,7 +171,7 @@ const TutorialTooltip = () => {
     >
       {/* Arrow */}
       <div
-        className="absolute w-3 h-3 bg-white transform rotate-45"
+        className="absolute w-3 h-3 bg-white dark:bg-gray-800 transform rotate-45"
         style={{
           // Position the arrow based on tooltip placement
           bottom: currentContent.position === 'top' ? '-6px' : 'auto',
@@ -184,10 +184,10 @@ const TutorialTooltip = () => {
             ? 'translateX(-50%) rotate(45deg)'
             : 'translateY(-50%) rotate(45deg)',
           // Borders to create the arrow outline
-          borderLeft: '1px solid #E5E7EB',
-          borderTop: '1px solid #E5E7EB',
-          borderRight: currentContent.position === 'left' ? '1px solid #E5E7EB' : 'none',
-          borderBottom: currentContent.position === 'right' ? '1px solid #E5E7EB' : 'none'
+          borderLeft: '1px solid rgba(55,65,81,var(--tw-border-opacity,1))',
+          borderTop: '1px solid rgba(55,65,81,var(--tw-border-opacity,1))',
+          borderRight: currentContent.position === 'left' ? '1px solid rgba(55,65,81,var(--tw-border-opacity,1))' : 'none',
+          borderBottom: currentContent.position === 'right' ? '1px solid rgba(55,65,81,var(--tw-border-opacity,1))' : 'none'
         }}
       />
 
@@ -196,13 +196,13 @@ const TutorialTooltip = () => {
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center">
-            <span className="bg-blue-100 text-blue-600 text-xs font-medium px-2 py-1 rounded-full mr-2">
+            <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-xs font-medium px-2 py-1 rounded-full mr-2">
               Step {getStepNumber()} of 5
             </span>
           </div>
           <button
             onClick={handleSkip}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-gray-400 hover:text-gray-600 dark:text-gray-300 dark:hover:text-gray-100 transition-colors"
             title="Skip tutorial"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -212,12 +212,12 @@ const TutorialTooltip = () => {
         </div>
 
         {/* Title */}
-        <h3 className="font-semibold text-gray-900 mb-2">
+        <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-2">
           {currentContent.title}
         </h3>
 
         {/* Content */}
-        <p className="text-gray-600 text-sm mb-4">
+        <p className="text-gray-600 dark:text-gray-300 text-sm mb-4">
           {currentContent.content}
         </p>
 
@@ -225,7 +225,7 @@ const TutorialTooltip = () => {
         <div className="flex justify-between items-center">
           <button
             onClick={handleSkip}
-            className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
+            className="text-sm text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-100 transition-colors"
           >
             Skip tutorial
           </button>

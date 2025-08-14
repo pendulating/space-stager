@@ -9,13 +9,13 @@ const DrawingTools = ({ activeTool, onToolSelect, selectedShape, onDelete, drawA
   ];
 
   return (
-    <div className="p-4 border-b border-gray-200 drawing-tools">
-      <h3 className="text-sm font-medium text-gray-700 mb-3">Annotation Tools</h3>
+    <div className="p-4 border-b border-gray-200 dark:border-gray-700 drawing-tools">
+      <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-3">Annotation Tools</h3>
       {!drawAvailable && (
-        <div className="mb-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-700">
+        <div className="mb-3 p-2 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded text-xs text-yellow-700 dark:text-yellow-300">
           Drawing tools are initializing...
           <br />
-          <small className="text-yellow-600">
+          <small className="text-yellow-600 dark:text-yellow-300">
             Status: {drawAvailable ? 'Ready' : 'Initializing'}
           </small>
           <button 
@@ -28,7 +28,7 @@ const DrawingTools = ({ activeTool, onToolSelect, selectedShape, onDelete, drawA
                 console.warn('onRetry function not available');
               }
             }}
-            className="ml-2 px-2 py-1 bg-yellow-200 hover:bg-yellow-300 rounded text-xs"
+            className="ml-2 px-2 py-1 bg-yellow-200 dark:bg-yellow-800 hover:bg-yellow-300 dark:hover:bg-yellow-700 rounded text-xs"
           >
             Retry
           </button>
@@ -42,7 +42,7 @@ const DrawingTools = ({ activeTool, onToolSelect, selectedShape, onDelete, drawA
             className={`p-3 rounded-lg transition-all ${
               activeTool === id 
                 ? 'bg-blue-600 text-white shadow-md' 
-                : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                : 'bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200'
             } ${!drawAvailable ? 'opacity-50 cursor-not-allowed' : ''}`}
             title={title}
             disabled={!drawAvailable}
@@ -52,7 +52,7 @@ const DrawingTools = ({ activeTool, onToolSelect, selectedShape, onDelete, drawA
         ))}
         <button
           onClick={onDelete}
-          className="p-3 bg-gray-100 hover:bg-red-100 text-gray-700 hover:text-red-600 rounded-lg transition-all"
+          className="p-3 bg-gray-100 dark:bg-gray-800 hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-700 dark:text-gray-200 hover:text-red-600 dark:hover:text-red-300 rounded-lg transition-all"
           title="Delete Selected"
           disabled={!selectedShape || !drawAvailable}
         >

@@ -61,8 +61,8 @@ const BasemapToggle = ({ map, onStyleChange }) => {
   if (!map) return null;
 
   return (
-    <div className="p-4 border-b border-gray-200">
-      <h3 className="text-sm font-medium text-gray-700 mb-3">Basemap</h3>
+    <div className="p-4 border-b border-gray-200 dark:border-gray-800">
+      <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-3">Basemap</h3>
       <div className="flex space-x-2">
         {Object.entries(BASEMAP_OPTIONS).map(([key, basemap]) => (
           <button
@@ -72,7 +72,7 @@ const BasemapToggle = ({ map, onStyleChange }) => {
             className={`flex-1 px-3 py-2 text-xs rounded transition-colors ${
               currentBasemap === key
                 ? 'bg-blue-500 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'
             } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             {isLoading && currentBasemap !== key ? '...' : basemap.name}

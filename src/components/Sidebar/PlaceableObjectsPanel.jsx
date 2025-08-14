@@ -12,8 +12,8 @@ const PlaceableObjectsPanel = ({
   }, [onActivation]);
 
   return (
-    <div className="p-4 border-b border-gray-200">
-      <h3 className="text-sm font-medium text-gray-700 mb-3">Event Objects</h3>
+    <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+      <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-3">Event Objects</h3>
       <div className="grid grid-cols-2 gap-2 placeable-objects-grid">
         {objects.map((obj) => {
           const isActive = placementMode?.objectType.id === obj.id;
@@ -25,8 +25,8 @@ const PlaceableObjectsPanel = ({
               onClick={(e) => handleClick(e, obj)}
               className={`flex flex-col items-center p-3 rounded-lg transition-all cursor-pointer object-item ${
                 isActive 
-                  ? 'bg-blue-100 border-2 border-blue-500' 
-                  : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
+                  ? 'bg-blue-100 dark:bg-blue-900/30 border-2 border-blue-500' 
+                  : 'bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 border-2 border-transparent'
               } ${
                 isBatchMode ? 'border-4 border-blue-600' : ''
               }`}
@@ -48,11 +48,11 @@ const PlaceableObjectsPanel = ({
                   {obj.icon}
                 </div>
               )}
-              <span className="text-xs text-gray-700 text-center font-medium">
+              <span className="text-xs text-gray-700 dark:text-gray-200 text-center font-medium">
                 {obj.name}
               </span>
               {isActive && (
-                <span className="text-xs text-blue-600 mt-1">
+                <span className="text-xs text-blue-600 dark:text-blue-300 mt-1">
                   {isBatchMode ? 'Batch Mode' : 'Active'}
                 </span>
               )}

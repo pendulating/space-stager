@@ -44,21 +44,21 @@ const ShapeProperties = ({
   const selectedShapeData = customShapes.find(s => s.id === selectedShape);
 
   return (
-    <div className="p-4 border-b border-gray-200 bg-gray-50">
-      <h3 className="text-sm font-medium text-gray-700 mb-3">
+    <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+      <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-3">
         <Type className="w-4 h-4 inline mr-2" />
         Shape Properties
       </h3>
       
       {selectedShapeData && (
-        <div className="mb-3 text-xs text-gray-600">
+        <div className="mb-3 text-xs text-gray-600 dark:text-gray-300">
           <span className="font-medium">Type:</span> {selectedShapeData.type}
         </div>
       )}
       
       <div className="space-y-3">
         <div>
-          <label className="block text-sm text-gray-600 mb-1">Label</label>
+          <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Label</label>
           <div className="flex space-x-2">
             <input
               type="text"
@@ -66,7 +66,7 @@ const ShapeProperties = ({
               onChange={(e) => setShapeLabel(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder="e.g., Stage, Food Truck, Info Booth"
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+              className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             />
             <button
               onClick={updateShapeLabel}

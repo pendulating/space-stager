@@ -53,9 +53,21 @@ export const loadMapLibraries = async () => {
 };
 
 export const initializeMap = async (container) => {
-  const styleUrl = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_MAP_STYLE_URL)
+  const envStyleUrl = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_MAP_STYLE_URL)
     ? import.meta.env.VITE_MAP_STYLE_URL
-    : BASEMAP_OPTIONS.carto.url;
+    : null;
+  // Prefer dark style if theme is dark and no explicit env style is set
+  const prefersDark = (() => {
+    try {
+      const stored = localStorage.getItem('theme');
+      if (stored === 'dark') return true;
+      if (stored === 'light') return false;
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    } catch (_) {
+      return false;
+    }
+  })();
+  const styleUrl = envStyleUrl || (prefersDark ? BASEMAP_OPTIONS.carto.darkUrl : BASEMAP_OPTIONS.carto.url);
 
   const mapInstance = new window.maplibregl.Map({
     container,
@@ -102,6 +114,10 @@ export const initializeMap = async (container) => {
         });
         mapInstance.addControl(searchControl, 'top-left');
       }
+
+      // Track current base style
+      mapInstance.__currentBasemap = 'carto';
+      mapInstance.__currentCartoStyleUrl = styleUrl;
 
       resolve(mapInstance);
     });
@@ -202,6 +218,62 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
     
     console.log(`switchBasemap: Starting switch to ${basemapKey}`);
     
+    // Handle theme-driven Carto style switches without consulting BASEMAP_OPTIONS
+    if (basemapKey === 'carto-dark' || basemapKey === 'carto-light') {
+      const desiredUrl = basemapKey === 'carto-dark' ? BASEMAP_OPTIONS.carto.darkUrl : BASEMAP_OPTIONS.carto.url;
+
+      // Remove NYC satellite overlay if present and restore hidden base layers before switching styles
+      try {
+        if (map.getLayer('nyc-satellite-layer')) {
+          map.removeLayer('nyc-satellite-layer');
+        }
+        if (map.getSource('nyc-satellite')) {
+          map.removeSource('nyc-satellite');
+        }
+      } catch (_) {}
+      try {
+        if (map.__basemapState?.hiddenLayers?.length) {
+          map.__basemapState.hiddenLayers.forEach(({ id, visibility }) => {
+            try { map.setLayoutProperty(id, 'visibility', visibility); } catch (_) {}
+          });
+          map.__basemapState.hiddenLayers = [];
+        }
+      } catch (_) {}
+
+      console.log(`switchBasemap: Setting Carto style to ${basemapKey}`);
+      // Preserve camera
+      const center = map.getCenter();
+      const zoom = map.getZoom();
+      const bearing = map.getBearing();
+      const pitch = map.getPitch();
+
+      const onStyleLoaded = () => {
+        map.off('style.load', onStyleLoaded);
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        try {
+          map.jumpTo({ center, zoom, bearing, pitch });
+        } catch (_) {}
+        map.__currentCartoStyleUrl = desiredUrl;
+        map.__currentBasemap = 'carto';
+        if (onStyleChange) onStyleChange({ type: 'style' });
+        resolve();
+      };
+      map.once('style.load', onStyleLoaded);
+      try {
+        map.setStyle(desiredUrl, { diff: false });
+      } catch (_) {
+        map.setStyle(desiredUrl);
+      }
+      // Fallback in case style.load doesn't fire (rare)
+      const timeoutId = setTimeout(() => {
+        console.warn('switchBasemap: style.load timeout, proceeding with rehydration fallback');
+        onStyleLoaded();
+      }, 2500);
+      return;
+    }
+
     const basemapOption = BASEMAP_OPTIONS[basemapKey];
     if (!basemapOption) {
       reject(new Error(`Unknown basemap key: ${basemapKey}`));
@@ -343,13 +415,42 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
           console.log(`switchBasemap: Error removing satellite layers:`, e);
         }
 
-        // Notify overlay change only (no full style reload)
-        if (onStyleChange && typeof onStyleChange === 'function') {
-          setTimeout(() => onStyleChange({ type: 'overlay' }), 100);
+        // If dark mode is active, ensure Carto dark style is applied; otherwise light
+        const prefersDark = (() => {
+          try {
+            return document.documentElement.classList.contains('dark');
+          } catch (_) { return false; }
+        })();
+        const desiredUrl = prefersDark ? BASEMAP_OPTIONS.carto.darkUrl : BASEMAP_OPTIONS.carto.url;
+        const currentUrl = map.__currentCartoStyleUrl || '';
+        if (currentUrl !== desiredUrl) {
+          console.log('switchBasemap: Adjusting Carto base style to match theme');
+          const center = map.getCenter();
+          const zoom = map.getZoom();
+          const bearing = map.getBearing();
+          const pitch = map.getPitch();
+          const onStyleLoaded = () => {
+            map.off('style.load', onStyleLoaded);
+            try { map.jumpTo({ center, zoom, bearing, pitch }); } catch (_) {}
+            map.__currentCartoStyleUrl = desiredUrl;
+            map.__currentBasemap = 'carto';
+            if (onStyleChange) onStyleChange({ type: 'style' });
+            resolve();
+          };
+          map.once('style.load', onStyleLoaded);
+          try {
+            map.setStyle(desiredUrl, { diff: false });
+          } catch (_) {
+            map.setStyle(desiredUrl);
+          }
+        } else {
+          // Notify overlay change only (no full style reload)
+          if (onStyleChange && typeof onStyleChange === 'function') {
+            setTimeout(() => onStyleChange({ type: 'overlay' }), 100);
+          }
+          console.log(`switchBasemap: Successfully restored carto without style reload`);
+          resolve();
         }
-
-        console.log(`switchBasemap: Successfully restored carto without style reload`);
-        resolve();
       }
       
     } catch (error) {

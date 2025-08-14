@@ -12,7 +12,8 @@ export const BASEMAP_OPTIONS = {
   carto: {
     name: 'Carto',
     type: 'style',
-    url: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json'
+    url: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+    darkUrl: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
   },
   satellite: {
     name: 'Satellite',

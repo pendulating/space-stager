@@ -26,6 +26,7 @@ import GeographySelector from './Modals/GeographySelector';
 import '../styles/eventStager-dpr.css';
 import '../styles/eventStager.css';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { switchBasemap } from '../utils/mapUtils';
 
 const SpaceStager = () => {
   const mapContainerRef = useRef(null);
@@ -63,6 +64,15 @@ const SpaceStager = () => {
   }, [isDarkMode]);
 
   const toggleDarkMode = useCallback(() => setIsDarkMode(v => !v), []);
+  
+  // Sync Carto basemap with dark mode (only when using Carto, not satellite overlay)
+  useEffect(() => {
+    if (!map) return;
+    try {
+      const desiredKey = isDarkMode ? 'carto-dark' : 'carto-light';
+      switchBasemap(map, desiredKey, handleStyleChange).catch(() => {});
+    } catch (_) {}
+  }, [map, isDarkMode]);
   
   // Use custom hooks for different functionalities
   const { geographyType, isGeographyChosen, selectGeography } = useGeography();
@@ -463,13 +473,13 @@ const SpaceStager = () => {
 
       {/* Site Plan Mode Indicator */}
       {isSitePlanMode && (
-        <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-3 mx-4 mt-2">
+        <div className="bg-blue-100 dark:bg-blue-950/30 border-l-4 border-blue-500 dark:border-blue-900 text-blue-700 dark:text-blue-200 p-3 mx-4 mt-2 mb-3 rounded">
           <div className="flex items-center">
-            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 mr-2 text-blue-600 dark:text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-1.447-.894L15 4m0 13V4m-6 3l6-3" />
             </svg>
             <span className="font-medium">Site Plan Mode Active</span>
-            <span className="ml-2 text-sm">Design tools available on the right</span>
+            <span className="ml-2 text-sm opacity-90">Design tools available on the right</span>
           </div>
         </div>
       )}
@@ -496,9 +506,9 @@ const SpaceStager = () => {
             onClick={() => setIsLeftSidebarOpen(true)}
             aria-label="Expand sidebar"
             title="Show sidebar"
-            className="fixed left-0 top-20 z-30 bg-white border border-gray-200 rounded-r px-1 py-3 shadow hover:bg-gray-50"
+            className="fixed left-0 top-20 z-30 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-r px-1 py-3 shadow hover:bg-gray-50 dark:hover:bg-gray-700"
           >
-            <ChevronRight className="w-4 h-4 text-gray-700" />
+            <ChevronRight className="w-4 h-4 text-gray-700 dark:text-gray-200" />
           </button>
         )}
         

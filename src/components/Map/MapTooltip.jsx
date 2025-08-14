@@ -6,7 +6,7 @@ const MapTooltip = ({ tooltip }) => {
 
   return (
     <div 
-      className="map-tooltip absolute z-50 bg-white p-2 rounded-lg shadow-lg border border-gray-200 max-w-xs"
+      className="map-tooltip absolute z-50 bg-white dark:bg-gray-800 p-2 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 max-w-xs"
       style={{ 
         left: tooltip.x + 10, 
         top: tooltip.y + 10
@@ -14,8 +14,8 @@ const MapTooltip = ({ tooltip }) => {
     >
       {tooltip.content.map((field, index) => (
         <div key={index} className="text-xs">
-          <span className="font-medium text-gray-700">{field.label}:</span>
-          <span className="text-gray-600 ml-1">{field.value}</span>
+          <span className="font-medium text-gray-700 dark:text-gray-200">{field.label}:</span>
+          <span className="text-gray-600 dark:text-gray-300 ml-1">{field.value}</span>
         </div>
       ))}
     </div>
