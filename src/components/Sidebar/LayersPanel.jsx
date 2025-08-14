@@ -89,13 +89,13 @@ const LayersPanel = ({
     if (icon.type === 'svg') {
       return (
         <div 
-          className={`w-4 h-4 flex items-center justify-center ${config.loading ? 'animate-pulse' : ''}`}
+          className={`w-6 h-6 flex items-center justify-center ${config.loading ? 'animate-pulse' : ''}`}
           style={{ opacity: config.visible ? 1 : 0.3 }}
         >
           <img 
             src={svgToDataUrl(icon.svg)} 
             alt={config.name}
-            className="w-5 h-5 object-contain"
+            className="w-8 h-8 object-contain"
             style={{
               filter: config.loading ? 'grayscale(100%)' : 'none',
               opacity: config.visible ? 1 : 0.6
@@ -109,13 +109,13 @@ const LayersPanel = ({
       // For PNG icons, render as image with color overlay using CSS filters
       return (
         <div 
-          className={`w-4 h-4 flex items-center justify-center ${config.loading ? 'animate-pulse' : ''}`}
+          className={`w-6 h-6 flex items-center justify-center ${config.loading ? 'animate-pulse' : ''}`}
           style={{ opacity: config.visible ? 1 : 0.3 }}
         >
           <img 
             src={icon.src} 
             alt={config.name}
-            className="w-5 h-5 object-contain"
+            className="w-8 h-8 object-contain"
             style={{
               filter: config.loading ? 'grayscale(100%)' : 'none',
               opacity: config.visible ? 1 : 0.6
