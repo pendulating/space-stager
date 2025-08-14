@@ -16,7 +16,12 @@ const FocusInfoPanel = ({
           <Map className="w-5 h-5 text-white flex-shrink-0 mt-0.5" />
           <div className="text-sm">
             <p className="font-medium mb-1">
-              Focused on: {focusedArea.properties.name || 'Unnamed Area'}
+              {(() => {
+                const p = focusedArea.properties || {};
+                const fallback = [p.FSN_1, p.FSN_2, p.FSN_3, p.FSN_4].filter(Boolean).join(' & ');
+                const title = p.name || fallback || 'Unnamed Area';
+                return `Focused on: ${title}`;
+              })()}
             </p>
             <p>
               {focusedArea.properties.propertyname || ''} 

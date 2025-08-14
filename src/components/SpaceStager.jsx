@@ -25,6 +25,7 @@ import { useTutorial } from '../contexts/TutorialContext';
 import GeographySelector from './Modals/GeographySelector';
 import '../styles/eventStager-dpr.css';
 import '../styles/eventStager.css';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 const SpaceStager = () => {
   const mapContainerRef = useRef(null);
@@ -34,11 +35,41 @@ const SpaceStager = () => {
   const [isShaking, setIsShaking] = useState(false);
   const labelSigRef = useRef('');
   const [labelScanFlag, setLabelScanFlag] = useState(false);
+  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
+  const getInitialDark = () => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const stored = localStorage.getItem('theme');
+      if (stored === 'dark') return true;
+      if (stored === 'light') return false;
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    } catch (_) {
+      return false;
+    }
+  };
+  const [isDarkMode, setIsDarkMode] = useState(getInitialDark);
+
+  useEffect(() => {
+    try {
+      const root = document.documentElement;
+      if (isDarkMode) {
+        root.classList.add('dark');
+        localStorage.setItem('theme', 'dark');
+      } else {
+        root.classList.remove('dark');
+        localStorage.setItem('theme', 'light');
+      }
+    } catch (_) {}
+  }, [isDarkMode]);
+
+  const toggleDarkMode = useCallback(() => setIsDarkMode(v => !v), []);
   
   // Use custom hooks for different functionalities
   const { geographyType, isGeographyChosen, selectGeography } = useGeography();
   const { isTutorialActive, showWelcome } = useTutorial();
-  const permitAreas = usePermitAreas(map, mapLoaded, { mode: geographyType });
+  // Favor UI-aware padding so fitBounds/cameraForBounds doesn't tuck the focus under the left sidebar
+  const focusPadding = { top: 20, right: 20, bottom: 20, left: isLeftSidebarOpen ? 360 : 20 };
+  const permitAreas = usePermitAreas(map, mapLoaded, { mode: geographyType, focusPadding });
   const drawTools = useDrawTools(map, permitAreas.focusedArea);
   const infrastructure = useInfrastructure(map, permitAreas.focusedArea, layers, setLayers);
   const clickToPlace = useClickToPlace(map);
@@ -56,6 +87,27 @@ const SpaceStager = () => {
       }
     }));
   }, [permitAreas.isLoading]);
+
+  // Enter/exit siteplan design mode when a custom zone is generated/reset from intersections
+  useEffect(() => {
+    if (!map) return;
+    const handler = (e) => {
+      const feature = e?.detail?.feature;
+      if (!feature || !feature.geometry) return;
+      // Treat as focused area (like park/plaza) to unlock design tools
+      try { permitAreas.focusOnPermitArea(feature); } catch(_) {}
+      try { updateSitePlanMode(feature, Math.max(18, map.getZoom ? map.getZoom() : 18)); } catch(_) {}
+    };
+    const resetHandler = () => {
+      try { permitAreas.clearFocus(); } catch(_) {}
+    };
+    window.addEventListener('zonecreator:focus', handler);
+    window.addEventListener('zonecreator:reset', resetHandler);
+    return () => {
+      window.removeEventListener('zonecreator:focus', handler);
+      window.removeEventListener('zonecreator:reset', resetHandler);
+    };
+  }, [map, permitAreas]);
 
   const prevFocusedAreaRef = useRef(null);
   const clearObjectsOnFocusChange = useCallback(() => {
@@ -80,104 +132,22 @@ const SpaceStager = () => {
     setTimeout(() => setIsShaking(false), 500);
   }, []);
 
-  // Update site plan mode based on focused area and zoom
+  // Update site plan mode on camera changes (no snapbacks; constraints are applied in the focus hook)
   useEffect(() => {
-    if (map) {
-      const currentZoom = map.getZoom();
-      updateSitePlanMode(permitAreas.focusedArea, currentZoom);
-      
-      // Pan/zoom guardrails in Site Plan mode
-      const focusAnchorRef = { current: null };
-      const lastAllowedCenterRef = { current: null };
-      const lastAllowedZoomRef = { current: null };
-      const getAllowedRadiusPx = () => {
-        const canvas = map.getCanvas();
-        return Math.max(0, (canvas?.width || 0) * 0.5);
-      };
-
-      // Initialize or refresh anchor after animations complete
-      const ensureAnchor = () => {
-        if (!permitAreas.focusedArea || permitAreas.isCameraAnimating) return;
-        if (!focusAnchorRef.current) {
-          focusAnchorRef.current = map.getCenter();
-          lastAllowedCenterRef.current = focusAnchorRef.current;
-          lastAllowedZoomRef.current = map.getZoom();
-        }
-      };
-
-      const handleCamera = () => {
-        const zoom = map.getZoom();
-        
-        // Check zoom restrictions when a permit area is focused and camera animation is complete
-        if (permitAreas.focusedArea && 
-            permitAreas.minAllowedZoom !== null && 
-            !permitAreas.isCameraAnimating && 
-            zoom < permitAreas.minAllowedZoom) {
-          console.log('Zoom restriction triggered:', {
-            currentZoom: zoom,
-            minAllowed: permitAreas.minAllowedZoom,
-            initialZoom: permitAreas.initialFocusZoom,
-            cameraAnimating: permitAreas.isCameraAnimating
-          });
-          
-          // Prevent further zoom out WITHOUT changing camera center
-          const prevCenter = lastAllowedCenterRef.current || map.getCenter();
-          map.stop();
-          map.jumpTo({
-            center: prevCenter,
-            zoom: permitAreas.minAllowedZoom,
-            bearing: map.getBearing(),
-            pitch: map.getPitch()
-          });
-          triggerShake();
-          return; // avoid applying further adjustments in this frame
-        }
-        
-        // Pan restriction: clamp map center within a radius of 50% viewport width from anchor
-        if (permitAreas.focusedArea && !permitAreas.isCameraAnimating) {
-          ensureAnchor();
-          if (focusAnchorRef.current) {
-            const anchor = focusAnchorRef.current;
-            const nowCenter = map.getCenter();
-            const anchorPx = map.project([anchor.lng, anchor.lat]);
-            const nowPx = map.project([nowCenter.lng, nowCenter.lat]);
-            const dx = nowPx.x - anchorPx.x;
-            const dy = nowPx.y - anchorPx.y;
-            const dist = Math.hypot(dx, dy);
-            const allowed = getAllowedRadiusPx();
-            if (dist > allowed) {
-              const clampedX = anchorPx.x + (dx * (allowed / dist));
-              const clampedY = anchorPx.y + (dy * (allowed / dist));
-              const clampedLngLat = map.unproject([clampedX, clampedY]);
-              map.stop();
-              map.jumpTo({ center: clampedLngLat, zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() });
-              triggerShake();
-              // Update last allowed after correction
-              lastAllowedCenterRef.current = clampedLngLat;
-              lastAllowedZoomRef.current = map.getZoom();
-              return;
-            }
-          }
-        }
-
-        // Update last allowed camera state
-        lastAllowedCenterRef.current = map.getCenter();
-        lastAllowedZoomRef.current = zoom;
-
-        updateSitePlanMode(permitAreas.focusedArea, zoom);
-      };
-      
-      map.on('zoom', handleCamera);
-      map.on('move', handleCamera);
-      map.on('resize', ensureAnchor);
-      
-      return () => {
-        map.off('zoom', handleCamera);
-        map.off('move', handleCamera);
-        map.off('resize', ensureAnchor);
-      };
-    }
-  }, [map, permitAreas.focusedArea, permitAreas.minAllowedZoom, permitAreas.initialFocusZoom, permitAreas.isCameraAnimating, updateSitePlanMode, triggerShake]);
+    if (!map) return;
+    const handleCamera = () => {
+      const zoom = map.getZoom();
+      updateSitePlanMode(permitAreas.focusedArea, zoom);
+    };
+    // Initialize
+    try { handleCamera(); } catch (_) {}
+    map.on('zoom', handleCamera);
+    map.on('moveend', handleCamera);
+    return () => {
+      map.off('zoom', handleCamera);
+      map.off('moveend', handleCamera);
+    };
+  }, [map, permitAreas.focusedArea, updateSitePlanMode]);
 
   const handleExport = () => {
     exportPlan(
@@ -185,7 +155,11 @@ const SpaceStager = () => {
       drawTools.draw, 
       clickToPlace.droppedObjects, 
       layers, 
-      drawTools.draw?.current ? drawTools.draw.current.getAll().features : []
+      drawTools.draw?.current ? drawTools.draw.current.getAll().features : [],
+      {
+        geographyType,
+        focusedArea: permitAreas.focusedArea
+      }
     );
   };
 
@@ -196,7 +170,34 @@ const SpaceStager = () => {
       drawTools.draw, 
       null, // No longer need setCustomShapes
       clickToPlace.setDroppedObjects,
-      setLayers
+      setLayers,
+      {
+        selectGeography: (type) => {
+          try { if (type && type !== geographyType) selectGeography(type); } catch (_) {}
+        },
+        focusAreaByIdentity: ({ type, system, id }) => {
+          let attempts = 0;
+          const maxAttempts = 25; // ~5s at 200ms intervals
+          const tryFocus = () => {
+            attempts += 1;
+            try {
+              const list = permitAreas.permitAreas || [];
+              let found = null;
+              if (type === 'parks' && system) {
+                found = list.find(f => f?.properties?.system === system);
+              } else if (id !== undefined && id !== null) {
+                found = list.find(f => f?.id === id);
+              }
+              if (found) {
+                try { permitAreas.focusOnPermitArea(found); } catch (_) {}
+                return; // done
+              }
+            } catch (_) {}
+            if (attempts < maxAttempts) setTimeout(tryFocus, 200);
+          };
+          tryFocus();
+        }
+      }
     );
   };
 
@@ -397,11 +398,33 @@ const SpaceStager = () => {
     labelScan: labelScanFlag
   });
 
+  // Top-level hidden file input to drive header import button
+  const headerFileInputRef = React.useRef(null);
+
+  const triggerHeaderImport = useCallback(() => {
+    if (headerFileInputRef.current) headerFileInputRef.current.click();
+  }, []);
+
   return (
-    <div className={`h-screen w-full flex flex-col bg-gray-50 ${isShaking ? 'shake-animation' : ''}`}>
+    <div className={`h-screen w-full flex flex-col bg-gray-50 dark:bg-gray-900 dark:text-gray-100 ${isShaking ? 'shake-animation' : ''}`}>
+      {/* Hidden input paired to header import button */}
+      <input
+        ref={headerFileInputRef}
+        type="file"
+        accept="application/json"
+        className="hidden"
+        onChange={(e) => {
+          handleImport(e);
+          if (headerFileInputRef.current) headerFileInputRef.current.value = '';
+        }}
+      />
+
       <Header 
         showInfo={showInfo}
         setShowInfo={setShowInfo}
+        isDarkMode={isDarkMode}
+        onToggleDarkMode={toggleDarkMode}
+        onImportClick={triggerHeaderImport}
       />
       
       {/* Tutorial Components */}
@@ -452,18 +475,32 @@ const SpaceStager = () => {
       )}
       
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar 
-          layers={layers}
-          focusedArea={permitAreas.focusedArea}
-          onClearFocus={handleClearFocus}
-          onToggleLayer={handleToggleLayer}
-          permitAreas={permitAreas}
-          infrastructure={infrastructure}
-          map={map}
-          onStyleChange={handleStyleChange}
-          isSitePlanMode={isSitePlanMode}
-          geographyType={geographyType}
-        />
+        {isLeftSidebarOpen ? (
+          <Sidebar 
+            layers={layers}
+            focusedArea={permitAreas.focusedArea}
+            onClearFocus={handleClearFocus}
+            onToggleLayer={handleToggleLayer}
+            permitAreas={permitAreas}
+            infrastructure={infrastructure}
+            map={map}
+            onStyleChange={handleStyleChange}
+            isSitePlanMode={isSitePlanMode}
+            geographyType={geographyType}
+            onCollapse={() => setIsLeftSidebarOpen(false)}
+          />
+        ) : (
+          // Vertical tab/handle to reopen left sidebar (fixed at top-left)
+          <button
+            type="button"
+            onClick={() => setIsLeftSidebarOpen(true)}
+            aria-label="Expand sidebar"
+            title="Show sidebar"
+            className="fixed left-0 top-20 z-30 bg-white border border-gray-200 rounded-r px-1 py-3 shadow hover:bg-gray-50"
+          >
+            <ChevronRight className="w-4 h-4 text-gray-700" />
+          </button>
+        )}
         
         <MapContainer 
           ref={mapContainerRef}
@@ -494,6 +531,7 @@ const SpaceStager = () => {
             clickToPlace={clickToPlace}
             placeableObjects={PLACEABLE_OBJECTS}
             onExport={handleExport}
+            onImport={handleImport}
             onExportSiteplan={handleExportSiteplan}
             focusedArea={permitAreas.focusedArea}
           />

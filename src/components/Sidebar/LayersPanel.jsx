@@ -144,20 +144,20 @@ const LayersPanel = ({
     return (
       <div key={groupId} className="mb-2">
         <div
-          className={`flex items-center justify-between p-2 bg-gray-100 rounded-lg cursor-pointer transition-colors ${
-            isEnabled ? 'hover:bg-gray-200' : 'opacity-50 cursor-not-allowed'
+          className={`flex items-center justify-between p-2 bg-gray-100 dark:bg-gray-800 rounded-lg cursor-pointer transition-colors ${
+            isEnabled ? 'hover:bg-gray-200 dark:hover:bg-gray-700' : 'opacity-50 cursor-not-allowed'
           }`}
           onClick={() => isEnabled && toggleGroupExpansion(groupId)}
         >
           <div className="flex items-center space-x-2">
             {isExpanded ? (
-              <ChevronDown className="w-4 h-4 text-gray-600" />
+              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-300" />
             ) : (
-              <ChevronRight className="w-4 h-4 text-gray-600" />
+              <ChevronRight className="w-4 h-4 text-gray-600 dark:text-gray-300" />
             )}
             <span className="text-sm">{group.icon}</span>
-            <span className="text-sm font-medium text-gray-700">{group.name}</span>
-            <span className="text-xs text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{group.name}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded-full">
               {group.layers.length}
             </span>
           </div>
@@ -167,15 +167,15 @@ const LayersPanel = ({
               if (isEnabled) handleGroupToggle(groupId);
             }}
             className={`p-1 rounded ${
-              isEnabled ? 'cursor-pointer hover:bg-gray-300' : 'cursor-not-allowed'
+              isEnabled ? 'cursor-pointer hover:bg-gray-300 dark:hover:bg-gray-700' : 'cursor-not-allowed'
             }`}
             disabled={!isEnabled}
             title={!isEnabled ? "Select a permit area first" : `${isActive ? 'Hide' : 'Show'} all ${group.name.toLowerCase()}`}
           >
             {isActive ? (
-              <Eye className={`w-4 h-4 ${isEnabled ? 'text-blue-600' : 'text-gray-400'}`} />
+              <Eye className={`w-4 h-4 ${isEnabled ? 'text-blue-600' : 'text-gray-400 dark:text-gray-500'}`} />
             ) : (
-              <EyeOff className={`w-4 h-4 ${isEnabled ? 'text-gray-600' : 'text-gray-400'}`} />
+              <EyeOff className={`w-4 h-4 ${isEnabled ? 'text-gray-600 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'}`} />
             )}
           </button>
         </div>
@@ -201,7 +201,7 @@ const LayersPanel = ({
     return (
       <div
         key={layerId}
-        className={`flex items-center justify-between ${isInGroup ? 'p-2 bg-white' : 'p-3 bg-gray-50'} rounded-lg ${
+        className={`flex items-center justify-between ${isInGroup ? 'p-2 bg-white dark:bg-gray-800' : 'p-3 bg-gray-50 dark:bg-gray-900'} rounded-lg ${
           isEnabled ? '' : 'opacity-50 cursor-not-allowed'
         }`}
       >
@@ -209,23 +209,23 @@ const LayersPanel = ({
           <button
             onClick={() => isEnabled && onToggleLayer(layerId)}
             className={`p-1 rounded ${
-              isEnabled ? 'cursor-pointer hover:bg-gray-200' : 'cursor-not-allowed'
+              isEnabled ? 'cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700' : 'cursor-not-allowed'
             }`}
             disabled={!isEnabled || isLoading}
           >
             {config.visible ? (
-              <Eye className={`w-5 h-5 ${isEnabled ? 'text-blue-600' : 'text-gray-400'}`} />
+              <Eye className={`w-5 h-5 ${isEnabled ? 'text-blue-600' : 'text-gray-400 dark:text-gray-500'}`} />
             ) : (
-              <EyeOff className={`w-5 h-5 ${isEnabled ? 'text-gray-600' : 'text-gray-400'}`} />
+              <EyeOff className={`w-5 h-5 ${isEnabled ? 'text-gray-600 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'}`} />
             )}
           </button>
           {renderLayerIcon(layerId, config)}
           <span className={`text-sm font-medium ${
-            config.visible && isEnabled ? 'text-gray-800' : 'text-gray-500'
+            config.visible && isEnabled ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'
           }`}>
             {layerId === 'permitAreas' ? (geographyType === 'plazas' ? 'Plazas' : geographyType === 'intersections' ? 'Intersections' : 'Parks') : (config.name)}
             {isLoading && (
-              <span className="ml-1 text-xs text-gray-500">(Loading...)</span>
+              <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">(Loading...)</span>
             )}
           </span>
         </div>
@@ -253,8 +253,8 @@ const LayersPanel = ({
   return (
     <div className="h-full flex flex-col layers-panel">
       {/* Fixed Header Section */}
-      <div className="bg-white border-b border-gray-200 p-4 space-y-3">
-        <h3 className="text-sm font-medium text-gray-700">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 p-4 space-y-3">
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">
           NYC Infrastructure Layers
         </h3>
         
@@ -264,32 +264,32 @@ const LayersPanel = ({
             ? 'max-h-96 opacity-100 transform translate-y-0'
             : 'max-h-0 opacity-0 transform -translate-y-2'
         }`}>
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-3 rounded-lg border border-blue-200">
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-900 p-3 rounded-lg border border-blue-200 dark:border-gray-700">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <Layers className="w-4 h-4 text-blue-600" />
-                <span className="text-sm font-medium text-blue-900">Starter Set</span>
-                <span className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                <span className="text-sm font-medium text-blue-900 dark:text-blue-300">Starter Set</span>
+                <span className="text-xs text-blue-600 dark:text-blue-200 bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 rounded-full">
                   {STARTER_SET_LAYERS.length} layers
                 </span>
               </div>
               <button
                 onClick={handleStarterSetToggle}
-                className="flex items-center space-x-1 text-blue-700 hover:text-blue-800 transition-colors"
+                className="flex items-center space-x-1 text-blue-700 hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200 transition-colors"
                 disabled={!focusedArea}
                 title={!focusedArea ? "Select a permit area first" : `${starterSetActive ? 'Hide' : 'Show'} essential layers`}
               >
                 {starterSetActive ? (
                   <ToggleRight className="w-5 h-5 text-blue-600" />
                 ) : (
-                  <ToggleLeft className="w-5 h-5 text-gray-400" />
+                  <ToggleLeft className="w-5 h-5 text-gray-400 dark:text-gray-500" />
                 )}
                 <span className="text-xs font-medium">
                   {starterSetActive ? 'ON' : 'OFF'}
                 </span>
               </button>
             </div>
-            <p className="text-xs text-blue-700 mt-1">
+            <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
               Essential layers from across all groups: trees, hydrants, bus stops, benches, bike parking & restrooms
             </p>
           </div>
@@ -298,24 +298,24 @@ const LayersPanel = ({
       {/* Zone geometry - Always Fixed */}
       {permitAreasLayer && renderLayerItem('permitAreas', permitAreasLayer)}
         
-        {/* Focus Area Info - Enhanced */}
-        {focusedArea && (
-          <div className="bg-gradient-to-r from-blue-100 to-blue-50 p-3 rounded-lg border-2 border-blue-200 shadow-sm">
+        {/* Focus Area Info - Enhanced (hidden in intersections mode) */}
+        {focusedArea && geographyType !== 'intersections' && (
+          <div className="bg-gradient-to-r from-blue-100 to-blue-50 dark:from-blue-950 dark:to-blue-900 p-3 rounded-lg border-2 border-blue-200 dark:border-blue-900 shadow-sm">
             <div className="flex justify-between items-center">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center space-x-2">
                   <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                  <span className="text-sm font-semibold text-blue-900 tracking-wide">
+                  <span className="text-sm font-semibold text-blue-900 dark:text-blue-200 tracking-wide">
                     Focus Active
                   </span>
                 </div>
-                <div className="mt-1 text-sm font-medium text-blue-800 truncate" title={focusedArea.properties.name || 'Unnamed Area'}>
-                  {focusedArea.properties.name || 'Unnamed Area'}
+                <div className="mt-1 text-sm font-medium text-blue-800 dark:text-blue-200 truncate" title={(focusedArea.properties.name || [focusedArea.properties.FSN_1, focusedArea.properties.FSN_2, focusedArea.properties.FSN_3, focusedArea.properties.FSN_4].filter(Boolean).join(' & ') || 'Unnamed Area')}>
+                  {focusedArea.properties.name || [focusedArea.properties.FSN_1, focusedArea.properties.FSN_2, focusedArea.properties.FSN_3, focusedArea.properties.FSN_4].filter(Boolean).join(' & ') || 'Unnamed Area'}
                 </div>
               </div>
               <button 
                 onClick={onClearFocus}
-                className="ml-3 bg-white/80 hover:bg-white border border-blue-300 hover:border-blue-400 rounded-md p-2 text-blue-600 hover:text-blue-700 transition-all duration-150 shadow-sm hover:shadow focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                className="ml-3 bg-white/80 dark:bg-gray-800/80 hover:bg-white dark:hover:bg-gray-700 border border-blue-300 dark:border-blue-900 hover:border-blue-400 dark:hover:border-blue-800 rounded-md p-2 text-blue-600 dark:text-blue-300 hover:text-blue-700 dark:hover:text-blue-200 transition-all duration-150 shadow-sm hover:shadow focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
                 title="Clear Focus and Return to Map View"
               >
                 <X className="w-4 h-4" />
@@ -325,7 +325,7 @@ const LayersPanel = ({
         )}
         
         {!focusedArea && (
-          <div className="bg-amber-50 p-2 rounded-md text-xs text-amber-700">
+          <div className="bg-amber-50 dark:bg-amber-900/20 p-2 rounded-md text-xs text-amber-700 dark:text-amber-300">
             Click on the zone geometry to explore overlapping areas.
             Multiple areas? Use the selector popup.
           </div>

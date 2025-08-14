@@ -284,6 +284,37 @@
   background-color: rgba(255, 255, 255, 0.95);
 }
 
+/* Dark mode overrides */
+.dark .search-results {
+  border-color: #374151;
+  background: #111827;
+}
+
+.dark .search-result {
+  border-bottom-color: #374151;
+}
+
+.dark .search-result:hover {
+  background-color: #1f2937;
+}
+
+.dark .map-tooltip {
+  background-color: #1f2937;
+  color: #e5e7eb;
+}
+
+.dark .map-tooltip::before {
+  border-bottom-color: #1f2937;
+}
+
+.dark .export-option:hover {
+  box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+}
+
+.dark .app-header {
+  background-color: rgba(17, 24, 39, 0.95);
+}
+
 /* Button hover effects */
 .btn-hover {
   transition: all 0.15s ease-in-out;

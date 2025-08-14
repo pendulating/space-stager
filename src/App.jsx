@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { TutorialProvider } from './contexts/TutorialContext';
 import { SitePlanProvider } from './contexts/SitePlanContext';
 import { GeographyProvider } from './contexts/GeographyContext';
+import { ZoneCreatorProvider } from './contexts/ZoneCreatorContext.jsx';
 import SpaceStager from './components/SpaceStager';
 import MobileLanding from './components/MobileLanding';
 
@@ -28,7 +29,9 @@ function App() {
     <TutorialProvider>
       <SitePlanProvider>
         <GeographyProvider>
-          <SpaceStager />
+          <ZoneCreatorProvider>
+            <SpaceStager />
+          </ZoneCreatorProvider>
         </GeographyProvider>
       </SitePlanProvider>
     </TutorialProvider>

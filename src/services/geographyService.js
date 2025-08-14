@@ -103,16 +103,32 @@ export const loadPointAreas = async (map, { idPrefix, url, circleColor = '#f9731
         map.addSource(sourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, generateId: true });
       }
       if (!map.getLayer(circleId)) {
-        // Ring only: transparent fill, orange stroke, grow on hover via feature-state
+        // Subtle filled dot with ring; grow on hover via feature-state
         map.addLayer({
           id: circleId,
           type: 'circle',
           source: sourceId,
           layout: { visibility: 'visible' },
           paint: {
-            'circle-color': 'rgba(0,0,0,0)',
-            'circle-stroke-color': circleColor,
-            'circle-stroke-width': 2,
+            'circle-color': circleColor,
+            'circle-opacity': [
+              'case',
+              ['boolean', ['feature-state', 'selected'], false],
+              0.3,
+              0.12
+            ],
+            'circle-stroke-color': [
+              'case',
+              ['boolean', ['feature-state', 'selected'], false],
+              focusColor,
+              circleColor
+            ],
+            'circle-stroke-width': [
+              'case',
+              ['boolean', ['feature-state', 'selected'], false],
+              3,
+              2
+            ],
             'circle-radius': [
               '+',
               6,
@@ -129,9 +145,15 @@ export const loadPointAreas = async (map, { idPrefix, url, circleColor = '#f9731
           filter: ['==', ['id'], ''],
           layout: { visibility: 'visible' },
           paint: {
-            'circle-color': 'rgba(0,0,0,0)',
+            'circle-color': focusColor,
+            'circle-opacity': 0.16,
             'circle-stroke-color': focusColor,
-            'circle-stroke-width': 3,
+            'circle-stroke-width': [
+              'case',
+              ['boolean', ['feature-state', 'selected'], false],
+              4,
+              3
+            ],
             'circle-radius': [
               '+',
               9,

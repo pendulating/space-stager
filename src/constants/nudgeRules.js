@@ -34,6 +34,26 @@ export const NUDGE_RULES = [
     actions: ['zoomToSubject', 'highlight']
   },
   {
+    id: 'proximity-anything-to-ped-ramp-3ft',
+    type: 'proximity',
+    severity: 'info',
+    message: 'You cannot place anything within 3 ft of a pedestrian ramp, as equipment can not block wheelchair access on sidewalks.',
+    subject: { source: 'droppedObjects', where: { type: 'anything' } },
+    target: { source: 'infrastructure', layerId: 'pedestrian_ramps' },
+    thresholdFt: 3,
+    citation: 'https://www.nyc.gov/site/parks/rules/parks-rules.page',
+  },
+  {
+    id: 'proximity-anything-fastened-to-tree-2ft',
+    type: 'proximity',
+    severity: 'info',
+    message: 'Per NYC Parks rules, you cannot fasten or attach any sign, banner, flier or other object to any tree, shrub or park feature.',
+    subject: { source: 'droppedObjects', where: { type: 'anything' } },
+    target: { source: 'infrastructure', layerId: 'trees' },
+    thresholdFt: 2,
+    citation: 'https://www.nycgovparks.org/rules/section-1-04e',
+  },
+  {
     id: 'text-glass-prohibited',
     type: 'text',
     severity: 'info',

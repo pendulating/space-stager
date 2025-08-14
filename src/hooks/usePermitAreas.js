@@ -4,6 +4,7 @@ import { searchPermitAreas, highlightOverlappingAreas, clearOverlapHighlights } 
 import { loadPolygonAreas, loadPointAreas } from '../services/geographyService';
 import { ensureBaseLayers as ensureGeoBaseLayers, setBaseVisibility as setGeoBaseVisibility, unload as unloadGeo } from '../services/geographyLayerManager';
 import { GEOGRAPHIES } from '../constants/geographies';
+import { useZoneCreatorContext } from '../contexts/ZoneCreatorContext.jsx';
 import bbox from '@turf/bbox';
 
 // Minimal oriented minimum bounding box (rotating calipers) implementation
@@ -83,6 +84,12 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   const [isCameraAnimating, setIsCameraAnimating] = useState(false); // Track camera animation state
   const focusedAreaRef = useRef(focusedArea);
   const prevPermitVisibilityRef = useRef({ fill: null, outline: null });
+  // Store and restore map interaction/constraints when entering/exiting focus
+  const prevConstraintsRef = useRef({
+    minZoom: null,
+    maxBounds: null,
+    rotation: { dragRotate: null, touchRotate: null }
+  });
   const listenerRefs = useRef({
     mouseenterFill: null,
     mouseleaveFill: null,
@@ -91,6 +98,10 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     dblclickPermitFill: null,
     clickGeneral: null
   });
+  // Track the currently hovered intersection feature id so we can smoothly revert the previous one
+  const hoveredIntersectionIdRef = useRef(null);
+  // Zone Creator state for gating interactions in intersections mode
+  const zoneCreator = useZoneCreatorContext();
 
   useEffect(() => {
     focusedAreaRef.current = focusedArea;
@@ -176,6 +187,35 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     return [[minX, minY], [maxX, maxY]];
   }, []);
 
+  // Helper to apply temporary camera/interaction constraints after focus settles
+  const applyFocusConstraints = useCallback((rawBounds, finalZoom) => {
+    if (!map || !rawBounds) return;
+    try {
+      // Save previous state once
+      if (prevConstraintsRef.current.minZoom === null) {
+        try { prevConstraintsRef.current.minZoom = typeof map.getMinZoom === 'function' ? map.getMinZoom() : 0; } catch (_) {}
+        try { prevConstraintsRef.current.maxBounds = typeof map.getMaxBounds === 'function' ? map.getMaxBounds() : null; } catch (_) {}
+      }
+      // Compute padded bounds (25% padding)
+      const sw = rawBounds[0];
+      const ne = rawBounds[1];
+      const padLng = (ne[0] - sw[0]) * 0.25;
+      const padLat = (ne[1] - sw[1]) * 0.25;
+      const padded = [[sw[0] - padLng, sw[1] - padLat], [ne[0] + padLng, ne[1] + padLat]];
+      try { if (map.setMaxBounds) map.setMaxBounds(padded); } catch (_) {}
+      // Set a floor slightly below the focused zoom to prevent zooming too far out
+      const minZoomFloor = Math.max(1, (typeof finalZoom === 'number' ? finalZoom : map.getZoom ? map.getZoom() : 16) - 2);
+      try { if (map.setMinZoom) map.setMinZoom(minZoomFloor); } catch (_) {}
+      // Disable rotation interactions in focus to reduce accidental orientation changes
+      try { if (map.dragRotate && map.dragRotate.disable) map.dragRotate.disable(); } catch (_) {}
+      try {
+        if (map.touchZoomRotate && map.touchZoomRotate.disableRotation) {
+          map.touchZoomRotate.disableRotation();
+        }
+      } catch (_) {}
+    } catch (_) {}
+  }, [map]);
+
   // Function to focus on a specific permit area
   const focusOnPermitArea = useCallback((permitArea) => {
     if (!map || !permitArea) return;
@@ -243,10 +283,25 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       const geom = permitArea.geometry;
       if (!geom) throw new Error('No geometry');
       if (geom.type === 'Point') {
-        setInitialFocusZoom(18);
         setIsCameraAnimating(true);
-        map.easeTo({ center: geom.coordinates, zoom: 18, duration: 800 });
-        setTimeout(() => { setMinAllowedZoom(16); setIsCameraAnimating(false); }, 900);
+        // Smoothly move to the point at a sensible zoom
+        const targetZoom = 18;
+        map.easeTo({ center: geom.coordinates, zoom: targetZoom, duration: 800, essential: true });
+        // Apply constraints when camera settles
+        map.once('idle', () => {
+          try {
+            const finalZoom = map.getZoom ? map.getZoom() : targetZoom;
+            setInitialFocusZoom(finalZoom);
+            setMinAllowedZoom(Math.max(1, finalZoom - 2));
+            // Build a synthetic bounds around point based on pixels to ensure useful panning clamp
+            const ptPx = map.project({ lng: geom.coordinates[0], lat: geom.coordinates[1] });
+            const padPx = 200;
+            const sw = map.unproject([ptPx.x - padPx, ptPx.y + padPx]).toArray();
+            const ne = map.unproject([ptPx.x + padPx, ptPx.y - padPx]).toArray();
+            applyFocusConstraints([sw, ne], finalZoom);
+          } catch (_) {}
+          setIsCameraAnimating(false);
+        });
         return;
       }
       let coords = [];
@@ -257,115 +312,58 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       }
       if (coords.length < 1) throw new Error('No coordinates');
       const { rect, angle } = getOrientedMinBBox(coords);
-      // Compute bbox of the rectangle
+      // Compute simple axis-aligned bbox for constraints and oriented bbox for view
       const xs = rect.map(([x, y]) => x);
       const ys = rect.map(([x, y]) => y);
       const minX = Math.min(...xs), maxX = Math.max(...xs);
       const minY = Math.min(...ys), maxY = Math.max(...ys);
       const orientedBbox = [[minX, minY], [maxX, maxY]];
-      
-      // Calculate the optimal zoom level to fill the viewport
-      const mapCanvas = map.getCanvas();
-      const viewportWidth = mapCanvas.width;
-      const viewportHeight = mapCanvas.height;
-      
-      // Calculate the bounding box dimensions in degrees
-      const bboxWidth = maxX - minX;
-      const bboxHeight = maxY - minY;
-      
-      // Calculate the center point
-      const centerLng = (minX + maxX) / 2;
-      const centerLat = (minY + maxY) / 2;
-      
-      // Calculate zoom levels for both width and height
-      // Use a more direct approach: calculate zoom needed to fit bbox in viewport
-      const padding = 40; // pixels of padding
-      const effectiveWidth = viewportWidth - (padding * 2);
-      const effectiveHeight = viewportHeight - (padding * 2);
-      
-      // Convert degrees to pixels at different zoom levels to find the right one
-      let optimalZoom = 14; // start with a reasonable zoom
-      
-      for (let zoom = 14; zoom <= 22; zoom++) {
-        const pixelsPerDegree = Math.pow(2, zoom) * 256 / 360;
-        const bboxWidthPixels = bboxWidth * pixelsPerDegree;
-        const bboxHeightPixels = bboxHeight * pixelsPerDegree;
-        
-        // If the bbox fits in the viewport at this zoom, use it
-        if (bboxWidthPixels <= effectiveWidth && bboxHeightPixels <= effectiveHeight) {
-          optimalZoom = zoom;
+
+      setIsCameraAnimating(true);
+      // Prefer cameraForBounds if available to compute a single smooth camera
+      try {
+        const padding = options.focusPadding || 20;
+        if (typeof map.cameraForBounds === 'function') {
+          const camera = map.cameraForBounds(orientedBbox, { padding });
+          const finalCamera = { ...camera, bearing: -angle, duration: 1000, essential: true };
+          map.easeTo(finalCamera);
         } else {
-          // If it doesn't fit, use the previous zoom level
-          optimalZoom = Math.max(14, zoom - 1);
-          break;
+          map.fitBounds(orientedBbox, { padding, duration: 1000 });
+          // Follow with a single rotate to target bearing if needed
+          if (map.getBearing && map.getBearing() !== -angle) {
+            map.rotateTo(-angle, { duration: 300 });
+          }
         }
+      } catch (_) {
+        // Fallback to basic fitBounds
+        map.fitBounds(orientedBbox, { padding: 20, duration: 1000 });
       }
-      
-      console.log('Calculated optimal zoom:', {
-        bboxWidth,
-        bboxHeight,
-        viewportWidth,
-        viewportHeight,
-        effectiveWidth,
-        effectiveHeight,
-        optimalZoom
-      });
-      
-      // Set initial zoom level but delay zoom restrictions until animation is complete
-      setInitialFocusZoom(optimalZoom);
-      setIsCameraAnimating(true); // Start camera animation
-      
-      console.log('Starting camera animation to focused area:', {
-        initialZoom: optimalZoom,
-        minAllowedZoom: Math.max(1, optimalZoom - 2)
-      });
-      
-      // Use fitBounds with the calculated zoom level
-      map.fitBounds(orientedBbox, {
-        padding: 20,
-        maxZoom: optimalZoom,
-        minZoom: optimalZoom,
-        duration: 1000,
-        bearing: -angle
-      });
-      
-      setTimeout(() => {
-        if (map.getBearing && map.getBearing() !== -angle) {
-          map.rotateTo(-angle, { duration: 500 });
-        }
-      }, 1100);
-      
-      // Set zoom restrictions after all animations are complete (1000ms fitBounds + 1100ms delay + 500ms rotation)
-      setTimeout(() => {
-        setMinAllowedZoom(Math.max(1, optimalZoom - 2));
+
+      // When the camera settles, record zoom and apply constraints
+      map.once('idle', () => {
+        try {
+          const finalZoom = map.getZoom ? map.getZoom() : 16;
+          setInitialFocusZoom(finalZoom);
+          setMinAllowedZoom(Math.max(1, finalZoom - 2));
+          applyFocusConstraints([[minX, minY], [maxX, maxY]], finalZoom);
+        } catch (_) {}
         setIsCameraAnimating(false);
-       console.log('Camera animation complete, zoom restrictions now active:', {
-          minAllowedZoom: Math.max(1, optimalZoom - 2)
-        });
-      }, 1700); // Total animation time: 1000ms + 700ms buffer for rotation
+      });
     } catch (error) {
       console.error('Error fitting oriented bounds:', error);
       // Fallback: fit to regular bounds with dynamic zoom calculation
       const bounds = calculateGeometryBounds(permitArea.geometry);
       if (bounds) {
-        const mapCanvas = map.getCanvas();
-        const viewportWidth = mapCanvas.width;
-        const viewportHeight = mapCanvas.height;
-        
-        const bboxWidth = bounds[1][0] - bounds[0][0];
-        const bboxHeight = bounds[1][1] - bounds[0][1];
-        
-        // Use the Web Mercator projection formula for zoom calculation
-        const zoomForWidth = Math.log2(viewportWidth / (bboxWidth * 256));
-        const zoomForHeight = Math.log2(viewportHeight / (bboxHeight * 256));
-        const optimalZoom = Math.min(zoomForWidth, zoomForHeight);
-        const clampedZoom = Math.max(14, Math.min(22, optimalZoom));
-        
-        map.fitBounds(bounds, { 
-          padding: 20, 
-          maxZoom: clampedZoom, 
-          minZoom: clampedZoom, 
-          duration: 1000 
+        const padding = options.focusPadding || 20;
+        map.fitBounds(bounds, { padding, duration: 1000 });
+        map.once('idle', () => {
+          try {
+            const finalZoom = map.getZoom ? map.getZoom() : 16;
+            setInitialFocusZoom(finalZoom);
+            setMinAllowedZoom(Math.max(1, finalZoom - 2));
+            applyFocusConstraints(bounds, finalZoom);
+          } catch (_) {}
+          setIsCameraAnimating(false);
         });
       }
     }
@@ -379,7 +377,18 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     if (!properties) return null;
     
     const fields = [];
+    const activeMode = options.mode || mode;
     
+    // Prioritize FSN fields for plazas and intersections
+    if (activeMode === 'plazas' || activeMode === 'intersections') {
+      const fsnParts = [properties.FSN_1, properties.FSN_2, properties.FSN_3, properties.FSN_4]
+        .filter((p) => !!p);
+      if (fsnParts.length) {
+        fields.push({ label: 'Streets', value: fsnParts.join(' & ') });
+      }
+    }
+    
+    // Parks or additional metadata if present
     if (properties.propertyname) {
       fields.push({ label: 'Property', value: properties.propertyname });
     }
@@ -393,7 +402,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     }
     
     return fields.length > 0 ? fields : null;
-  }, []);
+  }, [mode, options.mode]);
 
   // Helper function to check if drawing is active
   const isDrawingActive = useCallback(() => {
@@ -468,29 +477,39 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         return; // Don't change cursor or show tooltip when drawing
       }
       
+      // In intersections mode, block hover/selection prompting until Zone Creator is active
+      // In intersections mode, Zone Creator is mandatory; still allow hover cursor
+      if (activeMode === 'intersections' && (!zoneCreator)) {
+        map.getCanvas().style.cursor = '';
+        return;
+      }
       map.getCanvas().style.cursor = 'pointer';
       if (activeMode === 'intersections' && e?.features?.length) {
         try {
           const id = e.features[0].id;
           if (id !== undefined && id !== null) {
-            // Start smooth progress animation to 1
+            // Revert previous hovered point if different
+            const prevId = hoveredIntersectionIdRef.current;
+            if (prevId !== null && prevId !== undefined && prevId !== id) {
+              animateHoverProgress(map, 'intersections', prevId, 0);
+            }
+            // Start smooth progress animation to 1 for current
             animateHoverProgress(map, 'intersections', id, 1);
+            hoveredIntersectionIdRef.current = id;
           }
         } catch (_) {}
       }
     };
-    const onMouseLeave = (e) => {
+    const onMouseLeave = () => {
       map.getCanvas().style.cursor = '';
       setTooltip(prev => ({ ...prev, visible: false }));
       if (activeMode === 'intersections') {
         try {
-          if (e?.features?.length) {
-            const id = e.features[0].id;
-            if (id !== undefined && id !== null) {
-              // Animate back to 0
-              animateHoverProgress(map, 'intersections', id, 0);
-            }
+          const prevId = hoveredIntersectionIdRef.current;
+          if (prevId !== null && prevId !== undefined) {
+            animateHoverProgress(map, 'intersections', prevId, 0);
           }
+          hoveredIntersectionIdRef.current = null;
         } catch (_) {}
       }
     };
@@ -503,10 +522,21 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         return; // Don't show tooltip when drawing
       }
       if (activeMode === 'intersections') {
+        // Prompt the user via tooltip to use Zone Creator first (always required in intersections mode)
+        if (!zoneCreator) {
+          setTooltip({ visible: true, x: e.point.x, y: e.point.y, content: [{ label: 'Tip', value: 'Use Zone Creator to select nodes' }] });
+          return;
+        }
         try {
           const id = e.features[0].id;
           if (id !== undefined && id !== null) {
+            // Only animate the new feature in and the previous one out if changed
+            const prevId = hoveredIntersectionIdRef.current;
+            if (prevId !== null && prevId !== undefined && prevId !== id) {
+              animateHoverProgress(map, 'intersections', prevId, 0);
+            }
             animateHoverProgress(map, 'intersections', id, 1);
+            hoveredIntersectionIdRef.current = id;
           }
         } catch (_) {}
       }
@@ -531,7 +561,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     listenerRefs.current.mouseenterFill = onMouseEnter;
     listenerRefs.current.mouseleaveFill = onMouseLeave;
     listenerRefs.current.mousemoveFill = onMouseMove;
-  }, [map, buildTooltipContent, isDrawingActive, mode, options.mode]);
+  }, [map, buildTooltipContent, isDrawingActive, mode, options.mode, zoneCreator?.isActive]);
 
   // Smoothly animate feature-state hoverProgress between 0 and 1
   const animateHoverProgress = useCallback((mapInstance, sourceId, featureId, toValue) => {
@@ -594,9 +624,8 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     const onClickPermitFill = (e) => {
       if (e.features.length === 0) return;
       
-      // Disable permit area selection if we're focused on an area (design mode)
-      if (focusedAreaRef.current) {
-        console.log('Permit area selection disabled - currently in design mode');
+      // In intersections mode, disable default focus/click selection; Zone Creator handles interactions
+      if (activeMode === 'intersections') {
         return;
       }
       
@@ -636,14 +665,11 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       }
     };
 
-    const onDblClickPermitFill = (e) => {
+      const onDblClickPermitFill = (e) => {
       if (e.features.length === 0) return;
       
-      // Disable permit area selection if we're focused on an area (design mode)
-      if (focusedAreaRef.current) {
-        console.log('Permit area selection disabled - currently in design mode');
-        return;
-      }
+        // In intersections mode, disable double-click focus behavior
+        if (activeMode === 'intersections') return;
       
       // Only prevent default if we're not in a drawing mode
       const drawControl = map.getControl && map.getControl('MapboxDraw');
@@ -912,6 +938,26 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     setMinAllowedZoom(null);
     setIsCameraAnimating(false);
     clearOverlapHighlights(map);
+    // Restore map constraints and interactions
+    try {
+      if (map) {
+        try { if (map.setMaxBounds) map.setMaxBounds(prevConstraintsRef.current.maxBounds || null); } catch (_) {}
+        try {
+          if (typeof prevConstraintsRef.current.minZoom === 'number' && map.setMinZoom) {
+            map.setMinZoom(prevConstraintsRef.current.minZoom);
+          }
+        } catch (_) {}
+        try { if (map.dragRotate && map.dragRotate.enable) map.dragRotate.enable(); } catch (_) {}
+        try {
+          if (map.touchZoomRotate) {
+            if (map.touchZoomRotate.enableRotation) map.touchZoomRotate.enableRotation();
+            else if (map.touchZoomRotate.enable) map.touchZoomRotate.enable();
+          }
+        } catch (_) {}
+      }
+      // Reset stored previous values
+      prevConstraintsRef.current = { minZoom: null, maxBounds: null, rotation: { dragRotate: null, touchRotate: null } };
+    } catch (_) {}
     
     const activeMode = options.mode || mode;
     const idPrefix = activeMode === 'parks' ? 'permit-areas' : (activeMode === 'plazas' ? 'plaza-areas' : 'intersections');

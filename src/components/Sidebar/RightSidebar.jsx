@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { FileImage, FileText, Download } from 'lucide-react';
 import PlaceableObjectsPanel from './PlaceableObjectsPanel';
 import DrawingTools from './DrawingTools';
@@ -12,16 +12,18 @@ const RightSidebar = ({
   placeableObjects,
   onExport,
   onExportSiteplan,
+  onImport,
   focusedArea
 }) => {
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const fileInputRef = useRef(null);
   return (
     <>
-      <div className="w-80 bg-white shadow-lg z-10 flex flex-col border-l border-gray-200 sidebar-right">
+      <div className="w-80 bg-white dark:bg-gray-800 dark:text-gray-100 shadow-lg z-10 flex flex-col border-l border-gray-200 dark:border-gray-700 sidebar-right">
       {/* Header */}
-      <div className="p-4 border-b border-gray-200 bg-blue-50">
-        <h2 className="text-lg font-semibold text-blue-900">Site Plan Designer</h2>
-        <p className="text-sm text-blue-700 mt-1">Design tools for focused area</p>
+      <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-blue-50 dark:bg-gray-900">
+        <h2 className="text-lg font-semibold text-blue-900 dark:text-blue-300">Site Plan Designer</h2>
+        <p className="text-sm text-blue-700 dark:text-blue-300/80 mt-1">Design tools for focused area</p>
       </div>
 
       {/* Drawing Tools */}
@@ -69,10 +71,30 @@ const RightSidebar = ({
         />
       )}
 
+
       {/* Export Section */}
       <div className="p-4 border-t border-gray-200 bg-gray-50 mt-auto">
         <h3 className="text-sm font-medium text-gray-700 mb-3">Export Options</h3>
         <div className="space-y-2">
+          {/* Import Plan (JSON) */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json"
+            className="hidden"
+            onChange={(e) => {
+              if (onImport) onImport(e);
+              // allow re-uploading the same file
+              if (fileInputRef.current) fileInputRef.current.value = '';
+            }}
+          />
+          <button
+            onClick={() => fileInputRef.current && fileInputRef.current.click()}
+            className="w-full bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors flex items-center justify-center space-x-2"
+          >
+            <span>Import Plan (JSON)</span>
+          </button>
+
           {/* Export Event Plan */}
           <button 
             onClick={onExport}
@@ -142,9 +164,7 @@ const RightSidebar = ({
             )}
           </div>
           
-          <button className="w-full bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors">
-            Save Draft
-          </button>
+          
         </div>
       </div>
     </div>

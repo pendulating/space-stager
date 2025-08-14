@@ -60,16 +60,37 @@ export function ensureBaseLayers(map, idPrefix, type, options = {}) {
     const focusedId = `${idPrefix}-focused-points`;
     try {
       if (!map.getLayer(circleId)) {
-        // Ring only: transparent fill, orange stroke, grow on hover via feature-state
+        // Subtle filled dot with ring; grow on hover via feature-state
         map.addLayer({
           id: circleId,
           type: 'circle',
           source: idPrefix,
           layout: { visibility: 'visible' },
           paint: {
-            'circle-color': 'rgba(0,0,0,0)',
-            'circle-stroke-color': fillColor,
-            'circle-stroke-width': 2,
+            'circle-color': [
+              'case',
+              ['boolean', ['feature-state', 'selected'], false],
+              '#2563eb',
+              fillColor
+            ],
+            'circle-opacity': [
+              'case',
+              ['boolean', ['feature-state', 'selected'], false],
+              0.35,
+              0.12
+            ],
+            'circle-stroke-color': [
+              'case',
+              ['boolean', ['feature-state', 'selected'], false],
+              '#2563eb',
+              fillColor
+            ],
+            'circle-stroke-width': [
+              'case',
+              ['boolean', ['feature-state', 'selected'], false],
+              3,
+              2
+            ],
             // radius = base + progress*delta
             'circle-radius': [
               '+',
@@ -84,7 +105,7 @@ export function ensureBaseLayers(map, idPrefix, type, options = {}) {
     } catch (_) {}
     try {
       if (!map.getLayer(focusedId)) {
-        // Focus ring: transparent fill, focus stroke, larger base and hover sizes
+        // Focus ring: subtle filled dot, larger base and hover sizes
         map.addLayer({
           id: focusedId,
           type: 'circle',
@@ -92,9 +113,15 @@ export function ensureBaseLayers(map, idPrefix, type, options = {}) {
           filter: ['==', ['id'], ''],
           layout: { visibility: 'visible' },
           paint: {
-            'circle-color': 'rgba(0,0,0,0)',
+            'circle-color': focusColor,
+            'circle-opacity': 0.16,
             'circle-stroke-color': focusColor,
-            'circle-stroke-width': 3,
+            'circle-stroke-width': [
+              'case',
+              ['boolean', ['feature-state', 'selected'], false],
+              4,
+              3
+            ],
             'circle-radius': [
               '+',
               9,

@@ -1,6 +1,7 @@
 // components/Map/MapContainer.jsx
 import React, { forwardRef, useEffect, useState, useRef } from 'react';
 import MapTooltip from './MapTooltip';
+import { useZoneCreator } from '../../hooks/useZoneCreator';
 import OverlapSelector from './OverlapSelector';
 import DroppedObjects from './DroppedObjects';
 import CustomShapeLabels from './CustomShapeLabels';
@@ -44,6 +45,9 @@ const MapContainer = forwardRef(({
 
   // Compass state
   const [bearing, setBearing] = useState(0);
+
+  // Zone Creator: mandatory in intersections mode, always wire interactions there
+  useZoneCreator(map, 'intersections');
 
   // Listen for map bearing changes
   useEffect(() => {

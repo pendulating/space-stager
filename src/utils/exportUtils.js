@@ -2,19 +2,49 @@
 import { PLACEABLE_OBJECTS } from '../constants/placeableObjects';
 import { getIconDataUrl, INFRASTRUCTURE_ICONS } from './iconUtils';
 
-// Export event plan
-export const exportPlan = (map, draw, droppedObjects, layers, customShapes) => {
+import { switchBasemap } from './mapUtils';
+
+// Detect current basemap key used by the app (carto or satellite)
+const detectBasemapKey = (map) => {
+  try {
+    if (map?.getLayer && map.getLayer('nyc-satellite-layer')) return 'satellite';
+    const style = map?.getStyle ? map.getStyle() : null;
+    if (style?.sprite && String(style.sprite).includes('cartocdn')) return 'carto';
+  } catch (_) {}
+  return 'carto';
+};
+
+// Export siteplan/event plan (versioned JSON serializer)
+// options: { geographyType?: string, focusedArea?: object, appVersion?: string }
+export const exportPlan = (map, draw, droppedObjects, layers, customShapes, options = {}) => {
   if (!map || !draw) return;
-  
+
+  const { geographyType = 'parks', focusedArea = null, appVersion = undefined } = options || {};
+
+  const nowIso = new Date().toISOString();
+  const center = map.getCenter();
   const data = {
-    metadata: {
-      created: new Date().toISOString(),
-      center: map.getCenter(),
+    schemaVersion: 1,
+    app: { name: 'space-stager', version: appVersion },
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    geography: { type: geographyType },
+    focusedArea: focusedArea ? {
+      id: focusedArea.id ?? undefined,
+      system: focusedArea.properties?.system ?? undefined,
+      name: focusedArea.properties?.name ?? undefined,
+      // Minimal fallback geometry so a consumer could refocus if needed
+      geometry: focusedArea.geometry ?? undefined
+    } : null,
+    basemap: { key: detectBasemapKey(map) },
+    view: {
+      center: { lng: center.lng, lat: center.lat },
       zoom: map.getZoom(),
-      bounds: map.getBounds().toArray()
+      bearing: typeof map.getBearing === 'function' ? map.getBearing() : 0,
+      pitch: typeof map.getPitch === 'function' ? map.getPitch() : 0
     },
     layers: layers,
-    customShapes: draw.current ? draw.current.getAll() : { features: [] },
+    customShapes: draw.current ? draw.current.getAll() : { type: 'FeatureCollection', features: [] },
     droppedObjects: droppedObjects
   };
 
@@ -22,39 +52,84 @@ export const exportPlan = (map, draw, droppedObjects, layers, customShapes) => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `event-plan-${new Date().toISOString().split('T')[0]}.json`;
+  a.download = `siteplan-${new Date().toISOString().split('T')[0]}.json`;
   a.click();
   URL.revokeObjectURL(url);
 };
 
 // Import event plan
-export const importPlan = (e, map, draw, setCustomShapes, setDroppedObjects, setLayers) => {
-  const file = e.target.files[0];
-  if (file && map && draw) {
-    const reader = new FileReader();
-    reader.onload = (event) => {
+// Import siteplan/event plan from JSON (supports v0 legacy and v1 schema)
+// helpers: { selectGeography?: (type) => void, focusAreaByIdentity?: ({ type, system, id }) => void }
+export const importPlan = (eOrFile, map, draw, setCustomShapes, setDroppedObjects, setLayers, helpers = {}) => {
+  const file = eOrFile && eOrFile.target && eOrFile.target.files ? eOrFile.target.files[0] : eOrFile;
+  if (!file || !map || !draw) return;
+
+  const reader = new FileReader();
+  reader.onload = async (event) => {
+    try {
+      const data = JSON.parse(event.target.result);
+
+      const isV1 = typeof data.schemaVersion === 'number' && data.schemaVersion >= 1;
+
+      // Restore basemap (best-effort)
       try {
-        const data = JSON.parse(event.target.result);
-        
-        if (data.metadata) {
-          map.setCenter(data.metadata.center);
-          map.setZoom(data.metadata.zoom);
+        const key = isV1 ? (data.basemap?.key || 'carto') : 'carto';
+        await switchBasemap(map, key);
+      } catch (_) {}
+
+      // Restore geography and focus
+      try {
+        if (isV1 && data.geography?.type && typeof helpers.selectGeography === 'function') {
+          helpers.selectGeography(data.geography.type);
         }
-        
-        if (data.customShapes) {
-          draw.current.set(data.customShapes);
+      } catch (_) {}
+      try {
+        if (isV1 && data.focusedArea && typeof helpers.focusAreaByIdentity === 'function') {
+          const ident = { type: data.geography?.type, system: data.focusedArea.system, id: data.focusedArea.id };
+          helpers.focusAreaByIdentity(ident);
         }
-        
-        if (data.droppedObjects) {
-          setDroppedObjects(data.droppedObjects);
+      } catch (_) {}
+
+      // Restore layers
+      try {
+        if (setLayers && (isV1 ? data.layers : data.layers)) {
+          setLayers(data.layers);
         }
-      } catch (error) {
-        console.error('Error importing plan:', error);
-        alert('Error importing plan. Please check the file format.');
-      }
-    };
-    reader.readAsText(file);
-  }
+      } catch (_) {}
+
+      // Restore shapes
+      try {
+        const shapes = isV1 ? data.customShapes : (data.customShapes || { type: 'FeatureCollection', features: [] });
+        if (shapes && draw?.current?.set) {
+          draw.current.set(shapes);
+        }
+      } catch (_) {}
+
+      // Restore dropped objects
+      try {
+        if (setDroppedObjects && (isV1 ? data.droppedObjects : data.droppedObjects)) {
+          setDroppedObjects(data.droppedObjects || []);
+        }
+      } catch (_) {}
+
+      // Restore map view
+      try {
+        if (isV1 && data.view) {
+          if (data.view.center) map.setCenter(data.view.center);
+          if (typeof data.view.zoom === 'number') map.setZoom(data.view.zoom);
+          if (typeof data.view.bearing === 'number' && map.setBearing) map.setBearing(data.view.bearing);
+          if (typeof data.view.pitch === 'number' && map.setPitch) map.setPitch(data.view.pitch);
+        } else if (data.metadata) {
+          if (data.metadata.center) map.setCenter(data.metadata.center);
+          if (typeof data.metadata.zoom === 'number') map.setZoom(data.metadata.zoom);
+        }
+      } catch (_) {}
+    } catch (error) {
+      console.error('Error importing plan:', error);
+      alert('Error importing plan. Please check the file format.');
+    }
+  };
+  reader.readAsText(file);
 };
 
 // New siteplan export (PDF vector first, PNG optional). Uses offscreen map for basemap and draws vector overlays.
