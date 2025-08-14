@@ -81,6 +81,7 @@ export const loadInfrastructureData = async (layerId, bounds) => {
         ...feature,
         properties: {
           ...p,
+          // Do not assume the dataset has order_number; leave blank if not present
           order_number: p.order_number || p.order || p.ordernum || p.order_no || p.ordernumber || '',
           on_street: p.on_street || p.onstreet || p.on || '',
           from_street: p.from_street || p.fromstreet || p.from || '',

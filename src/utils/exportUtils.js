@@ -310,17 +310,17 @@ export const exportPermitAreaSiteplanV2 = async (
     drawDroppedObjectsOnPdf(pdf, droppedObjects, project, toMm, droppedObjectPngs);
     drawCustomShapesOnPdf(pdf, numberedShapes, project, toMm);
 
+    // Main page legend: only title and annotations
     drawLegendOnPdf(pdf, { x: legendMm.x, y: legendMm.y, width: legendMm.width, height: legendMm.height }, layers, numberedShapes, droppedObjects, focusedArea, pngIcons, droppedObjectPngs);
 
-    // Add separate tables for meters and regulations
-    if (metersInArea.length > 0) {
-      pdf.addPage('a4', 'landscape');
-      drawParkingMetersSummaryPage(pdf, metersInArea);
-    }
-    if (regulationsInArea.length > 0) {
-      pdf.addPage('a4', 'landscape');
-      drawParkingSignsSummaryPage(pdf, regulationsInArea);
-    }
+    // Add summary page for Layers and Equipment
+    drawLayersAndEquipmentSummaryPage(pdf, layers, droppedObjects, pngIcons, droppedObjectPngs);
+
+    // Add combined Parking & Transit summary page (page 3)
+    const subwayStationsVisible = (layers?.subwayEntrances?.visible)
+      ? listSubwayStationsVisibleOnMap(offscreen, mapPx, infrastructureData?.subwayEntrances?.features || [])
+      : [];
+    drawParkingAndTransitPage(pdf, regulationsInArea, metersInArea, subwayStationsVisible);
 
     pdf.save(`siteplan-${getSafeFilename(focusedArea)}.pdf`);
     cleanupOffscreen(offscreen, container);
@@ -428,7 +428,9 @@ const drawLegendOnCanvas = async (ctx, rectPx, layers, numberedShapes, droppedOb
     lines.forEach((line, li) => {
       ctx.fillText(line, textX, cursorY + li * lineH);
     });
-    cursorY += Math.max(lineH, lines.length * lineH);
+    // Add extra vertical gap between layer rows for readability
+    const gap = 6;
+    cursorY += Math.max(lineH, lines.length * lineH) + gap;
   }
 
   // Equipment header
@@ -436,7 +438,7 @@ const drawLegendOnCanvas = async (ctx, rectPx, layers, numberedShapes, droppedOb
   ctx.fillStyle = '#374151';
   ctx.font = '12px Arial';
   ctx.fillText('Equipment', leftX, cursorY);
-  cursorY += 8;
+  cursorY += 10;
 
   // Aggregated dropped objects with images
   const counts = (droppedObjects || []).reduce((acc, o) => { acc[o.type] = (acc[o.type] || 0) + 1; return acc; }, {});
@@ -463,7 +465,9 @@ const drawLegendOnCanvas = async (ctx, rectPx, layers, numberedShapes, droppedOb
     const equipLines = wrapCanvasLines(ctx, equipText, equipMaxWidth);
     const equipLineH = 16;
     equipLines.forEach((line, li) => ctx.fillText(line, equipX, cursorY + li * equipLineH));
-    cursorY += Math.max(equipLineH, equipLines.length * equipLineH);
+    // Extra gap between equipment rows
+    const equipGap = 6;
+    cursorY += Math.max(equipLineH, equipLines.length * equipLineH) + equipGap;
   }
 
   // Annotations header
@@ -795,67 +799,9 @@ const drawLegendOnPdf = (pdf, rect, layers, numberedShapes, droppedObjects, focu
     pdf.text(line, leftX, cursorY);
     cursorY += 6;
   });
-  pdf.setFontSize(10);
-  pdf.setFontSize(10);
-  pdf.setTextColor(55, 65, 81);
-  pdf.text('Layers', leftX, cursorY);
-  cursorY += 5;
-  Object.entries(layers)
-    .filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible)
-    .forEach(([id, cfg]) => {
-      // Try to use real icon if available
-      const icon = INFRASTRUCTURE_ICONS[id];
-      const png = pngIcons?.[id] || null;
-      if (png) {
-        // Embed PNG icon at a larger, UI-consistent legend size
-        pdf.addImage(png, 'PNG', leftX, cursorY - 7.5, 9, 9);
-      } else if (icon && icon.type === 'svg') {
-        // Fallback: colored square using configured color
-        const c = hexToRgb(cfg.color || '#333');
-        pdf.setFillColor(c.r, c.g, c.b);
-        pdf.rect(leftX, cursorY - 4.5, 9, 9, 'F');
-      } else {
-        const c = hexToRgb(cfg.color || '#333');
-        pdf.setFillColor(c.r, c.g, c.b);
-        pdf.rect(leftX, cursorY - 4.5, 9, 9, 'F');
-      }
-      pdf.setTextColor(55, 65, 81);
-      const txt = String(cfg.name || id);
-      const maxW = rect.width - 2 * margin - 9;
-      wrapPdfLines(pdf, txt, maxW).forEach((line) => {
-        pdf.text(line, leftX + 9, cursorY);
-        cursorY += 5;
-      });
-    });
-  cursorY += 2;
-  pdf.setTextColor(55, 65, 81);
-  pdf.text('Equipment', leftX, cursorY);
-  cursorY += 5;
-  const counts = (droppedObjects || []).reduce((acc, o) => { acc[o.type] = (acc[o.type] || 0) + 1; return acc; }, {});
-  Object.entries(counts).forEach(([type, count]) => {
-    // Use the object icon if available
-    const objType = PLACEABLE_OBJECTS.find(p => p.id === type);
-    const iconPng = droppedObjectPngs?.[type] || null;
-    if (iconPng) {
-      try {
-        pdf.addImage(iconPng, 'PNG', leftX, cursorY - 6, 10, 10);
-      } catch {
-        pdf.setFillColor(100, 100, 100);
-        pdf.rect(leftX, cursorY - 3.5, 6, 6, 'F');
-      }
-    } else {
-      pdf.setFillColor(100, 100, 100);
-      pdf.rect(leftX, cursorY - 3.5, 6, 6, 'F');
-    }
-    pdf.setTextColor(55, 65, 81);
-    const entry = `${objType?.name || type} (${count})`;
-    const maxW2 = rect.width - 2 * margin - 9;
-    wrapPdfLines(pdf, entry, maxW2).forEach((line) => {
-      pdf.text(line, leftX + 9, cursorY);
-      cursorY += 5;
-    });
-  });
-  cursorY += 2;
+  // Only include title on the legend column of the main page. The Layers/Equipment
+  // sections are moved to a dedicated summary page.
+  cursorY += 4;
   pdf.setTextColor(55, 65, 81);
   pdf.text('Annotations', leftX, cursorY);
   cursorY += 5;
@@ -869,6 +815,85 @@ const drawLegendOnPdf = (pdf, rect, layers, numberedShapes, droppedObjects, focu
       cursorY += 5;
     });
   });
+};
+
+// Add a dedicated page with side-by-side summaries: left = layers, right = equipment
+const drawLayersAndEquipmentSummaryPage = (pdf, layers, droppedObjects, pngIcons, droppedObjectPngs) => {
+  pdf.addPage('a4', 'landscape');
+  const page = { w: 297, h: 210 };
+  const margin = 12;
+  const headerY = 15;
+  const sectionGap = 8;
+  const rowGap = 4;
+  const iconSize = 10;
+  const textIndent = iconSize + 6;
+  // Define left/right columns
+  const leftRect = { x: margin, y: headerY + sectionGap + 6, w: (page.w / 2) - margin * 1.5, h: page.h - headerY - margin };
+  const rightRect = { x: (page.w / 2) + margin * 0.5, y: headerY + sectionGap + 6, w: (page.w / 2) - margin * 1.5, h: page.h - headerY - margin };
+
+  // Page title
+  pdf.setTextColor(31, 41, 55);
+  pdf.setFontSize(14);
+  pdf.text('Layers and Equipment Summary', margin, headerY);
+
+  // Left: Layers
+  let y = leftRect.y;
+  const leftX = leftRect.x;
+  pdf.setFontSize(12);
+  pdf.setTextColor(55, 65, 81);
+  pdf.text('Layers', leftX, y);
+  y += sectionGap;
+  Object.entries(layers)
+    .filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible)
+    .forEach(([id, cfg]) => {
+      const png = pngIcons?.[id] || null;
+      if (png) {
+        try { pdf.addImage(png, 'PNG', leftX, y - (iconSize - 1), iconSize, iconSize); } catch {}
+      } else {
+        const c = hexToRgb(cfg.color || '#333');
+        pdf.setFillColor(c.r, c.g, c.b);
+        pdf.rect(leftX, y - (iconSize - 2), iconSize - 2, iconSize - 2, 'F');
+      }
+      const txt = String(cfg.name || id);
+      const maxW = leftRect.w - textIndent - 2;
+      const lines = wrapPdfLines(pdf, txt, maxW);
+      pdf.setTextColor(55, 65, 81);
+      lines.forEach((line) => {
+        pdf.text(line, leftX + textIndent, y);
+        y += 5;
+      });
+      y += rowGap; // spacing between layer rows
+    });
+
+  // Right: Equipment
+  let y2 = rightRect.y;
+  const rightX = rightRect.x;
+  pdf.setTextColor(55, 65, 81);
+  pdf.setFontSize(12);
+  pdf.text('Equipment', rightX, y2);
+  y2 += sectionGap;
+  const counts = (droppedObjects || []).reduce((acc, o) => { acc[o.type] = (acc[o.type] || 0) + 1; return acc; }, {});
+  Object.entries(counts)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .forEach(([type, count]) => {
+      const objType = PLACEABLE_OBJECTS.find(p => p.id === type);
+      const iconPng = droppedObjectPngs?.[type] || null;
+      if (iconPng) {
+        try { pdf.addImage(iconPng, 'PNG', rightX, y2 - (iconSize - 1), iconSize, iconSize); } catch {}
+      } else {
+        pdf.setFillColor(100, 100, 100);
+        pdf.rect(rightX, y2 - (iconSize - 4), iconSize - 4, iconSize - 4, 'F');
+      }
+      const entry = `${objType?.name || type} (${count})`;
+      const maxW2 = rightRect.w - textIndent - 2;
+      const eqLines = wrapPdfLines(pdf, entry, maxW2);
+      pdf.setTextColor(55, 65, 81);
+      eqLines.forEach((line) => {
+        pdf.text(line, rightX + textIndent, y2);
+        y2 += 5;
+      });
+      y2 += rowGap; // spacing between equipment rows
+    });
 };
 
 // (Old scale bar and compass helpers removed in V2 export)
@@ -1095,6 +1120,151 @@ const numberParkingFeaturesWithinArea = (features, focusedArea) => {
     return a.lat - b.lat;
   });
   return inArea.map((p, idx) => ({ index: idx, lng: p.lng, lat: p.lat, props: p.props }));
+};
+
+// List subway stations within focused area from subway entrances dataset
+const listSubwayStationsWithinArea = (features, focusedArea) => {
+  if (!features || features.length === 0 || !focusedArea) return [];
+  const stations = new Map();
+  try {
+    features.forEach((f) => {
+      const g = f?.geometry;
+      if (!g || g.type !== 'Point') return;
+      const coords = g.coordinates;
+      const lng = coords[0];
+      const lat = coords[1];
+      if (!isPointInFocusedArea(lng, lat, focusedArea)) return;
+      const name = f.properties?.constituent_station_name || f.properties?.stop_name || null;
+      const routes = f.properties?.daytime_routes || '';
+      const key = `${name || 'Station'}|${routes}`;
+      stations.set(key, { name: name || 'Station', routes });
+    });
+  } catch (_) {}
+  return Array.from(stations.values()).sort((a, b) => a.name.localeCompare(b.name));
+};
+
+// Render combined Parking & Transit summary page
+const drawParkingAndTransitPage = (pdf, regulationsInArea, metersInArea, stationsInArea) => {
+  pdf.addPage('a4', 'landscape');
+  const page = { w: 297, h: 210 };
+  const margin = 12;
+  const sectionGap = 8;
+  const rowGap = 3;
+  let y = 15;
+  const lineH = 5;
+
+  // Page title
+  pdf.setFontSize(14);
+  pdf.setTextColor(31, 41, 55);
+  pdf.text('Parking & Transit Summary', margin, y);
+  y += sectionGap; // extra space after title
+
+  // Section: Street Parking Regulations (single column)
+  pdf.setFontSize(12);
+  pdf.setTextColor(55, 65, 81);
+  pdf.text('Street Parking Regulations', margin, y);
+  y += 3;
+  pdf.setDrawColor(200, 200, 200);
+  pdf.line(margin, y, page.w - margin, y);
+  y += sectionGap;
+  pdf.setTextColor(31, 41, 55);
+  const headers = ['ID', 'Order #', 'On', 'From', 'To', 'Side', 'Description'];
+  const colX = [margin, margin + 16, margin + 34, margin + 68, margin + 102, margin + 118, margin + 136];
+  const colW = [14, 16, 32, 32, 16, 16, (page.w - margin) - (margin + 136) - 2];
+  pdf.setTextColor(55, 65, 81);
+  headers.forEach((h, i) => pdf.text(h, colX[i], y));
+  y += 2;
+  pdf.setDrawColor(235, 235, 235);
+  pdf.line(margin, y, page.w - margin, y);
+  y += 4;
+  pdf.setTextColor(31, 41, 55);
+  (regulationsInArea || []).slice(0, 60).forEach((s) => {
+    const idText = `P${s.index}`;
+    const order = String(s.props.order_number || '');
+    const on = String(s.props.on_street || '');
+    const from = String(s.props.from_street || '');
+    const to = String(s.props.to_street || '');
+    const side = String(s.props.side_of_street || '');
+    const desc = String(s.props.sign_description || '');
+    const cells = [idText, order, on, from, to, side, desc];
+    const wrapped = cells.map((t, i) => wrapPdfLines(pdf, t, colW[i]));
+    const rowLines = Math.max(...wrapped.map(arr => Math.max(1, arr.length)));
+    const rowH = rowLines * lineH + 2;
+    pdf.setDrawColor(235, 235, 235);
+    pdf.rect(margin, y - 2, (page.w - margin) - margin, rowH, 'S');
+    wrapped.forEach((arr, i) => {
+      arr.forEach((line, li) => pdf.text(line, colX[i], y + li * lineH));
+    });
+    y += rowH + rowGap;
+    if (y > page.h - 60) return; // leave room for next sections
+  });
+
+  // Section: Parking Meters
+  y += sectionGap;
+  pdf.setTextColor(55, 65, 81);
+  pdf.setFontSize(12);
+  pdf.text('Parking Meters', margin, y);
+  y += 3;
+  pdf.setDrawColor(200, 200, 200);
+  pdf.line(margin, y, page.w - margin, y);
+  y += sectionGap;
+  pdf.setTextColor(31, 41, 55);
+  const headersM = ['ID', 'On', 'From', 'To', 'Side', 'Meter #', 'Status', 'Hours', 'Facility'];
+  const colXM = [margin, margin + 16, margin + 50, margin + 84, margin + 118, margin + 136, margin + 158, margin + 174, margin + 196];
+  const colWM = [14, 30, 30, 30, 14, 16, 20, 20, (page.w - margin) - (margin + 196) - 2];
+  pdf.setTextColor(55, 65, 81);
+  headersM.forEach((h, i) => pdf.text(h, colXM[i], y));
+  y += 2;
+  pdf.setDrawColor(235, 235, 235);
+  pdf.line(margin, y, page.w - margin, y);
+  y += 4;
+  pdf.setTextColor(31, 41, 55);
+  (metersInArea || []).slice(0, 60).forEach((m) => {
+    const idText = `M${m.index}`;
+    const on = String(m.props.on_street || '');
+    const from = String(m.props.from_street || '');
+    const to = String(m.props.to_street || '');
+    const side = String(m.props.side_of_street || '');
+    const meterNo = String(m.props.meter_number || '');
+    const status = String(m.props.status || '');
+    const hours = String(m.props.meter_hours || '');
+    const facility = String(m.props.parking_facility_name || m.props.facility || '');
+    const cells = [idText, on, from, to, side, meterNo, status, hours, facility];
+    const wrapped = cells.map((t, i) => wrapPdfLines(pdf, t, colWM[i]));
+    const rowLines = Math.max(...wrapped.map(arr => Math.max(1, arr.length)));
+    const rowH = rowLines * lineH + 2;
+    pdf.setDrawColor(235, 235, 235);
+    pdf.rect(margin, y - 2, (page.w - margin) - margin, rowH, 'S');
+    wrapped.forEach((arr, i) => {
+      arr.forEach((line, li) => pdf.text(line, colXM[i], y + li * lineH));
+    });
+    y += rowH + rowGap;
+    if (y > page.h - 35) return; // leave room for stations header
+  });
+
+  // Section: Subway Stations in Zone
+  y += sectionGap;
+  pdf.setTextColor(55, 65, 81);
+  pdf.setFontSize(12);
+  pdf.text('Subway Stations in Zone', margin, y);
+  y += 3;
+  pdf.setDrawColor(200, 200, 200);
+  pdf.line(margin, y, page.w - margin, y);
+  y += sectionGap;
+  pdf.setTextColor(31, 41, 55);
+  (stationsInArea || []).forEach((s) => {
+    if (y > page.h - 10) return;
+    const name = String(s.name || 'Station');
+    const routes = String(s.routes || '');
+    const row = routes ? `${name} — Routes: ${routes}` : name;
+    const maxW = (page.w - margin) - margin;
+    const lines = wrapPdfLines(pdf, row, maxW);
+    lines.forEach((line) => {
+      pdf.text(line, margin, y);
+      y += 5;
+    });
+    y += rowGap;
+  });
 };
 
 // Render a separate PDF page with a table of parking signs
@@ -1499,4 +1669,28 @@ const drawDroppedObjectsOnCanvas = async (ctx, mapArea, map, droppedObjects) => 
       console.error('Error drawing dropped object:', error, obj);
     }
   }
+};
+
+// Determine which subway entrances would be visible on the exported map image extent
+const listSubwayStationsVisibleOnMap = (offscreenMap, mapPx, features) => {
+  if (!offscreenMap || !features || features.length === 0) return [];
+  const stations = new Map();
+  try {
+    const project = (lng, lat) => offscreenMap.project([lng, lat]);
+    features.forEach((f) => {
+      const g = f?.geometry;
+      if (!g || g.type !== 'Point') return;
+      const [lng, lat] = g.coordinates || [];
+      if (typeof lng !== 'number' || typeof lat !== 'number') return;
+      const p = project(lng, lat);
+      // Visible if projected point falls within the exported map canvas region (0..mapPx.width/height)
+      if (p.x >= 0 && p.x <= mapPx.width && p.y >= 0 && p.y <= mapPx.height) {
+        const name = f.properties?.constituent_station_name || f.properties?.stop_name || null;
+        const routes = f.properties?.daytime_routes || '';
+        const key = `${name || 'Station'}|${routes}`;
+        stations.set(key, { name: name || 'Station', routes });
+      }
+    });
+  } catch (_) {}
+  return Array.from(stations.values()).sort((a, b) => a.name.localeCompare(b.name));
 };

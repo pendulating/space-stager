@@ -103,7 +103,7 @@ export const initializeMap = async (container) => {
       mapInstance.addControl(new window.maplibregl.NavigationControl(), 'top-right');
       mapInstance.addControl(new window.maplibregl.ScaleControl(), 'bottom-right');
 
-      // Add search control if available
+      // Add search control if available (default placeholder)
       if (window.maplibreSearchBox) {
         const searchControl = new window.maplibreSearchBox.MapLibreSearchControl({
           useMapFocusPoint: true,
@@ -113,6 +113,42 @@ export const initializeMap = async (container) => {
           searchOnEnter: true
         });
         mapInstance.addControl(searchControl, 'top-left');
+
+        // Move the search box to top-center of the map
+        try {
+          const mapEl = mapInstance.getContainer();
+          let attempts = 0;
+          const maxAttempts = 30;
+          const attachTopCenter = () => {
+            // The control container typically has class 'maplibregl-ctrl' and contains '.maplibre-searchbox'
+            const ctrlInner = mapEl.querySelector('.maplibre-searchbox');
+            const ctrlContainer = ctrlInner ? ctrlInner.closest('.maplibregl-ctrl') : null;
+            if (ctrlContainer) {
+              // Ensure a single top-center wrapper exists
+              let wrapper = mapEl.querySelector('#maplibre-top-center');
+              if (!wrapper) {
+                wrapper = document.createElement('div');
+                wrapper.id = 'maplibre-top-center';
+                wrapper.style.position = 'absolute';
+                wrapper.style.top = '10px';
+                wrapper.style.left = '50%';
+                wrapper.style.transform = 'translateX(-50%)';
+                wrapper.style.zIndex = '5';
+                wrapper.style.pointerEvents = 'none';
+                mapEl.appendChild(wrapper);
+              }
+              // Allow interaction with the control inside
+              ctrlContainer.style.pointerEvents = 'auto';
+              // Remove default margins so it's centered neatly
+              ctrlContainer.style.margin = '0';
+              // Move the control into the wrapper
+              wrapper.appendChild(ctrlContainer);
+              return;
+            }
+            if (attempts++ < maxAttempts) setTimeout(attachTopCenter, 100);
+          };
+          attachTopCenter();
+        } catch (_) {}
       }
 
       // Track current base style

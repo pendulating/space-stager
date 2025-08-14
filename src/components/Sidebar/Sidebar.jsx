@@ -5,7 +5,6 @@ import PermitAreaSearch from './PermitAreaSearch';
 import ZoneCreatorPanel from './ZoneCreatorPanel.jsx';
 import { useZoneCreatorContext } from '../../contexts/ZoneCreatorContext.jsx';
 import LayersPanel from './LayersPanel';
-import GeographyCompactSelector from './GeographyCompactSelector';
 import BasemapToggle from './BasemapToggle';
 
 const Sidebar = ({ 
@@ -39,12 +38,6 @@ const Sidebar = ({
         onStyleChange={onStyleChange}
       />
 
-      <GeographyCompactSelector
-        onConfirmChange={() => {
-          // noop here; SpaceStager will react to geography change by clearing states
-        }}
-      />
-
       {/* Search panel, customized per geography; in intersections mode also show Zone Creator */}
       <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
         isSitePlanMode 
@@ -69,6 +62,15 @@ const Sidebar = ({
           focusedArea={focusedArea}
           title={geographyType === 'intersections' ? 'Search Intersections' : 'Search Zones'}
           placeholder={geographyType === 'intersections' ? 'Search intersections...' : 'Search zones...'}
+          onChangeMode={() => {
+            // Show the geography selector modal via custom event (handled in SpaceStager)
+            // Simpler approach: reset focus and let the top-level selector open on next render
+            try { permitAreas.clearFocus(); } catch (_) {}
+            try {
+              const evt = new CustomEvent('ui:show-geography-selector');
+              window.dispatchEvent(evt);
+            } catch (_) {}
+          }}
         />
       </div>
 

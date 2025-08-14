@@ -118,16 +118,7 @@ export const INFRASTRUCTURE_ENDPOINTS = {
     // Replace with the correct dataset if different
     baseUrl: 'https://data.cityofnewyork.us/resource/hv9n-xgy4.geojson',
     geoField: 'point',
-    isLocal: false,
-    // Ensure required fields are selected for export table
-    selectFields: [
-      'order_number',
-      'on_street',
-      'from_street',
-      'to_street',
-      'side_of_street',
-      'sign_description'
-    ]
+    isLocal: false
   },
   trees: {
     baseUrl: 'https://data.cityofnewyork.us/resource/hn5i-inap.geojson',

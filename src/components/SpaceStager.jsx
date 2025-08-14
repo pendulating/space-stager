@@ -77,6 +77,13 @@ const SpaceStager = () => {
   // Use custom hooks for different functionalities
   const { geographyType, isGeographyChosen, selectGeography } = useGeography();
   const { isTutorialActive, showWelcome } = useTutorial();
+  // Allow forcing the geography selector modal open via a UI event
+  const [showGeoSelectorOverride, setShowGeoSelectorOverride] = useState(false);
+  useEffect(() => {
+    const handler = () => setShowGeoSelectorOverride(true);
+    window.addEventListener('ui:show-geography-selector', handler);
+    return () => window.removeEventListener('ui:show-geography-selector', handler);
+  }, []);
   // Favor UI-aware padding so fitBounds/cameraForBounds doesn't tuck the focus under the left sidebar
   const focusPadding = { top: 20, right: 20, bottom: 20, left: isLeftSidebarOpen ? 360 : 20 };
   const permitAreas = usePermitAreas(map, mapLoaded, { mode: geographyType, focusPadding });
@@ -548,13 +555,14 @@ const SpaceStager = () => {
         )}
       </div>
       <GeographySelector
-        isOpen={!isTutorialActive && !showWelcome && !isGeographyChosen}
+        isOpen={showGeoSelectorOverride || (!isTutorialActive && !showWelcome && !isGeographyChosen)}
         onContinue={(type) => {
           // Clear any existing work just in case and set geography
           permitAreas.clearFocus();
           clickToPlace.clearDroppedObjects();
           drawTools.clearCustomShapes();
           selectGeography(type);
+          setShowGeoSelectorOverride(false);
         }}
       />
     </div>

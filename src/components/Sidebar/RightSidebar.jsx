@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { FileImage, FileText, Download } from 'lucide-react';
 import PlaceableObjectsPanel from './PlaceableObjectsPanel';
 import DrawingTools from './DrawingTools';
@@ -16,7 +16,6 @@ const RightSidebar = ({
   focusedArea
 }) => {
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const fileInputRef = useRef(null);
   return (
     <>
       <div className="w-80 bg-white dark:bg-gray-800 dark:text-gray-100 shadow-lg z-10 flex flex-col border-l border-gray-200 dark:border-gray-700 sidebar-right">
@@ -76,25 +75,6 @@ const RightSidebar = ({
       <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 mt-auto">
         <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-3">Export Options</h3>
         <div className="space-y-2">
-          {/* Import Plan (JSON) */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json"
-            className="hidden"
-            onChange={(e) => {
-              if (onImport) onImport(e);
-              // allow re-uploading the same file
-              if (fileInputRef.current) fileInputRef.current.value = '';
-            }}
-          />
-          <button
-            onClick={() => fileInputRef.current && fileInputRef.current.click()}
-            className="w-full bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors flex items-center justify-center space-x-2"
-          >
-            <span>Import Plan (JSON)</span>
-          </button>
-
           {/* Export Event Plan */}
           <button 
             onClick={onExport}

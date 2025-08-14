@@ -15,20 +15,22 @@ const LayersPanel = ({
   // State for tracking which groups are expanded
   const [expandedGroups, setExpandedGroups] = useState(new Set(['public-infrastructure', 'nyc-parks'])); // Start with some groups expanded
 
-  // Check if all starter set layers are currently visible
-  const starterSetActive = useMemo(() => {
-    return STARTER_SET_LAYERS.every(layerId => 
-      layers[layerId] && layers[layerId].visible
-    );
+  // Check if all layers are currently visible (recommended = all layers)
+  const allLayersActive = useMemo(() => {
+    return Object.entries(layers)
+      .filter(([id]) => id !== 'permitAreas')
+      .every(([id, cfg]) => cfg && cfg.visible);
   }, [layers]);
 
-  // Toggle all starter set layers
-  const handleStarterSetToggle = () => {
-    STARTER_SET_LAYERS.forEach(layerId => {
-      if (layers[layerId] && layers[layerId].visible !== !starterSetActive) {
-        onToggleLayer(layerId);
-      }
-    });
+  // Toggle all layers on/off (recommended = all)
+  const handleRecommendedToggle = () => {
+    Object.entries(layers)
+      .filter(([id]) => id !== 'permitAreas')
+      .forEach(([id, cfg]) => {
+        if (cfg && cfg.visible === allLayersActive) {
+          onToggleLayer(id);
+        }
+      });
   };
 
   // Toggle group expansion
@@ -258,42 +260,7 @@ const LayersPanel = ({
           NYC Infrastructure Layers
         </h3>
         
-        {/* Starter Set Toggle - revealed only in Site Plan (design) mode */}
-        <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
-          isSitePlanMode
-            ? 'max-h-96 opacity-100 transform translate-y-0'
-            : 'max-h-0 opacity-0 transform -translate-y-2'
-        }`}>
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-900 p-3 rounded-lg border border-blue-200 dark:border-gray-700">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Layers className="w-4 h-4 text-blue-600" />
-                <span className="text-sm font-medium text-blue-900 dark:text-blue-300">Starter Set</span>
-                <span className="text-xs text-blue-600 dark:text-blue-200 bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 rounded-full">
-                  {STARTER_SET_LAYERS.length} layers
-                </span>
-              </div>
-              <button
-                onClick={handleStarterSetToggle}
-                className="flex items-center space-x-1 text-blue-700 hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200 transition-colors"
-                disabled={!focusedArea}
-                title={!focusedArea ? "Select a permit area first" : `${starterSetActive ? 'Hide' : 'Show'} essential layers`}
-              >
-                {starterSetActive ? (
-                  <ToggleRight className="w-5 h-5 text-blue-600" />
-                ) : (
-                  <ToggleLeft className="w-5 h-5 text-gray-400 dark:text-gray-500" />
-                )}
-                <span className="text-xs font-medium">
-                  {starterSetActive ? 'ON' : 'OFF'}
-                </span>
-              </button>
-            </div>
-            <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
-              Essential layers from across all groups: trees, hydrants, bus stops, benches, bike parking & restrooms
-            </p>
-          </div>
-        </div>
+        {/* All Recommended moved below focus panel in scroll area */}
 
       {/* Zone geometry - Always Fixed */}
       {permitAreasLayer && renderLayerItem('permitAreas', permitAreasLayer)}
@@ -336,6 +303,40 @@ const LayersPanel = ({
       <div className="flex-1 overflow-y-auto min-h-0">
         <div className="p-4 pb-8">
           <div className="space-y-3">
+            {/* All Recommended Toggle - placed above group toggles */}
+            <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
+              isSitePlanMode
+                ? 'max-h-96 opacity-100 transform translate-y-0'
+                : 'max-h-0 opacity-0 transform -translate-y-2'
+            }`}>
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-900 p-3 rounded-lg border border-blue-200 dark:border-gray-700">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Layers className="w-4 h-4 text-blue-600" />
+                    <span className="text-sm font-medium text-blue-900 dark:text-blue-300">All Recommended</span>
+                  </div>
+                  <button
+                    onClick={handleRecommendedToggle}
+                    className="flex items-center space-x-1 text-blue-700 hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200 transition-colors"
+                    disabled={!focusedArea}
+                    title={!focusedArea ? "Select a permit area first" : `${allLayersActive ? 'Hide' : 'Show'} all layers`}
+                  >
+                    {allLayersActive ? (
+                      <ToggleRight className="w-5 h-5 text-blue-600" />
+                    ) : (
+                      <ToggleLeft className="w-5 h-5 text-gray-400 dark:text-gray-500" />
+                    )}
+                    <span className="text-xs font-medium">
+                      {allLayersActive ? 'ON' : 'OFF'}
+                    </span>
+                  </button>
+                </div>
+                <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                  Toggle all recommended layers across groups.
+                </p>
+              </div>
+            </div>
+
             {/* Render grouped layers */}
             {Object.entries(LAYER_GROUPS).map(([groupId, group]) => 
               renderGroupHeader(groupId, group)

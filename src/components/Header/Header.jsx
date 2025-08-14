@@ -19,7 +19,7 @@ const Header = ({
           <div className="flex items-center space-x-3">
             <Map className="w-6 h-6 text-blue-600" />
             <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
-              NYC Public Space Event Stager
+              SpaceStager NYC
             </h1>
           </div>
           <div className="flex items-center space-x-2">
