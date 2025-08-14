@@ -359,10 +359,10 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
           });
           // Insert below the first symbol layer so labels/roads remain on top
           const style = map.getStyle();
-          // Prefer placing satellite beneath permit fills if present, else at the very bottom (above background)
+          // Prefer placing satellite beneath active geography fill if present, else at the very bottom (above background)
           const beforeId = map.getLayer('permit-areas-fill')
             ? 'permit-areas-fill'
-            : (style.layers?.find(l => l.type !== 'background')?.id);
+            : (map.getLayer('plaza-areas-fill') ? 'plaza-areas-fill' : (style.layers?.find(l => l.type !== 'background')?.id));
           map.addLayer({
             id: 'nyc-satellite-layer',
             type: 'raster',
@@ -390,6 +390,8 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
             if (
               id === 'nyc-satellite-layer' ||
               id.startsWith('permit-areas') ||
+              id.startsWith('plaza-areas') ||
+              id.startsWith('zone-creator') ||
               id.startsWith('mapbox-gl-draw') ||
               id.startsWith('gl-draw')
             ) {

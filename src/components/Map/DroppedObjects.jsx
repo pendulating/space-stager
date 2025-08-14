@@ -8,7 +8,9 @@ const DroppedObjects = ({
   placeableObjects = [],
   map, 
   objectUpdateTrigger, 
-  onRemoveObject 
+  onRemoveObject,
+  onEditNote,
+  isNoteEditing
 }) => {
   if (DEBUG) console.log('DroppedObjects: Component render', {
     objectCount: objects.length,
@@ -118,8 +120,7 @@ const DroppedObjects = ({
         <div
           key={`${obj.id}-${objectUpdateTrigger}`}
           style={style}
-          onClick={() => onRemoveObject && onRemoveObject(obj.id)}
-          title={`${obj.name} - Click to remove`}
+          title={obj.name}
           className="group relative placed-object"
         >
           {objectType.imageUrl ? (
@@ -142,12 +143,27 @@ const DroppedObjects = ({
             </div>
           )}
           
-          {/* Remove button overlay */}
-          <div className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-            <div className="bg-red-500 text-white rounded-full p-1">
-              <X className="w-3 h-3" />
+          {/* Floating controls: edit note and remove */}
+          {!isNoteEditing && (
+            <div className="absolute -top-2 right-0 left-0 mx-auto w-max flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button
+                type="button"
+                className="bg-white/90 dark:bg-gray-900/80 border border-gray-300 dark:border-gray-700 rounded-full px-2 py-1 text-[10px] shadow"
+                title="Edit note"
+                onClick={(e) => { e.stopPropagation(); onEditNote && onEditNote(obj); }}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                className="bg-red-500 text-white rounded-full p-1 shadow"
+                title="Remove"
+                onClick={(e) => { e.stopPropagation(); onRemoveObject && onRemoveObject(obj.id); }}
+              >
+                <X className="w-3 h-3" />
+              </button>
             </div>
-          </div>
+          )}
         </div>
       );
     }).filter(Boolean);

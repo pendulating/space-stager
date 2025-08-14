@@ -126,8 +126,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     // When focused area changes, clear all infrastructure layers and reset their state
     Object.keys(layers).forEach(layerId => {
       if (layerId !== 'permitAreas') {
-        // Clear the layer from the map
-        clearLayer(layerId);
+        // Thoroughly clear the layer from the map (points, lines, polygons, sources)
+        removeInfrastructureLayer(layerId);
         
         // Reset the layer state to not loaded and not visible
         setLayers(prev => ({
@@ -171,18 +171,16 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     loadingLayersRef.current.clear();
   }, [focusedAreaId, map]); // Trigger when focused area ID changes
 
-  // Load infrastructure icons when map is ready - more permissive (load whatever is possible)
+  // Load infrastructure icons on initial ready and on EVERY style change
   useEffect(() => {
     if (!map) return;
-    const ensureIcons = () => {
-      if (map.isStyleLoaded()) {
-        addIconsToMap(map);
-      } else {
-        map.once('style.load', () => setTimeout(() => addIconsToMap(map), 100));
-      }
+    const onStyleLoad = () => {
+      try { setTimeout(() => addIconsToMap(map), 50); } catch (_) {}
     };
-    const t = setTimeout(ensureIcons, 100);
-    return () => clearTimeout(t);
+    // Fire once if style already loaded
+    try { if (map.isStyleLoaded && map.isStyleLoaded()) setTimeout(() => addIconsToMap(map), 50); } catch (_) {}
+    try { map.on('style.load', onStyleLoad); } catch (_) {}
+    return () => { try { map.off('style.load', onStyleLoad); } catch (_) {} };
   }, [map]);
 
   // Add infrastructure layer to map - move this before loadInfrastructureLayer
@@ -192,6 +190,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     
     removeInfrastructureLayer(layerId);
     const sourceId = `source-${layerId}`;
+    // Best-effort ensure icons exist for this style before/after layers are added
+    try { addIconsToMap(map); } catch (_) {}
     
     // Add source
     map.addSource(sourceId, {
@@ -202,10 +202,29 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     const layerStyle = getLayerStyle(layerId, layers[layerId], map);
     console.log(`[DEBUG] Layer style for ${layerId}:`, layerStyle);
     
+    // Try to place infra layers below draw controls if present; otherwise they end up on top
+    let beforeId;
+    try {
+      const style = map.getStyle ? map.getStyle() : null;
+      const drawLayer = style && Array.isArray(style.layers)
+        ? style.layers.find(l => typeof l.id === 'string' && (l.id.startsWith('mapbox-gl-draw') || l.id.startsWith('gl-draw')))
+        : null;
+      beforeId = drawLayer ? drawLayer.id : undefined;
+    } catch (_) {}
+    
     // Check for different geometry types
-    const hasLineString = data.features.some(f => f.geometry && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString'));
-    const hasPoint = data.features.some(f => f.geometry && f.geometry.type === 'Point');
-    const hasPolygon = data.features.some(f => f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon'));
+    const ensureGeometry = (f) => {
+      if (!f || !f.geometry) return null;
+      const g = f.geometry;
+      // Guard invalid empty shells
+      if (g.type === 'MultiPolygon' && (!Array.isArray(g.coordinates) || g.coordinates.length === 0)) return null;
+      if (g.type === 'Polygon' && (!Array.isArray(g.coordinates) || g.coordinates.length === 0)) return null;
+      return g;
+    };
+    const validFeatures = (data.features || []).filter(f => !!ensureGeometry(f));
+    const hasLineString = validFeatures.some(f => f.geometry && (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString'));
+    const hasPoint = validFeatures.some(f => f.geometry && f.geometry.type === 'Point');
+    const hasPolygon = validFeatures.some(f => f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon'));
     
     console.log(`[DEBUG] ${layerId} has LineString: ${hasLineString}, has Point: ${hasPoint}, has Polygon: ${hasPolygon}`);
     console.log(`[DEBUG] ${layerId} sample features:`, data.features.slice(0, 2).map(f => ({
@@ -213,6 +232,19 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
       geometryType: f.geometry?.type,
       hasCoordinates: !!f.geometry?.coordinates
     })));
+    if (layerId === 'streetParkingSigns') {
+      try {
+        const pts = (data.features || []).filter(f => f.geometry?.type === 'Point').map(f => f.geometry.coordinates);
+        const lons = pts.map(c => c[0]);
+        const lats = pts.map(c => c[1]);
+        const stats = pts.length ? {
+          count: pts.length,
+          minLon: Math.min(...lons), maxLon: Math.max(...lons),
+          minLat: Math.min(...lats), maxLat: Math.max(...lats)
+        } : { count: 0 };
+        console.log('[DEBUG] streetParkingSigns plotted coords extent:', stats, 'samples:', pts.slice(0, 10));
+      } catch (_) {}
+    }
     
     if (hasLineString && layerStyle.type === 'line') {
       const lineLayerId = `layer-${layerId}-line`;
@@ -221,19 +253,23 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
         type: 'line',
         source: sourceId,
         paint: layerStyle.paint
-      });
+      }, beforeId);
       console.log(`[DEBUG] Added line layer: ${lineLayerId}`);
       // Optionally add hover/click events for lines here
     }
     
-    if (hasPolygon && layerStyle.type === 'fill') {
+    if (hasPolygon && (layerStyle.type === 'fill' || layerId === 'stationEnvelopes')) {
       const polygonLayerId = `layer-${layerId}-polygon`;
       map.addLayer({
         id: polygonLayerId,
         type: 'fill',
         source: sourceId,
-        paint: layerStyle.paint
-      });
+        paint: layerId === 'stationEnvelopes' ? {
+          'fill-color': '#10b981',
+          'fill-opacity': 0.18,
+          'fill-outline-color': '#14b8a6'
+        } : layerStyle.paint
+      }, beforeId);
       console.log(`[DEBUG] Added polygon layer: ${polygonLayerId}`);
       
       // Add hover and click events for polygons
@@ -267,7 +303,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
       
       console.log(`[DEBUG] Adding point layer: ${pointLayerId} with config:`, layerConfig);
       
-      map.addLayer(layerConfig);
+      map.addLayer(layerConfig, beforeId);
       
       map.on('mouseenter', pointLayerId, () => {
         map.getCanvas().style.cursor = 'pointer';
@@ -370,6 +406,11 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
       };
       
       console.log(`Loaded ${layerId}: ${filteredData.features.length} features found for area ${focusedArea.properties?.name || focusedArea.id}`);
+      if (layerId === 'dcwpParkingGarages') {
+        try {
+          console.log('[dcwp] sample feature geoms:', filteredData.features.slice(0, 2).map(f => f.geometry?.type));
+        } catch(_) {}
+      }
       
       // Save the data
       setInfrastructureData(prev => ({
@@ -427,13 +468,30 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     const config = layers[layerId];
     if (!config) return;
     
-    // Remove both possible layer IDs
+    // Remove all possible layer IDs and detach events
     try {
-      if (map.getLayer(`${layerId}-layer`)) {
-        map.removeLayer(`${layerId}-layer`);
+      const pointLayerId = `layer-${layerId}-point`;
+      const lineLayerId = `layer-${layerId}-line`;
+      const polygonLayerId = `layer-${layerId}-polygon`;
+      const altLayerId = `${layerId}-layer`;
+
+      if (map.getLayer(pointLayerId)) {
+        try { map.off('mouseenter', pointLayerId); } catch {}
+        try { map.off('mouseleave', pointLayerId); } catch {}
+        try { map.off('click', pointLayerId); } catch {}
+        map.removeLayer(pointLayerId);
       }
-      if (map.getLayer(`layer-${layerId}-point`)) {
-        map.removeLayer(`layer-${layerId}-point`);
+      if (map.getLayer(lineLayerId)) {
+        map.removeLayer(lineLayerId);
+      }
+      if (map.getLayer(polygonLayerId)) {
+        try { map.off('mouseenter', polygonLayerId); } catch {}
+        try { map.off('mouseleave', polygonLayerId); } catch {}
+        try { map.off('click', polygonLayerId); } catch {}
+        map.removeLayer(polygonLayerId);
+      }
+      if (map.getLayer(altLayerId)) {
+        map.removeLayer(altLayerId);
       }
       if (map.getSource(layerId)) {
         map.removeSource(layerId);

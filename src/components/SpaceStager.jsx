@@ -23,6 +23,8 @@ import { useNudges } from '../hooks/useNudges';
 import { useGeography } from '../contexts/GeographyContext';
 import { useTutorial } from '../contexts/TutorialContext';
 import GeographySelector from './Modals/GeographySelector';
+import EventInfoModal from './Modals/EventInfoModal';
+import ExportOptionsModal from './Modals/ExportOptionsModal';
 import '../styles/eventStager-dpr.css';
 import '../styles/eventStager.css';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -79,10 +81,24 @@ const SpaceStager = () => {
   const { isTutorialActive, showWelcome } = useTutorial();
   // Allow forcing the geography selector modal open via a UI event
   const [showGeoSelectorOverride, setShowGeoSelectorOverride] = useState(false);
+  const [showEventInfo, setShowEventInfo] = useState(false);
+  const [showExportOptions, setShowExportOptions] = useState(false);
+  const [eventInfo, setEventInfo] = useState({});
+  const [exportOptions, setExportOptions] = useState({ includeDimensions: true, dimensionUnits: 'm' });
   useEffect(() => {
     const handler = () => setShowGeoSelectorOverride(true);
     window.addEventListener('ui:show-geography-selector', handler);
     return () => window.removeEventListener('ui:show-geography-selector', handler);
+  }, []);
+  useEffect(() => {
+    const showInfo = () => setShowEventInfo(true);
+    const showOpts = () => setShowExportOptions(true);
+    window.addEventListener('ui:show-event-info', showInfo);
+    window.addEventListener('ui:show-export-options', showOpts);
+    return () => {
+      window.removeEventListener('ui:show-event-info', showInfo);
+      window.removeEventListener('ui:show-export-options', showOpts);
+    };
   }, []);
   // Favor UI-aware padding so fitBounds/cameraForBounds doesn't tuck the focus under the left sidebar
   const focusPadding = { top: 20, right: 20, bottom: 20, left: isLeftSidebarOpen ? 360 : 20 };
@@ -175,7 +191,8 @@ const SpaceStager = () => {
       drawTools.draw?.current ? drawTools.draw.current.getAll().features : [],
       {
         geographyType,
-        focusedArea: permitAreas.focusedArea
+        focusedArea: permitAreas.focusedArea,
+        eventInfo
       }
     );
   };
@@ -226,7 +243,9 @@ const SpaceStager = () => {
       drawTools.draw?.current ? drawTools.draw.current.getAll().features : [],
       clickToPlace.droppedObjects,
       format,
-      infrastructure?.infrastructureData || null
+      infrastructure?.infrastructureData || null,
+      exportOptions,
+      eventInfo
     );
   };
 
@@ -356,13 +375,32 @@ const SpaceStager = () => {
           // Reload any visible infra layers for the current area
           infrastructure.reloadVisibleLayers();
         }
-        
-        // Re-initialize draw controls after layers are handled
-        setTimeout(() => {
-          if (drawTools.forceReinitialize) {
-            drawTools.forceReinitialize();
+
+        // If the focused area is a Zone Creator preview, re-add its overlay layers lost on style changes
+        try {
+          const fa = permitAreas.focusedArea;
+          if (fa && (fa.id === 'zonecreator-preview' || fa.properties?.__zoneCreator === true) && fa.geometry) {
+            try { if (map.getLayer('zone-creator-preview')) map.removeLayer('zone-creator-preview'); } catch (_) {}
+            try { if (map.getLayer('zone-creator-path')) map.removeLayer('zone-creator-path'); } catch (_) {}
+            try { if (map.getSource('zone-creator')) map.removeSource('zone-creator'); } catch (_) {}
+            map.addSource('zone-creator', { type: 'geojson', data: { type: 'Feature', geometry: fa.geometry, properties: {} } });
+            // Keep zone creator layers above active geography focused layers; insert before draw layers if present
+            let beforeId;
+            try {
+              const style = map.getStyle ? map.getStyle() : null;
+              const drawLayer = style && Array.isArray(style.layers)
+                ? style.layers.find(l => typeof l.id === 'string' && (l.id.startsWith('mapbox-gl-draw') || l.id.startsWith('gl-draw')))
+                : null;
+              beforeId = drawLayer ? drawLayer.id : undefined;
+            } catch (_) {}
+            map.addLayer({ id: 'zone-creator-preview', type: 'fill', source: 'zone-creator', paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.2 } }, beforeId);
+            map.addLayer({ id: 'zone-creator-path', type: 'line', source: 'zone-creator', paint: { 'line-color': '#2563eb', 'line-width': 3 } }, beforeId);
+            // Hide intersections points layer again while previewing the zone (intersections mode)
+            try { if (map.getLayer('intersections-points')) map.setLayoutProperty('intersections-points', 'visibility', 'none'); } catch (_) {}
           }
-        }, 300);
+        } catch (_) {}
+        
+        // Draw controls now handle style changes internally; no external reinit needed
       };
       
       // Add a delay to ensure style is fully processed
@@ -449,6 +487,8 @@ const SpaceStager = () => {
       <TutorialTooltip />
       
       {showInfo && <InfoPanel showInfo={showInfo} onClose={() => setShowInfo(false)} />}
+      <EventInfoModal isOpen={showEventInfo} onClose={() => setShowEventInfo(false)} value={eventInfo} onChange={setEventInfo} />
+      <ExportOptionsModal isOpen={showExportOptions} onClose={() => setShowExportOptions(false)} value={exportOptions} onChange={setExportOptions} />
       
 
       {permitAreas.isLoading && (
@@ -513,7 +553,7 @@ const SpaceStager = () => {
             onClick={() => setIsLeftSidebarOpen(true)}
             aria-label="Expand sidebar"
             title="Show sidebar"
-            className="fixed left-0 top-20 z-30 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-r px-1 py-3 shadow hover:bg-gray-50 dark:hover:bg-gray-700"
+            className="fixed left-0 top-40 z-30 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-r px-1 py-3 shadow hover:bg-gray-50 dark:hover:bg-gray-700"
           >
             <ChevronRight className="w-4 h-4 text-gray-700 dark:text-gray-200" />
           </button>

@@ -103,24 +103,22 @@ export const useDrawTools = (map, focusedArea = null) => {
     // Initialize draw controls when map is ready - less strict conditions
     const initializeDrawControls = () => {
       try {
-        if (map.loaded()) {
-          // Only require map to be loaded, not necessarily style loaded
-          console.log('Map already loaded, proceeding with draw initialization');
+        const styleReady = typeof map.isStyleLoaded === 'function' ? map.isStyleLoaded() : true;
+        if (styleReady) {
+          console.log('Map style ready, proceeding with draw initialization');
           initDraw();
         } else {
-          // Wait for map load
-          console.log('Map not loaded yet, waiting for load event');
-          const handleMapLoad = () => {
-            console.log('Map loaded event received, initializing draw controls');
+          console.log('Map style not loaded yet, waiting for style.load event');
+          const onStyleLoad = () => {
+            console.log('Style load received, initializing draw controls');
             try {
               initDraw();
             } catch (error) {
-              console.error('Error during draw initialization after map load:', error);
+              console.error('Error during draw initialization after style load:', error);
               setDrawInitialized(false);
             }
           };
-
-          map.once('load', handleMapLoad);
+          map.once('style.load', onStyleLoad);
         }
       } catch (error) {
         console.error('Error in initializeDrawControls:', error);
@@ -150,6 +148,27 @@ export const useDrawTools = (map, focusedArea = null) => {
     };
   }, [map]); // Removed drawInitialized from dependencies to avoid loop
 
+  // Keep Draw resilient across style changes without flipping availability
+  useEffect(() => {
+    if (!map) return;
+    const onStyleLoad = () => {
+      if (!draw.current) return;
+      try {
+        const existing = draw.current.getAll();
+        // Re-add control to inject layers for the new style, then restore shapes
+        map.removeControl(draw.current);
+        map.addControl(draw.current);
+        if (existing && existing.features && existing.features.length > 0) {
+          draw.current.add(existing);
+        }
+        // Do not change drawInitialized here; keep tools available
+      } catch (e) {
+        console.warn('Draw rebind on style.load failed', e);
+      }
+    };
+    map.on('style.load', onStyleLoad);
+    return () => { try { map.off('style.load', onStyleLoad); } catch (_) {} };
+  }, [map]);
 
 
   // Activate drawing tool
@@ -233,74 +252,51 @@ export const useDrawTools = (map, focusedArea = null) => {
       console.warn('Cannot reinitialize: map or MapboxDraw not available');
       return;
     }
-    
-    console.log('Force re-initializing draw controls...');
-    
-    // Reset state first
-    setDrawInitialized(false);
-    
-    // Wait for style to be ready, but don't be too strict
-    const doReinit = () => {
-      // Store existing shapes before removing
-      const existingShapes = draw.current ? draw.current.getAll() : [];
-      
-      // Remove existing draw control if it exists
-      if (draw.current) {
-        try {
-          // Remove event handlers first
-          map.off('draw.create', eventHandlers.current.handleDrawCreate);
-          map.off('draw.update', eventHandlers.current.handleDrawUpdate);
-          map.off('draw.delete', eventHandlers.current.handleDrawDelete);
-          map.off('draw.selectionchange', eventHandlers.current.handleSelectionChange);
-          
-          map.removeControl(draw.current);
-          console.log('Removed existing draw control');
-        } catch (error) {
-          console.warn('Error removing existing draw control:', error);
-        }
-        draw.current = null;
-      }
-
+    console.log('Ensuring draw controls are bound...');
+    const ensure = () => {
       try {
+        const existingShapes = draw.current ? draw.current.getAll() : null;
+        if (draw.current) {
+          // Rebind by removing/adding control to inject layers for current style
+          try {
+            map.off('draw.create', eventHandlers.current.handleDrawCreate);
+            map.off('draw.update', eventHandlers.current.handleDrawUpdate);
+            map.off('draw.delete', eventHandlers.current.handleDrawDelete);
+            map.off('draw.selectionchange', eventHandlers.current.handleSelectionChange);
+          } catch (_) {}
+          try { map.removeControl(draw.current); } catch (_) {}
+          map.addControl(draw.current);
+          map.on('draw.create', eventHandlers.current.handleDrawCreate);
+          map.on('draw.update', eventHandlers.current.handleDrawUpdate);
+          map.on('draw.delete', eventHandlers.current.handleDrawDelete);
+          map.on('draw.selectionchange', eventHandlers.current.handleSelectionChange);
+          if (existingShapes && existingShapes.features && existingShapes.features.length > 0) {
+            try { draw.current.add(existingShapes); } catch (_) {}
+          }
+          // Keep availability true
+          setDrawInitialized(true);
+          return;
+        }
+        // No draw instance yet; create one
         const drawInstance = new window.MapboxDraw({
           displayControlsDefault: false,
           controls: {},
           defaultMode: 'simple_select'
         });
-        
         draw.current = drawInstance;
         map.addControl(drawInstance);
-        
-        // Set up event handlers for the new draw instance
         map.on('draw.create', eventHandlers.current.handleDrawCreate);
         map.on('draw.update', eventHandlers.current.handleDrawUpdate);
         map.on('draw.delete', eventHandlers.current.handleDrawDelete);
         map.on('draw.selectionchange', eventHandlers.current.handleSelectionChange);
-        
-        // Restore existing shapes
-        if (existingShapes && existingShapes.features && existingShapes.features.length > 0) {
-          drawInstance.add(existingShapes);
-          console.log('Restored', existingShapes.features.length, 'shapes');
-        }
-        
         setDrawInitialized(true);
-        console.log('Draw controls re-initialized successfully');
       } catch (error) {
-        console.error('Error during draw control reinitialization:', error);
-        setDrawInitialized(false);
+        console.error('Error ensuring draw controls:', error);
       }
     };
-
-    // Less strict condition - just check if map is available
-    if (map.loaded()) {
-      doReinit();
-    } else {
-      console.log('Map not loaded, waiting for load event...');
-      map.once('load', () => {
-        setTimeout(doReinit, 100);
-      });
-    }
-  }, [map]); // Only depend on map
+    const styleReady = typeof map.isStyleLoaded === 'function' ? map.isStyleLoaded() : true;
+    if (styleReady) ensure(); else map.once('style.load', ensure);
+  }, [map]);
 
   // Manual initialization function for retry button
   const manualInitialize = useCallback(() => {

@@ -23,20 +23,22 @@ const Sidebar = ({
   const { isActive, setIsActive } = useZoneCreatorContext();
   return (
     <div className={`${isSitePlanMode ? 'w-80' : 'w-96'} bg-white dark:bg-gray-800 dark:text-gray-100 shadow-lg z-10 flex flex-col transition-all duration-300 h-full relative`}>
-      {/* Collapse control */}
-      <button
-        type="button"
-        onClick={onCollapse}
-        aria-label="Collapse sidebar"
-        className="absolute -right-3 top-4 z-20 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-r px-1 py-2 shadow hover:bg-gray-50 dark:hover:bg-gray-700"
-        title="Hide sidebar"
-      >
-        <ChevronLeft className="w-4 h-4 text-gray-700" />
-      </button>
-      <BasemapToggle 
-        map={map}
-        onStyleChange={onStyleChange}
-      />
+      <div className="relative">
+        <BasemapToggle 
+          map={map}
+          onStyleChange={onStyleChange}
+        />
+        {/* Collapse control placed between Basemap and Search panels */}
+        <button
+          type="button"
+          onClick={onCollapse}
+          aria-label="Collapse sidebar"
+          className="absolute -right-3 -bottom-4 z-20 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-r px-1 py-2 shadow hover:bg-gray-50 dark:hover:bg-gray-700"
+          title="Hide sidebar"
+        >
+          <ChevronLeft className="w-4 h-4 text-gray-700" />
+        </button>
+      </div>
 
       {/* Search panel, customized per geography; in intersections mode also show Zone Creator */}
       <div className={`transition-all duration-300 ease-in-out overflow-hidden ${

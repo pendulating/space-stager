@@ -6,6 +6,8 @@ export const GEOGRAPHIES = {
     type: 'polygon',
     displayNameField: 'name',
     searchKeys: ['name', 'propertyname', 'subpropertyname'],
+    // Focus by a stable property present in dataset (Feature.id may not be stable)
+    focusFilter: { type: 'property', key: 'system' },
     info: '',
     link: ''
   },
@@ -16,6 +18,8 @@ export const GEOGRAPHIES = {
     displayNameField: 'FSN_1',
     // Allow lookups by multiple frontage street names; FSN_3/FSN_4 present in enriched dataset
     searchKeys: ['FSN_1', 'FSN_2', 'FSN_3', 'FSN_4'],
+    // Focus by generated/source feature id
+    focusFilter: { type: 'id' },
     info: '',
     link: ''
   },
@@ -26,6 +30,7 @@ export const GEOGRAPHIES = {
     displayNameField: 'FSN_1',
     secondaryNameField: 'FSN_2',
     searchKeys: ['FSN_1', 'FSN_2'],
+    focusFilter: { type: 'id' },
     info: '',
     link: ''
   }

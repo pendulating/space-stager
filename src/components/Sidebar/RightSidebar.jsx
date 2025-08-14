@@ -31,7 +31,7 @@ const RightSidebar = ({
         onToolSelect={drawTools.activateDrawingTool}
         selectedShape={drawTools.selectedShape}
         onDelete={drawTools.deleteSelectedShape}
-        drawAvailable={drawTools.drawInitialized}
+        drawAvailable={Boolean(drawTools.draw?.current)}
         onRetry={drawTools.reinitializeDrawControls}
       />
 
@@ -74,6 +74,23 @@ const RightSidebar = ({
       {/* Export Section */}
       <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 mt-auto">
         <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-3">Export Options</h3>
+        {/* Split row with Event Information and Export Options */}
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          <button
+            type="button"
+            className="px-3 py-2 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+            onClick={() => window.dispatchEvent(new CustomEvent('ui:show-event-info'))}
+          >
+            Event Information
+          </button>
+          <button
+            type="button"
+            className="px-3 py-2 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+            onClick={() => window.dispatchEvent(new CustomEvent('ui:show-export-options'))}
+          >
+            Export Options
+          </button>
+        </div>
         <div className="space-y-2">
           {/* Export Event Plan */}
           <button 

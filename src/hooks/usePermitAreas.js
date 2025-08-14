@@ -220,14 +220,21 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   const focusOnPermitArea = useCallback((permitArea) => {
     if (!map || !permitArea) return;
     // Prevent re-focusing if already focused (use ref for latest value)
-    if (
-      focusedAreaRef.current &&
-      focusedAreaRef.current.properties &&
-      permitArea.properties &&
-      focusedAreaRef.current.properties.system === permitArea.properties.system
-    ) {
-      return;
-    }
+    try {
+      const activeMode = options.mode || mode;
+      const cfg = GEOGRAPHIES[activeMode];
+      const ff = cfg?.focusFilter || { type: 'id' };
+      const prev = focusedAreaRef.current;
+      const same = (() => {
+        if (!prev || !prev.properties || !permitArea.properties) return false;
+        if (ff.type === 'property') {
+          const key = ff.key;
+          return (prev.properties?.[key] || '') === (permitArea.properties?.[key] || '');
+        }
+        return (prev.id || '') === (permitArea.id || '');
+      })();
+      if (same) return;
+    } catch (_) {}
     // Defensive: ensure map is loaded and style is ready
     if (!map.isStyleLoaded || (typeof map.isStyleLoaded === 'function' && !map.isStyleLoaded())) {
       console.warn('Map style not loaded, delaying focus/zoom');
@@ -239,9 +246,12 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     setShowFocusInfo(true);
     // Focus filtering and base layer visibility handling by mode
     const activeMode = options.mode || mode;
-    const idPrefix = activeMode === 'parks' ? 'permit-areas' : (activeMode === 'plazas' ? 'plaza-areas' : 'intersections');
+    const cfg = GEOGRAPHIES[activeMode];
+    const idPrefix = cfg.idPrefix;
     const isPoint = permitArea?.geometry?.type === 'Point';
     try {
+      // Ensure base layers exist to avoid races when clicking before load finishes
+      try { ensureGeoBaseLayers(map, idPrefix, cfg.type); } catch (_) {}
       if (isPoint) {
         if (map.getLayer(`${idPrefix}-focused-points`)) {
           map.setFilter(`${idPrefix}-focused-points`, ['==', ['id'], permitArea.id || '']);
@@ -252,10 +262,11 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         }
       } else {
         if (map.getLayer(`${idPrefix}-focused-fill`)) {
-          if (activeMode === 'parks') {
-            const areaSystem = permitArea.properties?.system || '';
-            map.setFilter(`${idPrefix}-focused-fill`, ['==', ['get', 'system'], areaSystem]);
-            if (map.getLayer(`${idPrefix}-focused-outline`)) map.setFilter(`${idPrefix}-focused-outline`, ['==', ['get', 'system'], areaSystem]);
+          const ff = cfg.focusFilter || { type: 'id' };
+          if (ff.type === 'property') {
+            const val = permitArea.properties?.[ff.key] || '';
+            map.setFilter(`${idPrefix}-focused-fill`, ['==', ['get', ff.key], val]);
+            if (map.getLayer(`${idPrefix}-focused-outline`)) map.setFilter(`${idPrefix}-focused-outline`, ['==', ['get', ff.key], val]);
           } else {
             const featureId = permitArea.id || '';
             map.setFilter(`${idPrefix}-focused-fill`, ['==', ['id'], featureId]);
@@ -368,7 +379,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       }
     }
     console.log('Permit area focused successfully');
-  }, [map, calculateGeometryBounds]);
+  }, [map, calculateGeometryBounds, mode]);
 
 
 
@@ -821,6 +832,38 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       setupTooltipListeners();
       setupPermitAreaClickListeners();
       setIsLoading(false);
+
+      // If a focus selection exists, re-apply focused filters/visibility now that layers/data are ready
+      try {
+        const fa = focusedAreaRef.current;
+        if (fa) {
+          if (type === 'point') {
+            if (map.getLayer(`${idPrefix}-focused-points`)) {
+              const featureId = fa.id || '';
+              map.setFilter(`${idPrefix}-focused-points`, ['==', ['id'], featureId]);
+              map.setLayoutProperty(`${idPrefix}-focused-points`, 'visibility', 'visible');
+            }
+            if (map.getLayer(`${idPrefix}-points`)) map.setLayoutProperty(`${idPrefix}-points`, 'visibility', 'none');
+          } else {
+            if (map.getLayer(`${idPrefix}-focused-fill`)) {
+              const ff = cfg.focusFilter || { type: 'id' };
+              if (ff.type === 'property') {
+                const val = fa.properties?.[ff.key] || '';
+                map.setFilter(`${idPrefix}-focused-fill`, ['==', ['get', ff.key], val]);
+                if (map.getLayer(`${idPrefix}-focused-outline`)) map.setFilter(`${idPrefix}-focused-outline`, ['==', ['get', ff.key], val]);
+              } else {
+                const featureId = fa.id || '';
+                map.setFilter(`${idPrefix}-focused-fill`, ['==', ['id'], featureId]);
+                if (map.getLayer(`${idPrefix}-focused-outline`)) map.setFilter(`${idPrefix}-focused-outline`, ['==', ['id'], featureId]);
+              }
+              map.setLayoutProperty(`${idPrefix}-focused-fill`, 'visibility', 'visible');
+              if (map.getLayer(`${idPrefix}-focused-outline`)) map.setLayoutProperty(`${idPrefix}-focused-outline`, 'visibility', 'visible');
+            }
+            if (map.getLayer(`${idPrefix}-fill`)) map.setLayoutProperty(`${idPrefix}-fill`, 'visibility', 'none');
+            if (map.getLayer(`${idPrefix}-outline`)) map.setLayoutProperty(`${idPrefix}-outline`, 'visibility', 'none');
+          }
+        }
+      } catch (_) {}
       
     } catch (error) {
       console.error('PermitAreas: Failed to load permit areas:', error);
@@ -904,10 +947,11 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
             if (map.getLayer(`${idPrefix}-points`)) map.setLayoutProperty(`${idPrefix}-points`, 'visibility', 'none');
           } else {
             if (map.getLayer(`${idPrefix}-focused-fill`)) {
-              if (activeMode === 'parks') {
-                const areaSystem = fa.properties?.system || '';
-                map.setFilter(`${idPrefix}-focused-fill`, ['==', ['get', 'system'], areaSystem]);
-                if (map.getLayer(`${idPrefix}-focused-outline`)) map.setFilter(`${idPrefix}-focused-outline`, ['==', ['get', 'system'], areaSystem]);
+              const ff = cfg.focusFilter || { type: 'id' };
+              if (ff.type === 'property') {
+                const val = fa.properties?.[ff.key] || '';
+                map.setFilter(`${idPrefix}-focused-fill`, ['==', ['get', ff.key], val]);
+                if (map.getLayer(`${idPrefix}-focused-outline`)) map.setFilter(`${idPrefix}-focused-outline`, ['==', ['get', ff.key], val]);
               } else {
                 const featureId = fa.id || '';
                 map.setFilter(`${idPrefix}-focused-fill`, ['==', ['id'], featureId]);

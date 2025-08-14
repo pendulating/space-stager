@@ -4,6 +4,7 @@ import MapTooltip from './MapTooltip';
 import { useZoneCreator } from '../../hooks/useZoneCreator';
 import OverlapSelector from './OverlapSelector';
 import DroppedObjects from './DroppedObjects';
+import DroppedObjectNoteEditor from './DroppedObjectNoteEditor';
 import CustomShapeLabels from './CustomShapeLabels';
 import NudgeMarkers from './NudgeMarkers';
 import ActiveToolIndicator from './ActiveToolIndicator';
@@ -42,6 +43,7 @@ const MapContainer = forwardRef(({
     cursorPosition 
   } = clickToPlace;
   const mapContainerRef = useRef(null);
+  const [noteEditingObject, setNoteEditingObject] = useState(null);
 
   // Compass state
   const [bearing, setBearing] = useState(0);
@@ -123,7 +125,26 @@ const MapContainer = forwardRef(({
         map={map}
         onRemoveObject={clickToPlace.removeDroppedObject}
         objectUpdateTrigger={clickToPlace.objectUpdateTrigger}
+        onEditNote={(obj) => setNoteEditingObject(obj)}
+        isNoteEditing={!!noteEditingObject}
       />
+
+      {noteEditingObject && (
+        <div className="absolute inset-0" style={{ pointerEvents: 'none' }}>
+          {/* Capture wheel/drag to disable map interactions while editing */}
+          <div className="absolute inset-0" style={{ pointerEvents: 'auto' }} onWheel={(e) => e.preventDefault()} onMouseDown={(e) => e.preventDefault()} />
+          <DroppedObjectNoteEditor
+            map={map}
+            object={noteEditingObject}
+            objectUpdateTrigger={clickToPlace.objectUpdateTrigger}
+            onSave={(text) => {
+              clickToPlace.setDroppedObjectNote(noteEditingObject.id, text);
+              setNoteEditingObject(null);
+            }}
+            onCancel={() => setNoteEditingObject(null)}
+          />
+        </div>
+      )}
       
       <CustomShapeLabels
         draw={drawTools.draw}

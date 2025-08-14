@@ -63,15 +63,7 @@ export const INFRASTRUCTURE_ENDPOINTS = {
   parkingMeters: {
     baseUrl: 'https://data.cityofnewyork.us/resource/693u-uax6.geojson',
     geoField: 'location',
-    isLocal: false,
-    // Also pull regulation fields used for export summary
-    selectFields: [
-      'on_street',
-      'from_street',
-      'to_street',
-      'side_of_street',
-      // These fields exist in 693u-uax6; order_number/sign_description do not and will be left blank in export
-    ]
+    isLocal: false
   },
   linknycKiosks: {
     baseUrl: 'https://data.cityofnewyork.us/resource/s4kf-3yrf.json',
@@ -114,11 +106,20 @@ export const INFRASTRUCTURE_ENDPOINTS = {
     isLocal: false
   },
   streetParkingSigns: {
-    // NYC Parking Regulation signs dataset (Socrata)
-    // Replace with the correct dataset if different
-    baseUrl: 'https://data.cityofnewyork.us/resource/hv9n-xgy4.geojson',
-    geoField: 'point',
-    isLocal: false
+    // NYC DOT Parking Regulation Locations & Signs
+    // Docs: https://dev.socrata.com/foundry/data.cityofnewyork.us/nfid-uabd
+    baseUrl: 'https://data.cityofnewyork.us/resource/nfid-uabd.json',
+    geoField: null,
+    isLocal: false,
+    selectFields: [
+      'order_number', 'record_type', 'order_type', 'borough',
+      'on_street', 'on_street_suffix', 'from_street', 'from_street_suffix',
+      'to_street', 'to_street_suffix', 'side_of_street',
+      'order_completed_on_date', 'sign_code', 'sign_description', 'sign_size',
+      'sign_design_voided_on_date', 'sign_location', 'distance_from_intersection',
+      'arrow_direction', 'facing_direction', 'sheeting_type', 'support',
+      'sign_notes', 'sign_x_coord', 'sign_y_coord'
+    ]
   },
   trees: {
     baseUrl: 'https://data.cityofnewyork.us/resource/hn5i-inap.geojson',
@@ -140,6 +141,51 @@ export const INFRASTRUCTURE_ENDPOINTS = {
     baseUrl: 'https://data.cityofnewyork.us/resource/esmy-s8q5.geojson',
     geoField: 'the_geom',
     isLocal: false
+  },
+  accessiblePedSignals: {
+    // Accessible Pedestrian Signals (APS) Locations
+    // Data: https://data.cityofnewyork.us/resource/de3m-c5p4.geojson
+    baseUrl: 'https://data.cityofnewyork.us/resource/de3m-c5p4.geojson',
+    geoField: 'the_geom',
+    isLocal: false,
+    selectFields: ['location', 'boroname', 'borough', 'date_insta']
+  },
+  curbCuts: {
+    // NYC DOT Curb Cuts (2022) - ArcGIS FeatureServer
+    // Example: https://services6.arcgis.com/yG5s3afENB5iO9fj/ArcGIS/rest/services/Curb_Cut_2022/FeatureServer/5/query?...&f=geojson
+    baseUrl: 'https://services6.arcgis.com/yG5s3afENB5iO9fj/ArcGIS/rest/services/Curb_Cut_2022/FeatureServer/5/query',
+    geoField: null,
+    isLocal: false,
+    selectFields: ['OBJECTID', 'SUB_FEATURE_CODE', 'STATUS']
+  },
+  dcwpParkingGarages: {
+    // DCWP licensed businesses (Garage & Parking Lot). Points with latitude/longitude and BIN column
+    baseUrl: 'https://data.cityofnewyork.us/resource/w7w3-xahh.json',
+    isLocal: false,
+    geoField: null,
+    selectFields: [
+      'business_category',
+      'license_status',
+      'bin',
+      'latitude',
+      'longitude',
+      'business_name',
+      'detail',
+      'address_building',
+      'address_street_name',
+      'address_street_name_2',
+      'address_borough'
+    ]
+  },
+  stationEnvelopes: {
+    // MTA Subway and Rail Station Envelopes (NY State open data)
+    // Docs: https://dev.socrata.com/foundry/data.ny.gov/vkng-7ivg
+    baseUrl: 'https://data.ny.gov/resource/vkng-7ivg.geojson',
+    geoField: 'the_geom',
+    isLocal: false,
+    selectFields: [
+      'station_na', 'agency', 'boro', 'globalid'
+    ]
   }
 };
 

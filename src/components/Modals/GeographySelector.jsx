@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GEOGRAPHIES } from '../../constants/geographies';
+import SapoWalkthroughModal from '../Tutorial/SapoWalkthroughModal';
 
 const Card = ({ id, config, selected, disabled, onSelect }) => {
   return (
@@ -37,8 +38,7 @@ const Card = ({ id, config, selected, disabled, onSelect }) => {
 
 const GeographySelector = ({ isOpen, onContinue }) => {
   const [selected, setSelected] = useState(null);
-
-  if (!isOpen) return null;
+  const [showWalkthrough, setShowWalkthrough] = useState(false);
 
   const isIntersectionsAvailable = true; // dataset may not exist yet, we still render but mark as disabled if needed later
   const cards = [
@@ -46,6 +46,22 @@ const GeographySelector = ({ isOpen, onContinue }) => {
     { id: 'plazas', disabled: false },
     { id: 'intersections', disabled: !isIntersectionsAvailable }
   ];
+
+  // Auto-open walkthrough when selecting plazas or intersections
+  useEffect(() => {
+    if (!selected) return;
+    const dontShowKey = 'sapo_walkthrough_dont_show';
+    const seenSessionKey = 'sapo_walkthrough_seen_session';
+    const dontShow = (() => { try { return typeof window !== 'undefined' && window.localStorage && localStorage.getItem(dontShowKey) === '1'; } catch (_) { return false; } })();
+    const seenThisSession = (() => { try { return typeof window !== 'undefined' && window.sessionStorage && sessionStorage.getItem(seenSessionKey) === '1'; } catch (_) { return false; } })();
+    const shouldShow = (selected === 'plazas' || selected === 'intersections') && !dontShow && !seenThisSession;
+    setShowWalkthrough(shouldShow);
+    if (shouldShow) {
+      try { if (typeof window !== 'undefined' && window.sessionStorage) sessionStorage.setItem(seenSessionKey, '1'); } catch (_) {}
+    }
+  }, [selected]);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[2000]">
@@ -79,6 +95,21 @@ const GeographySelector = ({ isOpen, onContinue }) => {
           </div>
         </div>
       </div>
+      {/* Walkthrough modal overlays on top when applicable */}
+      <SapoWalkthroughModal
+        isOpen={showWalkthrough}
+        onClose={({ dontShowAgain } = {}) => {
+          try {
+            if (dontShowAgain && typeof window !== 'undefined' && window.localStorage) {
+              localStorage.setItem('sapo_walkthrough_dont_show', '1');
+            }
+            if (typeof window !== 'undefined' && window.sessionStorage) {
+              sessionStorage.setItem('sapo_walkthrough_seen_session', '1');
+            }
+          } catch (_) {}
+          setShowWalkthrough(false);
+        }}
+      />
     </div>
   );
 };

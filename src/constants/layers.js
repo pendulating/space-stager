@@ -5,7 +5,7 @@ export const LAYER_GROUPS = {
   'public-infrastructure': {
     name: 'Public Infrastructure',
     icon: '🏛️',
-    layers: ['hydrants', 'busStops', 'subwayEntrances', 'benches', 'publicRestrooms', 'drinkingFountains', 'sprayShowers', 'linknycKiosks', 'parkingMeters', 'streetParkingSigns', 'pedestrianRamps']
+    layers: ['hydrants', 'busStops', 'subwayEntrances', 'stationEnvelopes', 'accessiblePedSignals', 'curbCuts', 'dcwpParkingGarages', 'benches', 'publicRestrooms', 'drinkingFountains', 'sprayShowers', 'linknycKiosks', 'parkingMeters', 'streetParkingSigns', 'pedestrianRamps']
   },
   'lanes': {
     name: 'Lanes',
@@ -213,5 +213,37 @@ export const INITIAL_LAYERS = {
     loading: false,
     loaded: false,
     endpoint: '/api/benches'
+  },
+  stationEnvelopes: {
+    visible: false,
+    name: 'Transit Station Envelopes',
+    color: '#10b981',
+    loading: false,
+    loaded: false,
+    endpoint: '/api/station-envelopes'
+  },
+  accessiblePedSignals: {
+    visible: false,
+    name: 'Accessible Ped Signals',
+    color: '#eab308',
+    loading: false,
+    loaded: false,
+    endpoint: '/api/accessible-ped-signals'
+  },
+  curbCuts: {
+    visible: false,
+    name: 'Curb Cuts',
+    color: '#ef4444',
+    loading: false,
+    loaded: false,
+    endpoint: '/api/curb-cuts'
+  },
+  dcwpParkingGarages: {
+    visible: false,
+    name: 'DCWP Parking Garages',
+    color: '#3b82f6',
+    loading: false,
+    loaded: false,
+    endpoint: '/api/dcwp-parking-garages'
   }
 };

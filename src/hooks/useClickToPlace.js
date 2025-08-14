@@ -155,6 +155,16 @@ export const useClickToPlace = (map) => {
     setDroppedObjects(prev => prev.filter(obj => obj.id !== objectId));
   }, []);
 
+  // Update a dropped object by id
+  const updateDroppedObject = useCallback((objectId, updater) => {
+    setDroppedObjects(prev => prev.map(obj => obj.id === objectId ? (typeof updater === 'function' ? updater(obj) : { ...obj, ...updater }) : obj));
+  }, []);
+
+  // Set a note on a dropped object (stored under properties.note)
+  const setDroppedObjectNote = useCallback((objectId, note) => {
+    updateDroppedObject(objectId, (obj) => ({ ...obj, properties: { ...obj.properties, note: note || '' } }));
+  }, [updateDroppedObject]);
+
   // Get object style
   const getObjectStyle = useCallback((object) => {
     const objectType = PLACEABLE_OBJECTS.find(p => p.id === object.type);
@@ -224,6 +234,8 @@ export const useClickToPlace = (map) => {
     handleMapClick,
     activatePlacementMode,
     removeDroppedObject,
+    updateDroppedObject,
+    setDroppedObjectNote,
     getObjectStyle,
     clearDroppedObjects,
     cancelPlacementMode
