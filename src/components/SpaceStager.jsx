@@ -427,6 +427,37 @@ const SpaceStager = () => {
     }
   }, [map, permitAreas, layers, infrastructure, drawTools.forceReinitialize]);
 
+  // Add keyboard controls for map rotation
+  useEffect(() => {
+    if (!map) return;
+
+    const handleKeyDown = (e) => {
+      // Only handle Q and E keys when not in input fields
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.contentEditable === 'true') {
+        return;
+      }
+
+      const rotationAmount = 15; // degrees per key press
+      
+      if (e.key.toLowerCase() === 'q') {
+        e.preventDefault();
+        const currentBearing = map.getBearing();
+        map.rotateTo(currentBearing - rotationAmount, { duration: 300 });
+      } else if (e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        const currentBearing = map.getBearing();
+        map.rotateTo(currentBearing + rotationAmount, { duration: 300 });
+      }
+    };
+
+    // Add event listener to the document to capture all key events
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [map]);
+
   // Contextual nudges (evaluated only when prerequisites are visible)
   const customShapes = drawTools.draw?.current ? drawTools.draw.current.getAll().features : [];
   // Detect label changes to trigger text-rule scans only when needed

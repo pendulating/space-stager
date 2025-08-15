@@ -7,6 +7,8 @@ const KEYBINDS = [
   { combo: ',', action: 'Flip object horizontally while placing' },
   { combo: '.', action: 'Flip object horizontally while placing' },
   { combo: 'Delete/Backspace', action: 'Remove a placed object (click it)' },
+  { combo: 'Q', action: 'Rotate map counterclockwise' },
+  { combo: 'E', action: 'Rotate map clockwise' },
   { combo: 'North button', action: 'Reset compass to North' }
 ];
 
