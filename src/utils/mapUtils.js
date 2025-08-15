@@ -409,6 +409,30 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
                 // ignore
               }
             }
+            
+            // Also hide road network layers (line type) but keep road labels (symbol type)
+            if (layer.type === 'line' && (
+              id.includes('road') || 
+              id.includes('highway') || 
+              id.includes('transportation') || 
+              id.includes('street') ||
+              id.includes('motorway') ||
+              id.includes('trunk') ||
+              id.includes('primary') ||
+              id.includes('secondary') ||
+              id.includes('tertiary') ||
+              id.includes('residential')
+            )) {
+              try {
+                const prev = map.getLayoutProperty(id, 'visibility') || 'visible';
+                if (prev !== 'none') {
+                  hidden.push({ id, visibility: prev });
+                  map.setLayoutProperty(id, 'visibility', 'none');
+                }
+              } catch (_) {
+                // ignore
+              }
+            }
           });
           map.__basemapState = map.__basemapState || {};
           map.__basemapState.hiddenLayers = hidden;
