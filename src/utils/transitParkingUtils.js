@@ -49,6 +49,50 @@ export const drawParkingFeatureLabelsOnCanvas = (ctx, offscreen, originPx, featu
   ctx.restore();
 };
 
+// Draw prefixed labels for bus stop features on PDF
+export const drawBusStopFeatureLabelsOnPdf = (pdf, project, toMm, features, prefix) => {
+  pdf.setTextColor(17, 24, 39);
+  const oldSize = pdf.getFontSize();
+  pdf.setFontSize(9);
+  features.forEach((s) => {
+    const p = toMm(project(s.lng, s.lat));
+    const label = `${prefix}${s.index}`;
+    pdf.setFillColor(255, 255, 255);
+    const textW = pdf.getTextWidth(label) + 2;
+    const textH = 5;
+    pdf.rect(p.x - textW / 2, p.y - textH / 2, textW, textH, 'F');
+    pdf.setDrawColor(200, 200, 200);
+    pdf.rect(p.x - textW / 2, p.y - textH / 2, textW, textH);
+    pdf.text(label, p.x, p.y + 1.5, { align: 'center' });
+  });
+  pdf.setFontSize(oldSize);
+};
+
+// Project and draw B{index} labels for bus stops on canvas
+export const drawBusStopFeatureLabelsOnCanvas = (ctx, offscreen, originPx, features, prefix) => {
+  const project = (lng, lat) => offscreen.project([lng, lat]);
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold 11px Arial';
+  features.forEach((s) => {
+    const p = project(s.lng, s.lat);
+    const x = originPx.x + p.x;
+    const y = originPx.y + p.y;
+    const label = `${prefix}${s.index}`;
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    const w = ctx.measureText(label).width + 6;
+    const h = 14;
+    ctx.fillRect(x - w / 2, y - h / 2, w, h);
+    ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x - w / 2, y - h / 2, w, h);
+    ctx.fillStyle = '#111827';
+    ctx.fillText(label, x, y + 0.5);
+  });
+  ctx.restore();
+};
+
 // Number point features within the focused area and return sorted label list
 export const numberParkingFeaturesWithinArea = (features, focusedArea) => {
   if (!features || features.length === 0 || !focusedArea) return [];
@@ -96,13 +140,66 @@ export const listSubwayStationsWithinArea = (features, focusedArea) => {
   return Array.from(stations.values()).sort((a, b) => a.name.localeCompare(b.name));
 };
 
+// List bus stops within focused area from bus stops dataset
+export const listBusStopsWithinArea = (features, focusedArea) => {
+  if (!features || features.length === 0 || !focusedArea) return [];
+  const stops = new Map();
+  try {
+    features.forEach((f) => {
+      const g = f?.geometry;
+      if (!g || g.type !== 'Point') return;
+      const coords = g.coordinates;
+      const lng = coords[0];
+      const lat = coords[1];
+      if (!isPointInFocusedArea(lng, lat, focusedArea)) return;
+      const name = f.properties?.stop_name || null;
+      const routeIds = f.properties?.route_id || [];
+      // Create a key that combines stop name and routes for deduplication
+      const routesStr = Array.isArray(routeIds) ? routeIds.sort().join(', ') : String(routeIds || '');
+      const key = `${name || 'Bus Stop'}|${routesStr}`;
+      stops.set(key, { 
+        name: name || 'Bus Stop', 
+        routes: routesStr,
+        routeIds: Array.isArray(routeIds) ? routeIds : [routeIds].filter(Boolean)
+      });
+    });
+  } catch (_) {}
+  return Array.from(stops.values()).sort((a, b) => a.name.localeCompare(b.name));
+};
+
+// Number bus stops within the focused area and return sorted label list
+export const numberBusStopsWithinArea = (features, focusedArea) => {
+  if (!features || features.length === 0 || !focusedArea) return [];
+  const inArea = features
+    .filter(f => f?.geometry?.type === 'Point')
+    .map((f) => ({
+      feature: f,
+      lng: f.geometry.coordinates[0],
+      lat: f.geometry.coordinates[1],
+      props: f.properties || {}
+    }))
+    .filter(p => isPointInFocusedArea(p.lng, p.lat, focusedArea));
+  inArea.sort((a, b) => {
+    const as = String(a.props.stop_name || '').toLowerCase();
+    const bs = String(b.props.stop_name || '').toLowerCase();
+    if (as !== bs) return as.localeCompare(bs);
+    if (a.lng !== b.lng) return a.lng - b.lng;
+    return a.lat - b.lat;
+  });
+  // Assign independent sequence for bus stops so B starts at 1
+  return inArea.map((p, idx) => ({ index: idx + 1, lng: p.lng, lat: p.lat, props: p.props }));
+};
+
+
+
 // Render combined Parking & Transit summary page
-export const drawParkingAndTransitPage = (pdf, regulationsInArea, metersInArea, stationsInArea, dcwpGarages = []) => {
+export const drawParkingAndTransitPage = (pdf, regulationsInArea, metersInArea, stationsInArea, dcwpGarages = [], busStopsInArea = []) => {
   console.log('[ParkingTransit] Starting to draw parking & transit page with data:', {
     regulationsInArea: regulationsInArea?.length || 0,
     metersInArea: metersInArea?.length || 0,
     stationsInArea: stationsInArea?.length || 0,
-    dcwpGarages: dcwpGarages?.length || 0
+    dcwpGarages: dcwpGarages?.length || 0,
+    busStopsInArea: busStopsInArea?.length || 0
   });
   
   pdf.addPage('a4', 'landscape');
@@ -173,8 +270,8 @@ export const drawParkingAndTransitPage = (pdf, regulationsInArea, metersInArea, 
     { header: 'Side', accessor: (m) => String(m.props?.side_of_street || ''), width: 14 },
     { header: 'Meter #', accessor: (m) => String(m.props?.meter_number || ''), width: 20 },
     { header: 'Status', accessor: (m) => String(m.props?.status || ''), width: 20 },
-    { header: 'Hours', accessor: (m) => String(m.props?.meter_hours || ''), width: 24 },
-    { header: 'Facility', accessor: (m) => String(m.props?.parking_facility_name || m.props?.facility || ''), width: 'auto' }
+    { header: 'Hours', accessor: (m) => String(m.props?.meter_hours || ''), width: 72 },
+    { header: 'Facility', accessor: (m) => String(m.props?.parking_facility_name || m.props?.facility || ''), width: 26 }
   ], metersInArea);
 
   // Section: Subway Stations in Zone
@@ -182,6 +279,12 @@ export const drawParkingAndTransitPage = (pdf, regulationsInArea, metersInArea, 
     { header: 'Station', accessor: (s) => String(s.name || 'Station'), width: 80 },
     { header: 'Routes', accessor: (s) => String(s.routes || ''), width: 'auto' }
   ], stationsInArea.map(s => ({ name: s.name, routes: s.routes })));
+
+  // Section: Bus Stops in Zone
+  renderAutoTableSection('Bus Stops in Zone', [
+    { header: 'Stop Name', accessor: (s) => String(s.name || 'Bus Stop'), width: 80 },
+    { header: 'Routes', accessor: (s) => String(s.routes || ''), width: 'auto' }
+  ], busStopsInArea.map(s => ({ name: s.name, routes: s.routes })));
 
   // Section: DCWP Parking Garages (from DCWP dataset + building footprints)
   if ((dcwpGarages || []).length > 0) {
@@ -300,32 +403,6 @@ export const drawParkingMetersSummaryPage = (pdf, meters) => {
   });
 };
 
-// List street parking regulations that are visible within the exported map extent
-export const listStreetParkingSignsVisibleOnMap = (offscreenMap, mapPx, features) => {
-  if (!offscreenMap || !features || features.length === 0) return [];
-  const visible = [];
-  try {
-    features.forEach((f) => {
-      if (!f?.geometry || f.geometry.type !== 'Point') return;
-      if (!isFeatureVisibleOnMap(offscreenMap, mapPx, f)) return;
-      const [lng, lat] = f.geometry.coordinates || [];
-      visible.push({ lng, lat, props: f.properties || {} });
-    });
-  } catch (_) {}
-  // Sort and number
-  visible.sort((a, b) => {
-    const as = String(a.props.on_street || '').toLowerCase();
-    const bs = String(b.props.on_street || '').toLowerCase();
-    if (as !== bs) return as.localeCompare(bs);
-    const af = String(a.props.from_street || '').toLowerCase();
-    const bf = String(b.props.from_street || '').toLowerCase();
-    if (af !== bf) return af.localeCompare(bf);
-    if (a.lng !== b.lng) return a.lng - b.lng;
-    return a.lat - b.lat;
-  });
-  return visible.map((p, idx) => ({ index: idx + 1, ...p }));
-};
-
 // Collect DCWP garages intersecting the offscreen map extent from provided features
 export const listDcwpGaragesWithinMap = (offscreenMap, mapPx, features) => {
   if (!offscreenMap || !features || features.length === 0) return [];
@@ -398,6 +475,55 @@ export const listSubwayStationsVisibleOnMap = (offscreenMap, mapPx, features) =>
     });
   } catch (_) {}
   return Array.from(stations.values()).sort((a, b) => a.name.localeCompare(b.name));
+};
+
+// Determine which bus stops would be visible on the exported map image extent
+export const listBusStopsVisibleOnMap = (offscreenMap, mapPx, features) => {
+  if (!offscreenMap || !features || features.length === 0) return [];
+  const visible = [];
+  try {
+    features.forEach((f) => {
+      if (!f?.geometry || f.geometry.type !== 'Point') return;
+      if (!isFeatureVisibleOnMap(offscreenMap, mapPx, f)) return;
+      const [lng, lat] = f.geometry.coordinates || [];
+      visible.push({ lng, lat, props: f.properties || {} });
+    });
+  } catch (_) {}
+  // Sort and number
+  visible.sort((a, b) => {
+    const as = String(a.props.stop_name || '').toLowerCase();
+    const bs = String(b.props.stop_name || '').toLowerCase();
+    if (as !== bs) return as.localeCompare(bs);
+    if (a.lng !== b.lng) return a.lng - b.lng;
+    return a.lat - b.lat;
+  });
+  return visible.map((p, idx) => ({ index: idx + 1, ...p }));
+};
+
+// List street parking regulations that are visible within the exported map extent
+export const listStreetParkingSignsVisibleOnMap = (offscreenMap, mapPx, features) => {
+  if (!offscreenMap || !features || features.length === 0) return [];
+  const visible = [];
+  try {
+    features.forEach((f) => {
+      if (!f?.geometry || f.geometry.type !== 'Point') return;
+      if (!isFeatureVisibleOnMap(offscreenMap, mapPx, f)) return;
+      const [lng, lat] = f.geometry.coordinates || [];
+      visible.push({ lng, lat, props: f.properties || {} });
+    });
+  } catch (_) {}
+  // Sort and number
+  visible.sort((a, b) => {
+    const as = String(a.props.on_street || '').toLowerCase();
+    const bs = String(b.props.on_street || '').toLowerCase();
+    if (as !== bs) return as.localeCompare(bs);
+    const af = String(a.props.from_street || '').toLowerCase();
+    const bf = String(b.props.from_street || '').toLowerCase();
+    if (af !== bf) return af.localeCompare(bf);
+    if (a.lng !== b.lng) return a.lng - b.lng;
+    return a.lat - b.lat;
+  });
+  return visible.map((p, idx) => ({ index: idx + 1, ...p }));
 };
 
 // Helper functions that need to be imported or defined locally

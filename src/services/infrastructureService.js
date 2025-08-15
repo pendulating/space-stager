@@ -677,7 +677,8 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       };
     case 'bikeParking':
       if (hasIconDef) {
-        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(0.8) : 0.8;
+        const base = 0.8 * sizeScale;
+        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         return {
           type: 'symbol',
           layout: {
@@ -705,11 +706,13 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     case 'citibikeStations':
       if (hasIconDef) {
+        const base = 0.8 * sizeScale;
+        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         return {
           type: 'symbol',
           layout: {
             'icon-image': 'citibike-station-icon',
-            'icon-size': 0.5 * sizeScale,
+            'icon-size': iconSize,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true
           },
@@ -732,11 +735,13 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     case 'subwayEntrances':
       if (hasIconDef) {
+        const base = 1.8 * sizeScale;
+        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         return {
           type: 'symbol',
           layout: {
             'icon-image': 'subway-entrance-icon',
-            'icon-size': 0.5 * sizeScale,
+            'icon-size': iconSize,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true
           },
@@ -810,7 +815,7 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     case 'parkingMeters':
       if (hasIconDef) {
-        const base = 0.8 * sizeScale;
+        const base = 0.6 * sizeScale;
         const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         return {
           type: 'symbol',
@@ -897,7 +902,7 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     case 'drinkingFountains':
       if (hasIconDef) {
-        const base = 0.8 * sizeScale;
+        const base = 0.6 * sizeScale;
         const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         return {
           type: 'symbol',
@@ -1042,11 +1047,13 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     default:
       if (hasIconDef) {
+        const base = 0.8 * sizeScale;
+        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         return {
           type: 'symbol',
           layout: {
             'icon-image': iconDef.id,
-            'icon-size': 0.6,
+            'icon-size': iconSize,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true
           },

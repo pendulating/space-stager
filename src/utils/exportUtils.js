@@ -12,12 +12,17 @@ import {
   drawParkingFeatureLabelsOnCanvas,
   numberParkingFeaturesWithinArea,
   listSubwayStationsWithinArea,
+  listBusStopsWithinArea,
+  numberBusStopsWithinArea,
   drawParkingAndTransitPage,
   drawParkingSignsSummaryPage,
   drawParkingMetersSummaryPage,
   listStreetParkingSignsVisibleOnMap,
   listDcwpGaragesWithinMap,
   listSubwayStationsVisibleOnMap,
+  listBusStopsVisibleOnMap,
+  drawBusStopFeatureLabelsOnPdf,
+  drawBusStopFeatureLabelsOnCanvas,
   isFeatureVisibleOnMap,
   isPointInFocusedArea,
   isPointInPolygon
@@ -264,27 +269,30 @@ export const exportPermitAreaSiteplanV2 = async (
     // Preload PNG icons for visible layers for both PDF and PNG flows
     const pngIcons = await loadVisibleLayerIconsAsPngDataUrls(layers);
     const droppedObjectPngs = await loadDroppedObjectIconPngs(droppedObjects);
-    // Ensure we have infra data for meters and signs even if not preloaded
+    // Ensure we have infra data for meters, signs, and bus stops even if not preloaded
     let ensuredInfra = infrastructureData || {};
     try {
       if (focusedArea) {
         const bounds = getPermitAreaBounds(focusedArea);
         const needSigns = layers?.streetParkingSigns?.visible && !ensuredInfra?.streetParkingSigns?.features;
         const needMeters = layers?.parkingMeters?.visible && !ensuredInfra?.parkingMeters?.features;
-        if (needSigns || needMeters) {
-          const [signsData, metersData] = await Promise.all([
+        const needBusStops = layers?.busStops?.visible && !ensuredInfra?.busStops?.features;
+        if (needSigns || needMeters || needBusStops) {
+          const [signsData, metersData, busStopsData] = await Promise.all([
             needSigns ? loadInfrastructureData('streetParkingSigns', bounds) : Promise.resolve(null),
-            needMeters ? loadInfrastructureData('parkingMeters', bounds) : Promise.resolve(null)
+            needMeters ? loadInfrastructureData('parkingMeters', bounds) : Promise.resolve(null),
+            needBusStops ? loadInfrastructureData('busStops', bounds) : Promise.resolve(null)
           ]);
           ensuredInfra = {
             ...ensuredInfra,
             ...(signsData ? { streetParkingSigns: signsData } : {}),
-            ...(metersData ? { parkingMeters: metersData } : {})
+            ...(metersData ? { parkingMeters: metersData } : {}),
+            ...(busStopsData ? { busStops: busStopsData } : {})
           };
         }
       }
     } catch (_) {}
-    // Build parking regulations and meters lists for labeling and summaries
+    // Build parking regulations, meters, and bus stops lists for labeling and summaries
     // For regulations (nfid-uabd), ensure we have Point geometry (prefer labelGeometry if present)
     const regulationFeatures = (ensuredInfra?.streetParkingSigns?.features || [])
       .map(f => (f && f.labelGeometry && f.labelGeometry.type === 'Point')
@@ -292,6 +300,8 @@ export const exportPermitAreaSiteplanV2 = async (
         : f)
       .filter(f => f && f.geometry && f.geometry.type === 'Point');
     const meterFeatures = (ensuredInfra?.parkingMeters?.features || []).filter(f => f && f.geometry && f.geometry.type === 'Point');
+    const busStopFeatures = (ensuredInfra?.busStops?.features || []).filter(f => f && f.geometry && f.geometry.type === 'Point');
+    
     // Number ALL visible parking regulation signs on the exported map extent (not only those intersecting the zone)
     const regsVisible = (layers?.streetParkingSigns?.visible)
       ? listStreetParkingSignsVisibleOnMap(offscreen, mapPx, regulationFeatures)
@@ -299,6 +309,10 @@ export const exportPermitAreaSiteplanV2 = async (
     // Meters: number ALL meters visible on the exported map extent
     const metersVisible = (layers?.parkingMeters?.visible)
       ? listStreetParkingSignsVisibleOnMap(offscreen, mapPx, meterFeatures)
+      : [];
+    // Bus stops: number ALL visible on the exported map extent
+    const busStopsVisible = (layers?.busStops?.visible)
+      ? listBusStopsVisibleOnMap(offscreen, mapPx, busStopFeatures)
       : [];
 
     if (format === 'png') {
@@ -317,12 +331,15 @@ export const exportPermitAreaSiteplanV2 = async (
 
       drawOverlaysOnCanvas(ctx, offscreen, mapPx, { x: 0, y: 0 }, layers, customShapes, droppedObjects, infrastructureData, focusedArea, pngIcons);
       drawCustomShapesOnCanvas(ctx, { x: 0, y: 0, width: mapPx.width, height: mapPx.height }, offscreen, customShapes);
-      // Label regulations (P) and meters (M) on the map image
+      // Label regulations (P), meters (M), and bus stops (B) on the map image
       if (regsVisible.length > 0) {
         drawParkingFeatureLabelsOnCanvas(ctx, offscreen, { x: 0, y: 0 }, regsVisible, 'P');
       }
       if (metersVisible.length > 0) {
         drawParkingFeatureLabelsOnCanvas(ctx, offscreen, { x: 0, y: 0 }, metersVisible, 'M');
+      }
+      if (busStopsVisible.length > 0) {
+        drawBusStopFeatureLabelsOnCanvas(ctx, offscreen, { x: 0, y: 0 }, busStopsVisible, 'B');
       }
       // Draw dropped objects on top of basemap and overlays
       await drawDroppedObjectsOnCanvas(ctx, { x: 0, y: 0, width: mapPx.width, height: mapPx.height }, offscreen, droppedObjects);
@@ -357,12 +374,15 @@ export const exportPermitAreaSiteplanV2 = async (
     if (includeDimensions) {
       drawDimensionsOnPdf(pdf, focusedArea, project, toMm, dimensionUnits);
     }
-    // Label regulations (P) and meters (M) on PDF map page
+    // Label regulations (P), meters (M), and bus stops (B) on PDF map page
     if (regsVisible.length > 0) {
       drawParkingFeatureLabelsOnPdf(pdf, project, toMm, regsVisible, 'P');
     }
     if (metersVisible.length > 0) {
       drawParkingFeatureLabelsOnPdf(pdf, project, toMm, metersVisible, 'M');
+    }
+    if (busStopsVisible.length > 0) {
+      drawBusStopFeatureLabelsOnPdf(pdf, project, toMm, busStopsVisible, 'B');
     }
     drawDroppedObjectsOnPdf(pdf, droppedObjects, project, toMm, droppedObjectPngs);
     drawDroppedObjectNotesOnPdf(pdf, droppedObjects, project, toMm);
@@ -383,7 +403,11 @@ export const exportPermitAreaSiteplanV2 = async (
     const dcwpGaragesVisible = (layers?.dcwpParkingGarages?.visible)
       ? listDcwpGaragesWithinMap(offscreen, mapPx, ensuredInfra?.dcwpParkingGarages?.features || [])
       : [];
-    drawParkingAndTransitPage(pdf, signsVisible, metersVisible, subwayStationsVisible, dcwpGaragesVisible);
+    // Get bus stops within the focused area for the summary table
+    const busStopsInArea = (layers?.busStops?.visible)
+      ? listBusStopsWithinArea(ensuredInfra?.busStops?.features || [], focusedArea)
+      : [];
+    drawParkingAndTransitPage(pdf, signsVisible, metersVisible, subwayStationsVisible, dcwpGaragesVisible, busStopsInArea);
 
     pdf.save(`siteplan-${getSafeFilename(focusedArea)}.pdf`);
     cleanupOffscreen(offscreen, container);
