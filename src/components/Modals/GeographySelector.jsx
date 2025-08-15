@@ -13,7 +13,7 @@ const Card = ({ id, config, selected, disabled, onSelect }) => {
     >
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-base font-semibold text-gray-900 dark:text-gray-100 capitalize">{id}</div>
+          <div className="text-base font-semibold text-gray-900 dark:text-gray-100 capitalize">{config.displayName || id}</div>
           <div className="text-sm text-gray-600 dark:text-gray-300 mt-1">{config.description || ''}</div>
         </div>
         {selected && (
@@ -26,7 +26,15 @@ const Card = ({ id, config, selected, disabled, onSelect }) => {
       {config.link !== undefined && (
         <div className="text-xs mt-2">
           <span className="text-gray-500 dark:text-gray-400">Reference: </span>
-          <span className="text-blue-600 dark:text-blue-300 underline">{config.link || 'Add link'}</span>
+          <a 
+            href={config.link} 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="text-blue-600 dark:text-blue-300 underline"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {"Link" || 'Add link'}
+          </a>
         </div>
       )}
       {disabled && (
