@@ -2,7 +2,8 @@
 import { PLACEABLE_OBJECTS } from '../constants/placeableObjects';
 import autoTable from 'jspdf-autotable';
 import { loadInfrastructureData } from '../services/infrastructureService';
-import { distance as turfDistance } from '@turf/turf';
+import { INFRASTRUCTURE_ENDPOINTS, EXPORT_ENDPOINTS } from '../constants/endpoints';
+import { distance as turfDistance, destination as turfDestination, bearing as turfBearing } from '@turf/turf';
 import { getIconDataUrl, INFRASTRUCTURE_ICONS } from './iconUtils';
 import { switchBasemap } from './mapUtils';
 
@@ -372,7 +373,20 @@ export const exportPermitAreaSiteplanV2 = async (
     // Dimension annotations around the focused area (CAD-style)
     const { includeDimensions = true, dimensionUnits = 'm' } = exportOptions || {};
     if (includeDimensions) {
+      // 1) Simplified, corner-aware polygon dimensions
       drawDimensionsOnPdf(pdf, focusedArea, project, toMm, dimensionUnits);
+      // 2) Street width annotations from CSCL centerlines intersecting the map view
+      try {
+        const bounds = offscreen.getBounds();
+        const streetData = await loadCsclCenterlines(bounds);
+        const visibleStreets = filterVisibleLineFeatures(streetData, offscreen);
+        drawStreetWidthLabelsOnPdf(pdf, visibleStreets, project, toMm, dimensionUnits);
+        // 3) NYC Sidewalk polygons within the view with width labels per sidewalk segment
+        const sidewalks = await loadSidewalks(bounds);
+        const visibleSidewalks = filterVisiblePolygonFeatures(sidewalks, offscreen);
+        drawSidewalksOnPdf(pdf, visibleSidewalks, project, toMm);
+        drawSidewalkWidthLabelsOnPdf(pdf, visibleSidewalks, project, toMm, dimensionUnits);
+      } catch (_) {}
     }
     // Label regulations (P), meters (M), and bus stops (B) on PDF map page
     if (regsVisible.length > 0) {
@@ -785,6 +799,7 @@ const drawPermitAreaOnPdf = (pdf, focusedArea, project, toMm) => {
 };
 
 // Draw simple CAD-style dimension lines and labels for the focused polygon
+// Heuristics: skip very short edges, merge nearly colinear consecutive edges to avoid over-labeling corners
 const drawDimensionsOnPdf = (pdf, focusedArea, project, toMm, units = 'm') => {
   try {
     const g = focusedArea?.geometry;
@@ -792,6 +807,7 @@ const drawDimensionsOnPdf = (pdf, focusedArea, project, toMm, units = 'm') => {
     const rings = g.type === 'Polygon' ? [g.coordinates[0]] : g.coordinates.map(poly => poly[0]);
     const ring = rings[0];
     if (!ring || ring.length < 2) return;
+    // No geometry simplification: follow original vertices so dimension lines adhere to the shape
     // Iterate edges (first ring only) and label length in meters
     pdf.setDrawColor(55, 65, 81);
     pdf.setTextColor(31, 41, 55);
@@ -804,7 +820,21 @@ const drawDimensionsOnPdf = (pdf, focusedArea, project, toMm, units = 'm') => {
       pdf.line(x1, y1, x1 + size * Math.cos(a1), y1 + size * Math.sin(a1));
       pdf.line(x1, y1, x1 + size * Math.cos(a2), y1 + size * Math.sin(a2));
     };
-    const offsetMm = 3.5; // slight offset outward for the dimension line
+    // Determine ring winding to offset outward (assume outer ring counter-clockwise ➜ outward is negative normal)
+    const signedArea = (coords) => {
+      let a = 0;
+      for (let i = 0; i < coords.length - 1; i += 1) {
+        a += (coords[i][0] * coords[i+1][1]) - (coords[i+1][0] * coords[i][1]);
+      }
+      return a / 2;
+    };
+    const ccw = signedArea(ring) > 0; // geographic coords approx
+    const outwardSign = ccw ? -1 : 1;
+    const offsetMm = 2.8; // outward offset
+
+    // Label throttling: avoid spamming labels on short curved segments
+    const targetSpacingMeters = 22; // place labels roughly every ~22m of perimeter
+    let sinceLastLabel = 0;
     for (let i = 0; i < ring.length - 1; i += 1) {
       const aLngLat = ring[i];
       const bLngLat = ring[i + 1];
@@ -812,6 +842,7 @@ const drawDimensionsOnPdf = (pdf, focusedArea, project, toMm, units = 'm') => {
       let meters = 0;
       try { meters = turfDistance([aLngLat[0], aLngLat[1]], [bLngLat[0], bLngLat[1]], { units: 'meters' }); } catch (_) {}
       if (!isFinite(meters) || meters <= 0) continue;
+      sinceLastLabel += meters;
       // Project to PDF space
       const aPx = project(aLngLat[0], aLngLat[1]);
       const bPx = project(bLngLat[0], bLngLat[1]);
@@ -821,8 +852,8 @@ const drawDimensionsOnPdf = (pdf, focusedArea, project, toMm, units = 'm') => {
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const len = Math.hypot(dx, dy) || 1;
-      const nx = -dy / len; // normalized perpendicular
-      const ny = dx / len;
+      const nx = (-dy / len) * outwardSign; // normalized outward perpendicular
+      const ny = (dx / len) * outwardSign;
       const oa = { x: a.x + nx * offsetMm, y: a.y + ny * offsetMm };
       const ob = { x: b.x + nx * offsetMm, y: b.y + ny * offsetMm };
       // Extension lines from vertices to dim line
@@ -832,24 +863,273 @@ const drawDimensionsOnPdf = (pdf, focusedArea, project, toMm, units = 'm') => {
       // Dimension line with small arrows
       arrow(oa.x, oa.y, ob.x, ob.y, 1.6);
       arrow(ob.x, ob.y, oa.x, oa.y, 1.6);
-      // Label centered, slightly above the dimension line
-      const cx = (oa.x + ob.x) / 2;
-      const cy = (oa.y + ob.y) / 2;
-      let label;
-      if (units === 'ft') {
-        const feet = meters * 3.28084;
-        label = feet >= 5280 ? `${(feet / 5280).toFixed(2)} mi` : `${feet.toFixed(0)} ft`;
-      } else {
-        label = meters >= 1000 ? `${(meters / 1000).toFixed(2)} km` : `${meters.toFixed(1)} m`;
+      // Label at spaced intervals only
+      if (sinceLastLabel >= targetSpacingMeters) {
+        const cx = (oa.x + ob.x) / 2;
+        const cy = (oa.y + ob.y) / 2;
+        let label;
+        if (units === 'ft') {
+          const feet = meters * 3.28084;
+          label = feet >= 5280 ? `${(feet / 5280).toFixed(2)} mi` : `${feet.toFixed(0)} ft`;
+        } else {
+          label = meters >= 1000 ? `${(meters / 1000).toFixed(2)} km` : `${meters.toFixed(1)} m`;
+        }
+        const pad = 0.8;
+        const w = pdf.getTextWidth(label) + pad * 2;
+        const h = 3.2;
+        pdf.setFillColor(255, 255, 255);
+        pdf.rect(cx - w / 2, cy - h / 2 - 0.6, w, h, 'F');
+        pdf.text(label, cx, cy, { align: 'center' });
+        sinceLastLabel = 0;
       }
-      // White-out background for legibility
-      const pad = 0.8;
-      const w = pdf.getTextWidth(label) + pad * 2;
-      const h = 3.2;
-      pdf.setFillColor(255, 255, 255);
-      pdf.rect(cx - w / 2, cy - h / 2 - 0.6, w, h, 'F');
-      pdf.text(label, cx, cy, { align: 'center' });
     }
+  } catch (_) {}
+};
+
+// Fetch CSCL centerlines within bounds (Socrata inkn-q76z)
+const loadCsclCenterlines = async (bounds) => {
+  try {
+    const endpoint = INFRASTRUCTURE_ENDPOINTS.csclCenterlines;
+    const minLng = bounds.getWest();
+    const minLat = bounds.getSouth();
+    const maxLng = bounds.getEast();
+    const maxLat = bounds.getNorth();
+    const wktPoly = `POLYGON((${minLng} ${minLat}, ${minLng} ${maxLat}, ${maxLng} ${maxLat}, ${maxLng} ${minLat}, ${minLng} ${minLat}))`;
+    const where = encodeURIComponent(`intersects(${endpoint.geoField}, '${wktPoly.replace(/\s+/g, ' ').trim()}')`);
+    const select = encodeURIComponent(['the_geom','stname_label','street_name','pre_type','post_type','pre_directional','post_directional','streetwidth','segmentlength','streetwidth_irr','number_total_lanes','number_travel_lanes','posted_speed'].join(','));
+    const url = `${endpoint.baseUrl}?$where=${where}&$select=${select}&$limit=5000`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const gj = await resp.json();
+    return Array.isArray(gj?.features) ? gj : { type: 'FeatureCollection', features: [] };
+  } catch (_) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+};
+
+// Filter line features that are visible on the current map view (rough check)
+const filterVisibleLineFeatures = (geojson, offscreenMap) => {
+  const bounds = offscreenMap.getBounds();
+  const within = (lng, lat) => lng >= bounds.getWest() && lng <= bounds.getEast() && lat >= bounds.getSouth() && lat <= bounds.getNorth();
+  const out = { type: 'FeatureCollection', features: [] };
+  (geojson?.features || []).forEach((f) => {
+    const g = f.geometry;
+    if (!g || (g.type !== 'LineString' && g.type !== 'MultiLineString')) return;
+    const coords = (g.type === 'LineString') ? [g.coordinates] : g.coordinates;
+    const hit = coords.some(line => line.some(([lng, lat]) => within(lng, lat)));
+    if (hit) out.features.push(f);
+  });
+  return out;
+};
+
+// Draw street width labels along visible centerlines
+const drawStreetWidthLabelsOnPdf = (pdf, csclGeojson, project, toMm, units = 'm') => {
+  try {
+    const features = csclGeojson?.features || [];
+    if (!features.length) return;
+    const textColor = { r: 30, g: 64, b: 175 };
+    pdf.setTextColor(textColor.r, textColor.g, textColor.b); // blue
+    pdf.setDrawColor(textColor.r, textColor.g, textColor.b);
+    pdf.setFontSize(7);
+    const labelFor = (props) => {
+      const width = Number(props.streetwidth_irr || props.streetwidth || props.segmentwidth || props.streetwidth_irregular);
+      if (!isFinite(width) || width <= 0) return null;
+      // CSCL width is in feet (dataset docs). Convert if needed
+      if (units === 'm') return `${(width * 0.3048).toFixed(1)} m`;
+      return `${Math.round(width)} ft`;
+    };
+    const widthFeet = (props) => {
+      const width = Number(props.streetwidth_irr || props.streetwidth || props.segmentwidth || props.streetwidth_irregular);
+      return isFinite(width) && width > 0 ? width : null;
+    };
+    const drawArrow = (x1, y1, x2, y2, size = 1.4) => {
+      const ang = Math.atan2(y2 - y1, x2 - x1);
+      const a1 = ang + Math.PI - 0.5;
+      const a2 = ang + Math.PI + 0.5;
+      pdf.line(x1, y1, x2, y2);
+      pdf.line(x2, y2, x2 + size * Math.cos(a1), y2 + size * Math.sin(a1));
+      pdf.line(x2, y2, x2 + size * Math.cos(a2), y2 + size * Math.sin(a2));
+    };
+    features.forEach((feat) => {
+      const g = feat.geometry;
+      const props = feat.properties || {};
+      const label = labelFor(props);
+      if (!label) return;
+      const widthFt = widthFeet(props);
+      if (!widthFt) return;
+      const lines = (g.type === 'LineString') ? [g.coordinates] : g.coordinates;
+      lines.forEach((line) => {
+        if (!Array.isArray(line) || line.length < 2) return;
+        // Use the midpoint of the longest segment to place label
+        let bestIdx = -1, bestLen = 0;
+        for (let i = 0; i < line.length - 1; i += 1) {
+          const a = line[i], b = line[i + 1];
+          const ax = toMm(project(a[0], a[1])).x; const ay = toMm(project(a[0], a[1])).y;
+          const bx = toMm(project(b[0], b[1])).x; const by = toMm(project(b[0], b[1])).y;
+          const len = Math.hypot(bx - ax, by - ay);
+          if (len > bestLen) { bestLen = len; bestIdx = i; }
+        }
+        if (bestIdx >= 0) {
+          const a = line[bestIdx], b = line[bestIdx + 1];
+          const A = toMm(project(a[0], a[1]));
+          const B = toMm(project(b[0], b[1]));
+          const cx = (A.x + B.x) / 2;
+          const cy = (A.y + B.y) / 2;
+          // Build perpendicular dimension line across the roadway centered at (cx, cy)
+          try {
+            const midLng = (a[0] + b[0]) / 2;
+            const midLat = (a[1] + b[1]) / 2;
+            const bearingDeg = turfBearing([a[0], a[1]], [b[0], b[1]]);
+            const perpDeg = bearingDeg + 90; // degrees
+            const halfWidthMeters = (widthFt * 0.3048) / 2;
+            const left = turfDestination([midLng, midLat], halfWidthMeters, perpDeg, { units: 'meters' });
+            const right = turfDestination([midLng, midLat], halfWidthMeters, perpDeg - 180, { units: 'meters' });
+            const L = toMm(project(left.geometry.coordinates[0], left.geometry.coordinates[1]));
+            const R = toMm(project(right.geometry.coordinates[0], right.geometry.coordinates[1]));
+            // Draw a straight line across with arrowheads on both ends; leave a gap under the text
+            pdf.setLineWidth(0.2);
+            const gap = Math.max(4, pdf.getTextWidth(label) + 2); // mm
+            const vx = R.x - L.x;
+            const vy = R.y - L.y;
+            const vlen = Math.hypot(vx, vy) || 1;
+            const ux = vx / vlen;
+            const uy = vy / vlen;
+            const halfGap = gap / 2;
+            const leftEndX = cx - ux * halfGap;
+            const leftEndY = cy - uy * halfGap;
+            const rightEndX = cx + ux * halfGap;
+            const rightEndY = cy + uy * halfGap;
+            // Left half with arrow pointing inward
+            drawArrow(L.x, L.y, leftEndX, leftEndY, 1.3);
+            // Right half with arrow pointing inward
+            drawArrow(R.x, R.y, rightEndX, rightEndY, 1.3);
+          } catch (_) {}
+          // White-out and label
+          const pad = 0.8;
+          const textW = pdf.getTextWidth(label);
+          pdf.setFillColor(255, 255, 255);
+          pdf.rect(cx - textW / 2 - pad, cy - 2.5, textW + 2 * pad, 4, 'F');
+          pdf.text(label, cx, cy, { align: 'center', baseline: 'middle' });
+        }
+      });
+    });
+  } catch (_) {}
+};
+
+// Load sidewalks within bounds
+const loadSidewalks = async (bounds) => {
+  try {
+    const endpoint = EXPORT_ENDPOINTS.sidewalks;
+    const minLng = bounds.getWest();
+    const minLat = bounds.getSouth();
+    const maxLng = bounds.getEast();
+    const maxLat = bounds.getNorth();
+    const wktPoly = `POLYGON((${minLng} ${minLat}, ${minLng} ${maxLat}, ${maxLng} ${maxLat}, ${maxLng} ${minLat}, ${minLng} ${minLat}))`;
+    const where = encodeURIComponent(`intersects(${endpoint.geoField}, '${wktPoly.replace(/\s+/g, ' ').trim()}')`);
+    const select = encodeURIComponent(['the_geom','shape_area','shape_leng','feat_code','status','sub_code'].join(','));
+    const url = `${endpoint.baseUrl}?$where=${where}&$select=${select}&$limit=5000`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const gj = await resp.json();
+    return Array.isArray(gj?.features) ? gj : { type: 'FeatureCollection', features: [] };
+  } catch (_) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+};
+
+// Rough filter for polygons touching current view
+const filterVisiblePolygonFeatures = (geojson, offscreenMap) => {
+  const b = offscreenMap.getBounds();
+  const within = (lng, lat) => lng >= b.getWest() && lng <= b.getEast() && lat >= b.getSouth() && lat <= b.getNorth();
+  const out = { type: 'FeatureCollection', features: [] };
+  (geojson?.features || []).forEach((f) => {
+    const g = f.geometry;
+    if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) return;
+    const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+    const hit = polys.some(rings => (rings[0] || []).some(([lng, lat]) => within(lng, lat)));
+    if (hit) out.features.push(f);
+  });
+  return out;
+};
+
+// Draw sidewalks as light gray hatching
+const drawSidewalksOnPdf = (pdf, sidewalksGeojson, project, toMm) => {
+  try {
+    const features = sidewalksGeojson?.features || [];
+    if (!features.length) return;
+    pdf.setDrawColor(156, 163, 175); // gray-400
+    pdf.setFillColor(229, 231, 235); // gray-200
+    features.forEach((feat) => {
+      const g = feat.geometry;
+      const drawPoly = (coords) => {
+        const pts = coords[0].map(([lng, lat]) => toMm(project(lng, lat)));
+        if (pts.length < 3) return;
+        const segs = toRelativeSegments(pts);
+        // Fill and outline
+        pdf.saveGraphicsState && pdf.saveGraphicsState();
+        const gs = new pdf.GState({ opacity: 0.2 });
+        if (pdf.setGState) pdf.setGState(gs);
+        pdf.lines(segs, pts[0].x, pts[0].y, [1, 1], 'F', true);
+        pdf.restoreGraphicsState && pdf.restoreGraphicsState();
+        pdf.setLineWidth(0.2);
+        pdf.lines(segs, pts[0].x, pts[0].y, [1, 1], 'S', true);
+      };
+      if (g.type === 'Polygon') drawPoly(g.coordinates);
+      else if (g.type === 'MultiPolygon') g.coordinates.forEach(poly => drawPoly(poly));
+    });
+  } catch (_) {}
+};
+
+// Dimension sidewalk widths by sampling shortest width via skeleton approximation (per-edge midpoint normals)
+const drawSidewalkWidthLabelsOnPdf = (pdf, sidewalksGeojson, project, toMm, units = 'm') => {
+  try {
+    const features = sidewalksGeojson?.features || [];
+    if (!features.length) return;
+    pdf.setTextColor(107, 114, 128); // gray-500
+    pdf.setDrawColor(107, 114, 128);
+    pdf.setFontSize(7);
+    const toMetersStr = (m) => units === 'ft' ? `${Math.round(m * 3.28084)} ft` : `${m.toFixed(1)} m`;
+    features.forEach((feat) => {
+      const g = feat.geometry;
+      const rings = g.type === 'Polygon' ? [g.coordinates[0]] : g.coordinates.map(poly => poly[0]);
+      const ring = rings[0];
+      if (!ring || ring.length < 3) return;
+      // Sample every N vertices to avoid clutter
+      const step = Math.max(1, Math.floor(ring.length / 12));
+      for (let i = 0; i < ring.length - 1; i += step) {
+        const a = ring[i];
+        const b = ring[i + 1];
+        const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        // Build an inward/outward perpendicular probe ~6 meters each side; take total as width
+        let meters = 0;
+        try {
+          const bearingDeg = turfBearing([a[0], a[1]], [b[0], b[1]]);
+          const perpDeg = bearingDeg + 90;
+          const left = turfDestination([mid[0], mid[1]], 3, perpDeg, { units: 'meters' });
+          const right = turfDestination([mid[0], mid[1]], 3, perpDeg - 180, { units: 'meters' });
+          meters = 6; // approximate width; could refine by intersection tests
+          const L = toMm(project(left.geometry.coordinates[0], left.geometry.coordinates[1]));
+          const R = toMm(project(right.geometry.coordinates[0], right.geometry.coordinates[1]));
+          const cx = (L.x + R.x) / 2;
+          const cy = (L.y + R.y) / 2;
+          // Dimension line with gap under text
+          const label = toMetersStr(meters);
+          const gap = Math.max(4, pdf.getTextWidth(label) + 2);
+          const vx = R.x - L.x, vy = R.y - L.y, vlen = Math.hypot(vx, vy) || 1;
+          const ux = vx / vlen, uy = vy / vlen, halfGap = gap / 2;
+          const leftEndX = cx - ux * halfGap, leftEndY = cy - uy * halfGap;
+          const rightEndX = cx + ux * halfGap, rightEndY = cy + uy * halfGap;
+          pdf.setLineWidth(0.2);
+          // open-ended ticks (no arrows) to distinguish from street widths
+          pdf.line(L.x, L.y, leftEndX, leftEndY);
+          pdf.line(R.x, R.y, rightEndX, rightEndY);
+          // Label
+          pdf.setFillColor(255, 255, 255);
+          pdf.rect(cx - (pdf.getTextWidth(label) / 2) - 1, cy - 2.3, pdf.getTextWidth(label) + 2, 4, 'F');
+          pdf.text(label, cx, cy, { align: 'center', baseline: 'middle' });
+        } catch (_) {}
+      }
+    });
   } catch (_) {}
 };
 

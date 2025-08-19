@@ -55,6 +55,13 @@ export const INFRASTRUCTURE_ENDPOINTS = {
     filterField: 'special_disaster',
     filterValue: 'True'
   },
+  csclCenterlines: {
+    // NYC CSCL - LION centerlines (same resource as fire lanes & special disaster routes)
+    // Docs: https://dev.socrata.com/foundry/data.cityofnewyork.us/inkn-q76z
+    baseUrl: 'https://data.cityofnewyork.us/resource/inkn-q76z.geojson',
+    geoField: 'the_geom',
+    isLocal: false
+  },
   pedestrianRamps: {
     baseUrl: 'https://data.cityofnewyork.us/resource/ufzp-rrqu.geojson',
     geoField: 'the_geom',
@@ -193,4 +200,12 @@ export const GEOGRAPHY_ENDPOINTS = {
   parks: '/data/permit-areas/nyc-permit-areas-minified.geojson',
   plazas: '/data/static/nyc_public_plazas_enriched.geojson',
   intersections: '/data/static/nyc_cscl_intersections.geojson'
+};
+
+// Supplemental datasets used during export (queried dynamically)
+export const EXPORT_ENDPOINTS = {
+  sidewalks: {
+    baseUrl: 'https://data.cityofnewyork.us/resource/52n9-sdep.geojson',
+    geoField: 'the_geom'
+  }
 };

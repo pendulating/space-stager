@@ -11,18 +11,20 @@ angles = [0, 45, 90, 135, 180, 225, 270, 315]  # in degrees around Z (yaw)
 # Ensure output folder exists
 os.makedirs(output_dir, exist_ok=True)
 
-# Scene setup
-scene = bpy.context.scene
-scene.render.engine = 'BLENDER_EEVEE_NEXT'
-scene.render.use_freestyle = False  # We will use Grease Pencil Line Art for SVG export
-
 
 def get_main_mesh_objects():
     """Return a list of visible mesh objects likely representing the model."""
     mesh_objects = []
-    for obj in scene.objects:
-        if obj.type == 'MESH' and obj.visible_get():
-            mesh_objects.append(obj)
+    scn = bpy.context.scene
+    if not scn:
+        return mesh_objects
+    for obj in scn.objects:
+        try:
+            if obj.type == 'MESH' and obj.visible_get():
+                mesh_objects.append(obj)
+        except ReferenceError:
+            # Object or scene may have been reloaded; skip
+            continue
     return mesh_objects
 
 
@@ -58,7 +60,7 @@ def ensure_orbit_empty(name: str, location: Vector):
     return empty
 
 
-def ensure_camera(name: str):
+def ensure_camera(name: str, scene):
     cam_obj = bpy.data.objects.get(name)
     if cam_obj and cam_obj.type == 'CAMERA':
         return cam_obj
@@ -173,11 +175,20 @@ def main():
         # Non-fatal; continue with current scene
         pass
 
+    # Always use the current active scene after potential file load
+    scene = bpy.context.scene
+    if not scene:
+        return
+
+    # Scene setup
+    scene.render.engine = 'BLENDER_EEVEE_NEXT'
+    scene.render.use_freestyle = False  # We will use Grease Pencil Line Art for SVG export
+
     mesh_objects = get_main_mesh_objects()
     center, size_x, size_y = compute_world_bounds_center_and_size(mesh_objects)
 
     orbit = ensure_orbit_empty("OrbitRoot", center)
-    cam = ensure_camera("BatchCam")
+    cam = ensure_camera("BatchCam", scene)
     scene.camera = cam
 
     # Orthographic camera framing
