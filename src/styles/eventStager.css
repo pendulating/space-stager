@@ -1,3 +1,8 @@
+@keyframes popover-bounce-in {
+  0% { transform: translateY(4px) scale(0.98); opacity: 0; }
+  60% { transform: translateY(-2px) scale(1.015); opacity: 1; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
 /* Search highlight styles */
 .search-highlight {
   background-color: #fef3c7;

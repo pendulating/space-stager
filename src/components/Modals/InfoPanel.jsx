@@ -71,6 +71,12 @@ const InfoPanel = ({ onClose, showInfo = true }) => {
                 ))}
               </div>
             </div>
+
+            <div>
+              <p className="text-sm text-gray-700 dark:text-gray-200 pt-12">
+                Designed by <a href="https://www.mfranchi.net" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Matt Franchi</a> while a PiTech Doctoral Fellow at the Design Trust for Public Space, as part of the <a href="https://www.designtrust.org/projects/untaped/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Untaped Project</a>.
+              </p>
+            </div>
           </div>
 
           <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-end">

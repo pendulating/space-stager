@@ -679,12 +679,14 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
 
       const from = (existing && typeof existing.value === 'number') ? existing.value : 0;
       const start = performance.now();
-      const duration = 180; // ms, smooth
+      const duration = 220; // slightly longer for bounce
 
       function step(now) {
         const t = Math.min(1, (now - start) / duration);
-        // easeOutCubic
-        const eased = 1 - Math.pow(1 - t, 3);
+        // easeOutBack for a bouncy feel
+        const c1 = 1.70158;
+        const c3 = c1 + 1;
+        const eased = 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
         const val = from + (toValue - from) * eased;
         try { mapInstance.setFeatureState({ source: sourceId, id: featureId }, { hoverProgress: val }); } catch (_) {}
         animateHoverProgress.anim.set(key, { to: toValue, value: val, raf: null });
