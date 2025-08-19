@@ -9,12 +9,16 @@ output_path = "nyc-permit-areas-minified.geojson"
 gdf = gpd.read_file(input_path)
 
 # Keep only the desired columns (if they exist)
-columns_to_keep = ["system", "geometry", "name", "propertyname", "subpropertyname"]
+columns_to_keep = ["system","cemsid", "name", "propertyname", "subpropertyname", "geometry"]
 gdf = gdf[[col for col in columns_to_keep if col in gdf.columns]]
+# rename 'cemsid' to 'CEMSID'
+gdf = gdf.rename(columns={"cemsid": "CEMSID"})
 
 # Simplify geometry (tolerance in degrees, adjust as needed)
 # 0.0002 is a good starting point for city-scale data
 #gdf["geometry"] = gdf["geometry"].simplify(tolerance=0.0002, preserve_topology=True)
+
+gdf = gpd.GeoDataFrame(gdf, geometry="geometry")
 
 # Save to new GeoJSON
 gdf.to_file(output_path, driver="GeoJSON")

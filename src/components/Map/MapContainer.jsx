@@ -1,6 +1,7 @@
 // components/Map/MapContainer.jsx
 import React, { forwardRef, useEffect, useState, useRef } from 'react';
 import MapTooltip from './MapTooltip';
+import ClickPopover from './ClickPopover';
 import { useZoneCreator } from '../../hooks/useZoneCreator';
 import OverlapSelector from './OverlapSelector';
 import DroppedObjects from './DroppedObjects';
@@ -173,8 +174,19 @@ const MapContainer = forwardRef(({
       
       {drawTools?.activeTool && <ActiveToolIndicator tool={drawTools.activeTool} />}
       
-      {/* Only show tooltip when not drawing */}
-      {!drawTools?.activeTool && <MapTooltip tooltip={permitAreas.tooltip} />}
+      {/* Only show hover tooltip when not drawing and no clicked popover is visible */}
+      {!drawTools?.activeTool && !permitAreas.clickedTooltip?.visible && (
+        <MapTooltip tooltip={permitAreas.tooltip} />
+      )}
+
+      {/* Clicked popover (parks mode), persists and follows camera */}
+      {permitAreas.clickedTooltip?.visible && (
+        <ClickPopover 
+          tooltip={permitAreas.clickedTooltip}
+          stats={permitAreas.clickedTooltip.stats}
+          distributions={permitAreas.clickedTooltip.distributions}
+        />
+      )}
       
       {permitAreas.showOverlapSelector && (
         <OverlapSelector 

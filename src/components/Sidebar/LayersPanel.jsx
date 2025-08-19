@@ -1,7 +1,7 @@
 // components/Sidebar/LayersPanel.jsx
 import React, { useState, useMemo } from 'react';
 import { Eye, EyeOff, X, Layers, ToggleLeft, ToggleRight, ChevronDown, ChevronRight } from 'lucide-react';
-import { STARTER_SET_LAYERS, LAYER_GROUPS } from '../../constants/layers';
+import {LAYER_GROUPS } from '../../constants/layers';
 import { INFRASTRUCTURE_ICONS, svgToDataUrl } from '../../utils/iconUtils';
 
 const LayersPanel = ({ 

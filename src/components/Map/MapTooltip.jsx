@@ -9,7 +9,8 @@ const MapTooltip = ({ tooltip }) => {
       className="map-tooltip absolute z-50 bg-white dark:bg-gray-800 p-2 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 max-w-xs"
       style={{ 
         left: tooltip.x + 10, 
-        top: tooltip.y + 10
+        top: tooltip.y + 10,
+        borderLeft: '3px solid #2563eb'
       }}
     >
       {tooltip.content.map((field, index) => (
