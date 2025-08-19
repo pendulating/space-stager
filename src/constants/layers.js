@@ -2,39 +2,43 @@
 
 // Define layer groups for organizing infrastructure layers
 export const LAYER_GROUPS = {
-  'public-infrastructure': {
-    name: 'Public Infrastructure',
-    icon: '🏛️',
-    layers: ['hydrants', 'busStops', 'subwayEntrances', 'stationEnvelopes', 'accessiblePedSignals', 'curbCuts', 'dcwpParkingGarages', 'benches', 'publicRestrooms', 'drinkingFountains', 'sprayShowers', 'linknycKiosks', 'parkingMeters', 'streetParkingSigns', 'pedestrianRamps']
+  'amenities': {
+    name: 'Amenities',
+    icon: '🚻',
+    layers: ['benches', 'publicRestrooms', 'linknycKiosks', 'trees']
   },
   'lanes': {
-    name: 'Lanes',
+    name: 'Biking',
     icon: '🚴',
-    layers: ['bikeLanes', 'bikeParking', 'citibikeStations', 'parkingLots']
+    layers: ['bikeLanes', 'bikeParking', 'citibikeStations']
+  },
+  'transit': {
+    name: 'Transit',
+    icon: '🚇',
+    layers: ['subwayEntrances', 'stationEnvelopes', 'busStops']
+  },
+  'accessibility': {
+    name: 'Accessibility',
+    icon: '🚶',
+    layers: ['accessiblePedSignals', 'pedestrianRamps', 'curbCuts']
+  },
+  'parking': {
+    name: 'Parking',
+    icon: '🚗',
+    layers: ['parkingMeters', 'streetParkingSigns', 'dcwpParkingGarages', 'parkingLots']
   },
   'safety-features': {
     name: 'Safety Features',
     icon: '🛡️',
-    layers: ['iceLadders', 'fireLanes', 'specialDisasterRoutes']
+    layers: ['hydrants', 'iceLadders', 'fireLanes', 'specialDisasterRoutes']
   },
   'nyc-parks': {
     name: 'NYC Parks',
     icon: '🌳',
-    layers: ['trees', 'parksTrails', 'parksSigns']
+    layers: ['parksTrails', 'parksSigns', 'sprayShowers', 'drinkingFountains']
   }
 };
 
-// Define the starter set of layers that are most useful for average users
-export const STARTER_SET_LAYERS = [
-  'trees',
-  'hydrants',
-  'busStops',
-  'subwayEntrances',
-  'benches',
-  'bikeParking',
-  'citibikeStations',
-  'publicRestrooms'
-];
 
 export const INITIAL_LAYERS = {
   permitAreas: { 
