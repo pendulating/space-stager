@@ -343,7 +343,8 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         setIsCameraAnimating(true);
         // Smoothly move to the point at a sensible zoom
         const targetZoom = 18;
-        map.easeTo({ center: geom.coordinates, zoom: targetZoom, duration: 800, essential: true });
+        try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
+        map.easeTo({ center: geom.coordinates, zoom: targetZoom, duration: 1100, essential: true, easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) });
         // Apply constraints when camera settles
         map.once('idle', () => {
           try {
@@ -382,18 +383,21 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         const padding = options.focusPadding || 20;
         if (typeof map.cameraForBounds === 'function') {
           const camera = map.cameraForBounds(orientedBbox, { padding });
-          const finalCamera = { ...camera, bearing: -angle, duration: 1000, essential: true };
+          const finalCamera = { ...camera, bearing: -angle, duration: 1200, essential: true, easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) };
+          try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
           map.easeTo(finalCamera);
         } else {
-          map.fitBounds(orientedBbox, { padding, duration: 1000 });
+          try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
+          map.fitBounds(orientedBbox, { padding, duration: 1200 });
           // Follow with a single rotate to target bearing if needed
           if (map.getBearing && map.getBearing() !== -angle) {
-            map.rotateTo(-angle, { duration: 300 });
+            map.rotateTo(-angle, { duration: 400 });
           }
         }
       } catch (_) {
         // Fallback to basic fitBounds
-        map.fitBounds(orientedBbox, { padding: 20, duration: 1000 });
+        try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
+        map.fitBounds(orientedBbox, { padding: 20, duration: 1200 });
       }
 
       // When the camera settles, record zoom and apply constraints
@@ -412,7 +416,8 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       const bounds = calculateGeometryBounds(permitArea.geometry);
       if (bounds) {
         const padding = options.focusPadding || 20;
-        map.fitBounds(bounds, { padding, duration: 1000 });
+        try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
+        map.fitBounds(bounds, { padding, duration: 1200 });
         map.once('idle', () => {
           try {
             const finalZoom = map.getZoom ? map.getZoom() : 16;
@@ -771,7 +776,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
               y: e.point.y,
               lngLat: lngLat ? { lng: lngLat.lng, lat: lngLat.lat } : null,
               content,
-              featureId: top.id ?? top.properties?.system ?? null,
+              featureId: (top.properties?.system ?? null),
               stats: (() => {
                 const id = (top.properties?.CEMSID || top.properties?.cemsid || top.properties?.CEMS_ID || top.properties?.cems_id || '').toString();
                 const dict = eventsByCemsidRef.current || {};
@@ -1245,7 +1250,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
             y: clickPosition.y,
             lngLat: lngLat ? { lng: lngLat.lng, lat: lngLat.lat } : null,
             content,
-            featureId: canonical.id ?? canonical.properties?.system ?? null,
+            featureId: (canonical.properties?.system ?? null),
             stats: (() => {
               const id = (canonical.properties?.CEMSID || canonical.properties?.cemsid || canonical.properties?.CEMS_ID || canonical.properties?.cems_id || '').toString();
               const dict = eventsByCemsidRef.current || {};
@@ -1308,6 +1313,27 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [clickedTooltip.visible]);
 
+  // Expose helpers for popover UX
+  const dismissClickedTooltip = useCallback(() => {
+    setClickedTooltip({ visible: false, x: 0, y: 0, lngLat: null, content: null, featureId: null });
+  }, []);
+
+  const focusClickedTooltipArea = useCallback(() => {
+    try {
+      const id = clickedTooltip.featureId;
+      if (!id) return;
+      const activeMode = options.mode || mode;
+      const list = permitAreas || [];
+      let feature = null;
+      if (activeMode === 'parks') {
+        feature = list.find(f => (f.id === id) || (f.properties && (f.properties.system === id)) ) || null;
+      } else {
+        feature = list.find(f => f.id === id) || null;
+      }
+      if (feature) focusOnPermitArea(feature);
+    } catch (_) {}
+  }, [clickedTooltip.featureId, permitAreas, focusOnPermitArea, mode, options.mode]);
+
 
 
   return {
@@ -1336,6 +1362,8 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     initialFocusZoom,
     minAllowedZoom,
     isCameraAnimating,
-    rehydrateActiveGeography
+    rehydrateActiveGeography,
+    dismissClickedTooltip,
+    focusClickedTooltipArea
   };
 };

@@ -82,7 +82,7 @@ const MiniHistogram = ({ values = [], currentValue = null, bins = 10, barWidth =
   );
 };
 
-const ClickPopover = ({ tooltip, stats, distributions }) => {
+const ClickPopover = ({ tooltip, stats, distributions, onFocus, onClose }) => {
   if (!tooltip || !tooltip.visible || !tooltip.content) return null;
   const avgValues = distributions?.avg || [];
   const totalValues = distributions?.total || [];
@@ -93,6 +93,8 @@ const ClickPopover = ({ tooltip, stats, distributions }) => {
     <div 
       className="absolute z-50 bg-white dark:bg-gray-800 p-2 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 max-w-xs"
       style={{ left: tooltip.x + 10, top: tooltip.y + 10 }}
+      onMouseDown={(e) => { e.stopPropagation(); }}
+      onClick={(e) => { e.stopPropagation(); }}
     >
       {/* Text fields */}
       {tooltip.content.map((field, index) => (
@@ -132,6 +134,33 @@ const ClickPopover = ({ tooltip, stats, distributions }) => {
           Park usage stats are not available for this zone.
         </div>
       )}
+
+      {/* Actions: Focus (green arrow) and Close (blue X) */}
+      <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-end space-x-2">
+        <button
+          type="button"
+          title="Close"
+          aria-label="Close popover"
+          onClick={onClose}
+          className="inline-flex items-center justify-center w-7 h-7 rounded-md bg-blue-600 hover:bg-blue-700 text-white shadow focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+            <path fillRule="evenodd" d="M10 8.586l3.536-3.536a1 1 0 111.414 1.414L11.414 10l3.536 3.536a1 1 0 11-1.414 1.414L10 11.414l-3.536 3.536a1 1 0 11-1.414-1.414L8.586 10 5.05 6.464a1 1 0 111.414-1.414L10 8.586z" clipRule="evenodd" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          title="Focus on this area"
+          aria-label="Focus on this area"
+          onClick={onFocus}
+          className="inline-flex items-center justify-center px-2.5 py-1.5 rounded-md bg-green-600 hover:bg-green-700 text-white text-xs font-medium shadow focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-1"
+        >
+          <span className="mr-1">Focus</span>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+            <path fillRule="evenodd" d="M3 10a1 1 0 011-1h9.586l-3.293-3.293a1 1 0 111.414-1.414l5 5a1 1 0 010 1.414l-5 5a1 1 0 11-1.414-1.414L13.586 11H4a1 1 0 01-1-1z" clipRule="evenodd" />
+          </svg>
+        </button>
+      </div>
     </div>
   );
 };

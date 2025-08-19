@@ -185,6 +185,8 @@ const MapContainer = forwardRef(({
           tooltip={permitAreas.clickedTooltip}
           stats={permitAreas.clickedTooltip.stats}
           distributions={permitAreas.clickedTooltip.distributions}
+          onClose={permitAreas.dismissClickedTooltip}
+          onFocus={permitAreas.focusClickedTooltipArea}
         />
       )}
       

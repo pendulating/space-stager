@@ -391,6 +391,33 @@ export const exportPermitAreaSiteplanV2 = async (
     // Main page legend: only title and annotations
     drawLegendOnPdf(pdf, { x: legendMm.x, y: legendMm.y, width: legendMm.width, height: legendMm.height }, layers, numberedShapes, droppedObjects, focusedArea, pngIcons, droppedObjectPngs, eventInfo);
 
+    // Citywide context inset (bottom-right of first page, inside legend column)
+    try {
+      const insetMargin = 6; // mm
+      const insetMaxW = Math.max(20, legendMm.width - insetMargin * 2);
+      const insetSizeMm = Math.min(55, insetMaxW); // clamp to 55mm
+      const insetX = legendMm.x + insetMargin;
+      const insetY = pageMm.height - insetSizeMm - insetMargin;
+      const insetCaptionY = insetY - 3; // small caption above
+      const insetDataUrl = await renderCitywideInsetDataUrl(focusedArea, 360);
+      if (insetDataUrl) {
+        // Caption
+        pdf.setTextColor(55, 65, 81);
+        const saved = pdf.getFontSize();
+        pdf.setFontSize(9);
+        pdf.text('Citywide context', insetX, insetCaptionY);
+        pdf.setFontSize(saved);
+        // Frame background
+        pdf.setFillColor(255, 255, 255);
+        pdf.rect(insetX - 1, insetY - 1, insetSizeMm + 2, insetSizeMm + 2, 'F');
+        // Image
+        pdf.addImage(insetDataUrl, 'PNG', insetX, insetY, insetSizeMm, insetSizeMm);
+        // Border
+        pdf.setDrawColor(220, 220, 220);
+        pdf.rect(insetX, insetY, insetSizeMm, insetSizeMm);
+      }
+    } catch (_) {}
+
     // Add summary page for Layers and Equipment (autotable-powered)
     drawLayersAndEquipmentSummaryPage(pdf, layers, droppedObjects, pngIcons, droppedObjectPngs);
 
@@ -420,6 +447,53 @@ export const exportPermitAreaSiteplanV2 = async (
 const cleanupOffscreen = (offscreen, container) => {
   try { offscreen.remove(); } catch {}
   if (container && container.parentNode) container.parentNode.removeChild(container);
+};
+
+// Render a citywide inset using a static NYC boroughs image and mark the site centroid
+const renderCitywideInsetDataUrl = async (focusedArea, size = 360) => {
+  try {
+    if (!focusedArea || !focusedArea.geometry) return null;
+    // NYC bbox tuned for boroughs image (nybb)
+    const minLng = -74.258; const maxLng = -73.700;
+    const minLat = 40.477; const maxLat = 40.917;
+
+    const img = await loadImage('/static/nybb.png');
+    const dpr = Math.max(2, Math.floor(window.devicePixelRatio || 1));
+    const canvas = document.createElement('canvas');
+    canvas.width = size * dpr; canvas.height = size * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true; if (ctx.imageSmoothingQuality) ctx.imageSmoothingQuality = 'high';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, size, size);
+    // Draw base image with contain
+    const scale = Math.min(size / img.width, size / img.height);
+    const drawW = Math.round(img.width * scale);
+    const drawH = Math.round(img.height * scale);
+    const dx = Math.floor((size - drawW) / 2);
+    const dy = Math.floor((size - drawH) / 2);
+    ctx.drawImage(img, dx, dy, drawW, drawH);
+
+    // Compute centroid as bbox center for robustness
+    const bbox = getPermitAreaBounds(focusedArea);
+    if (!bbox) return canvas.toDataURL('image/png');
+    const cxLng = (bbox[0][0] + bbox[1][0]) / 2;
+    const cyLat = (bbox[0][1] + bbox[1][1]) / 2;
+    // Map to image pixel coordinates within the drawn region
+    const nx = (cxLng - minLng) / (maxLng - minLng);
+    const ny = (maxLat - cyLat) / (maxLat - minLat);
+    const px = dx + nx * drawW;
+    const py = dy + ny * drawH;
+
+    // Marker: white halo + colored core
+    ctx.save();
+    ctx.beginPath(); ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.fillStyle = '#ef4444'; ctx.arc(px, py, 4.2, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+
+    return canvas.toDataURL('image/png');
+  } catch (_) {
+    return null;
+  }
 };
 
 const loadImage = (src) => new Promise((resolve, reject) => {
