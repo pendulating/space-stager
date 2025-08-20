@@ -54,23 +54,29 @@ const MapContainer = forwardRef(({
   const derivedSourceId = 'annotations-derived';
   const arrowIconId = 'annotation-arrowhead';
 
-  // Compass state
+  // Compass / camera state
   const [bearing, setBearing] = useState(0);
+  const [pitch, setPitch] = useState(0);
 
   // Zone Creator: mandatory in intersections mode, always wire interactions there
   useZoneCreator(map, 'intersections');
 
-  // Listen for map bearing changes
+  // Listen for map camera changes
   useEffect(() => {
     if (!map) return;
-    const updateBearing = () => setBearing(map.getBearing ? map.getBearing() : 0);
-    map.on('rotate', updateBearing);
-    map.on('move', updateBearing);
-    // Set initial bearing
-    updateBearing();
+    const updateCamera = () => {
+      try {
+        setBearing(map.getBearing ? map.getBearing() : 0);
+        setPitch(map.getPitch ? map.getPitch() : 0);
+      } catch (_) {}
+    };
+    map.on('rotate', updateCamera);
+    map.on('move', updateCamera);
+    // Set initial camera
+    updateCamera();
     return () => {
-      map.off('rotate', updateBearing);
-      map.off('move', updateBearing);
+      map.off('rotate', updateCamera);
+      map.off('move', updateCamera);
     };
   }, [map]);
 
@@ -259,6 +265,31 @@ const MapContainer = forwardRef(({
     }
   };
 
+  // Projection toggle
+  const snapToNearest45 = (deg) => {
+    const d = ((deg % 360) + 360) % 360;
+    const step = 45;
+    return Math.round(d / step) * step;
+  };
+  const handleToggleProjection = () => {
+    if (!map) return;
+    const currentCenter = map.getCenter ? map.getCenter() : null;
+    const currentZoom = map.getZoom ? map.getZoom() : undefined;
+    const isIso = (map.getPitch ? map.getPitch() : 0) > 15;
+    if (isIso) {
+      // Return to top-down
+      try {
+        map.easeTo({ pitch: 0, bearing: 0, center: currentCenter || undefined, zoom: currentZoom, duration: 600 });
+      } catch (_) {}
+    } else {
+      // Go to isometric: high pitch, snap bearing to nearest 45°
+      const brg = snapToNearest45(map.getBearing ? map.getBearing() : 0) || 45;
+      try {
+        map.easeTo({ pitch: 60, bearing: brg, center: currentCenter || undefined, zoom: currentZoom, duration: 600 });
+      } catch (_) {}
+    }
+  };
+
   // Disable double-click zoom when map is loaded to prevent conflicts with permit area selection
   React.useEffect(() => {
     if (mapLoaded && map && map.doubleClickZoom) {
@@ -357,9 +388,9 @@ const MapContainer = forwardRef(({
 
   return (
     <div className="flex-1 relative">
-      {/* Compass Overlay */}
+      {/* Compass + Projection Toggle Overlay */}
       <div
-        className="absolute bottom-4 left-4 z-50 flex flex-col items-start"
+        className="absolute bottom-4 left-4 z-50 flex flex-row items-end gap-2"
         style={{ pointerEvents: 'none' }}
       >
         <button
@@ -377,6 +408,17 @@ const MapContainer = forwardRef(({
             <polygon points="16,6 19,18 16,15 13,18" fill="#2563eb" />
             <text x="16" y="26" textAnchor="middle" fontSize="10" fill="#374151" fontWeight="bold">N</text>
           </svg>
+        </button>
+
+        <button
+          className="bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 rounded-full w-12 h-12 flex items-center justify-center hover:scale-105 active:scale-95"
+          style={{ pointerEvents: 'auto' }}
+          title="Toggle projection (Top-down / Isometric)"
+          onClick={handleToggleProjection}
+        >
+          <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+            {(pitch > 15) ? '2D' : 'ISO'}
+          </span>
         </button>
       </div>
       
