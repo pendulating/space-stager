@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import Header from './Header/Header';
 import Sidebar from './Sidebar/Sidebar';
 import MapContainer from './Map/MapContainer';
@@ -29,6 +29,7 @@ import '../styles/eventStager-dpr.css';
 import '../styles/eventStager.css';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { switchBasemap } from '../utils/mapUtils';
+import { distance as turfDistance } from '@turf/turf';
 
 const SpaceStager = () => {
   const mapContainerRef = useRef(null);
@@ -84,7 +85,15 @@ const SpaceStager = () => {
   const [showEventInfo, setShowEventInfo] = useState(false);
   const [showExportOptions, setShowExportOptions] = useState(false);
   const [eventInfo, setEventInfo] = useState({});
-  const [exportOptions, setExportOptions] = useState({ includeDimensions: true, dimensionUnits: 'm' });
+  const [exportOptions, setExportOptions] = useState({
+    dimensionUnits: 'ft',
+    includeObjectDimensions: true,
+    includeZoneDimensions: false,
+    includeStreetSidewalkDimensions: false,
+    noLegend: false,
+    mapProjectionMode: 'topDown'
+  });
+  const [areaWarning, setAreaWarning] = useState(null);
   useEffect(() => {
     const handler = () => setShowGeoSelectorOverride(true);
     window.addEventListener('ui:show-geography-selector', handler);
@@ -244,7 +253,7 @@ const SpaceStager = () => {
       clickToPlace.droppedObjects,
       format,
       infrastructure?.infrastructureData || null,
-      exportOptions,
+      { ...exportOptions, subFocusArea: permitAreas.hasSubFocus ? permitAreas.subFocusArea : null, noLegend: !!exportOptions.noLegend },
       eventInfo
     );
   };
@@ -344,6 +353,47 @@ const SpaceStager = () => {
       prevGeoRef.current = geographyType;
     }
   }, [geographyType, isGeographyChosen, permitAreas, clickToPlace, drawTools]);
+
+  // Compute a warning if the focused (or sub-focused) area is too large for 11x17 at sufficient granularity
+  useEffect(() => {
+    try {
+      const area = permitAreas.hasSubFocus ? permitAreas.subFocusArea : permitAreas.focusedArea;
+      if (!area || !area.geometry) { setAreaWarning(null); return; }
+      // 11x17 landscape mm
+      const page = { wMm: 431.8, hMm: 279.4 };
+      const legendFraction = exportOptions.noLegend ? 0 : 0.25;
+      const paddingMm = 6;
+      const mapWmm = page.wMm * (1 - legendFraction) - 2 * paddingMm;
+      const mapHmm = page.hMm - 2 * paddingMm;
+      // Axis-aligned bbox
+      const bounds = (() => {
+        const g = area.geometry;
+        const collect = (coords, acc) => {
+          coords.forEach((c) => { acc.minLng = Math.min(acc.minLng, c[0]); acc.maxLng = Math.max(acc.maxLng, c[0]); acc.minLat = Math.min(acc.minLat, c[1]); acc.maxLat = Math.max(acc.maxLat, c[1]); });
+        };
+        const acc = { minLng: Infinity, maxLng: -Infinity, minLat: Infinity, maxLat: -Infinity };
+        if (g.type === 'Polygon') collect(g.coordinates[0], acc);
+        else if (g.type === 'MultiPolygon') g.coordinates.forEach(poly => collect(poly[0], acc));
+        if (!isFinite(acc.minLng) || !isFinite(acc.minLat)) return null;
+        return [[acc.minLng, acc.minLat],[acc.maxLng, acc.maxLat]];
+      })();
+      if (!bounds) { setAreaWarning(null); return; }
+      const minLng = bounds[0][0], minLat = bounds[0][1], maxLng = bounds[1][0], maxLat = bounds[1][1];
+      const centerLat = (minLat + maxLat) / 2;
+      const centerLng = (minLng + maxLng) / 2;
+      const widthMeters = turfDistance([minLng, centerLat], [maxLng, centerLat], { units: 'meters' });
+      const heightMeters = turfDistance([centerLng, minLat], [centerLng, maxLat], { units: 'meters' });
+      const metersPerMm = Math.max(widthMeters / Math.max(1, mapWmm), heightMeters / Math.max(1, mapHmm));
+      const warn = (() => {
+        if (metersPerMm <= 2.0) return null;
+        if (metersPerMm <= 3.5) return { level: 'caution', metersPerMm };
+        return { level: 'severe', metersPerMm };
+      })();
+      setAreaWarning(warn);
+    } catch (_) {
+      setAreaWarning(null);
+    }
+  }, [permitAreas.focusedArea, permitAreas.hasSubFocus, permitAreas.subFocusArea, exportOptions.noLegend]);
 
   // Handle basemap style changes with proper timing
   const handleStyleChange = useCallback((evt = { type: 'style' }) => {
@@ -545,6 +595,14 @@ const SpaceStager = () => {
       {permitAreas.focusedArea && permitAreas.showFocusInfo && (
         <FocusInfoPanel 
           focusedArea={permitAreas.focusedArea}
+          showFocusInfo={true}
+          hasSubFocus={permitAreas.hasSubFocus}
+          onBeginSubFocus={() => {
+            try { drawTools.activateDrawingTool('polygon'); } catch (_) {}
+          }}
+          onClearSubFocus={() => {
+            try { permitAreas.clearSubFocusPolygon(); } catch (_) {}
+          }}
           onClose={() => permitAreas.setShowFocusInfo(false)}
         />
       )}
@@ -559,6 +617,14 @@ const SpaceStager = () => {
             <span className="font-medium">Site Plan Mode Active</span>
             <span className="ml-2 text-sm opacity-90">Design tools available on the right</span>
           </div>
+          {areaWarning && (
+            <div className={`mt-2 text-xs rounded px-2 py-1 inline-flex items-center ${areaWarning.level === 'severe' ? 'bg-amber-200 text-amber-800' : 'bg-amber-100 text-amber-700'}`}>
+              <span className="mr-2">⚠️</span>
+              <span>
+                Area may be too large for 11×17 at sufficient detail. Try “Focus sub-area” or enable “Entire zone PDF (no legend)”.
+              </span>
+            </div>
+          )}
         </div>
       )}
       

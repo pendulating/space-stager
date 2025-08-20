@@ -5,7 +5,10 @@ const FocusInfoPanel = ({
   focusedArea, 
   showFocusInfo, 
   onClose, 
-  onClearFocus 
+  onClearFocus,
+  hasSubFocus = false,
+  onBeginSubFocus = null,
+  onClearSubFocus = null
 }) => {
   if (!focusedArea || !showFocusInfo) return null;
 
@@ -27,9 +30,36 @@ const FocusInfoPanel = ({
               {focusedArea.properties.propertyname || ''} 
               {focusedArea.properties.subpropertyname ? ` › ${focusedArea.properties.subpropertyname}` : ''}
             </p>
+            {hasSubFocus && (
+              <p className="mt-1 text-emerald-100 text-xs">Sub-area focus active</p>
+            )}
           </div>
         </div>
         <div className="flex items-center space-x-2">
+          {onBeginSubFocus && !hasSubFocus && (
+            <button
+              onClick={() => {
+                try { const evt = new CustomEvent('subfocus:arm'); window.dispatchEvent(evt); } catch (_) {}
+                onBeginSubFocus();
+              }}
+              className="text-white hover:text-blue-200 text-xs bg-blue-700 hover:bg-blue-800 px-2 py-1 rounded"
+              title="Draw sub-area to focus"
+            >
+              Focus sub-area
+            </button>
+          )}
+          {onClearSubFocus && hasSubFocus && (
+            <button
+              onClick={() => {
+                try { const evt = new CustomEvent('subfocus:disarm'); window.dispatchEvent(evt); } catch (_) {}
+                onClearSubFocus();
+              }}
+              className="text-white hover:text-blue-200 text-xs bg-blue-700 hover:bg-blue-800 px-2 py-1 rounded"
+              title="Clear sub-area focus"
+            >
+              Clear sub-area
+            </button>
+          )}
           {onClearFocus && (
             <button 
               onClick={onClearFocus}

@@ -1,9 +1,44 @@
+// Draw simple dimensions for rectangular dropped objects (e.g., stages)
+const drawObjectDimensionsOnPdf = (pdf, droppedObjects, project, toMm, units = 'ft') => {
+  try {
+    const theme = BLUEPRINT_THEME;
+    setPdfFont(pdf, 'body', theme.sizesMm.small);
+    pdf.setDrawColor(theme.colors.muted.r, theme.colors.muted.g, theme.colors.muted.b);
+    (droppedObjects || []).forEach((obj) => {
+      if (!obj?.geometry || obj.geometry.type !== 'Polygon') return;
+      const ringLngLat = obj.geometry.coordinates?.[0] || [];
+      if (ringLngLat.length < 4) return;
+      const pts = ringLngLat.map(([lng, lat]) => toMm(project(lng, lat)));
+      // Label width/height at center
+      const a = pts[0], b = pts[1], c = pts[2], d = pts[3];
+      const cx = (a.x + c.x) / 2; const cy = (a.y + c.y) / 2;
+      // Compute physical width/height using turf distance in meters
+      try {
+        const wMeters = turfDistance(obj.geometry.coordinates[0][0], obj.geometry.coordinates[0][1], { units: 'meters' });
+      } catch (_) {}
+      let label = obj.name || 'Object';
+      // Prefer user-provided dimensions in meters if present
+      const dims = obj?.properties?.dimensions || obj?.properties?.user_dimensions_m || null;
+      if (dims) {
+        if (units === 'ft') {
+          const wFt = Math.round((dims.width || 0) * 3.28084);
+          const hFt = Math.round((dims.height || 0) * 3.28084);
+          label = `${label} ${wFt} ft × ${hFt} ft`;
+        } else {
+          label = `${label} ${(dims.width || 0).toFixed(1)} m × ${(dims.height || 0).toFixed(1)} m`;
+        }
+      }
+      drawTextWithWipe(pdf, label, cx, cy, { paddingMm: 0.8 });
+    });
+  } catch (_) {}
+};
 // utils/exportUtils.js
 import { PLACEABLE_OBJECTS } from '../constants/placeableObjects';
 import autoTable from 'jspdf-autotable';
+import { BLUEPRINT_THEME, registerBlueprintFonts, setPdfFont, drawTextWithWipe, drawNorthArrow, drawScaleBar, ptFromMm } from './exportStyles';
 import { loadInfrastructureData } from '../services/infrastructureService';
 import { INFRASTRUCTURE_ENDPOINTS, EXPORT_ENDPOINTS } from '../constants/endpoints';
-import { distance as turfDistance, destination as turfDestination, bearing as turfBearing } from '@turf/turf';
+import { distance as turfDistance, destination as turfDestination, bearing as turfBearing, buffer as turfBuffer, booleanIntersects as turfBooleanIntersects } from '@turf/turf';
 import { getIconDataUrl, INFRASTRUCTURE_ICONS } from './iconUtils';
 import { switchBasemap } from './mapUtils';
 
@@ -177,8 +212,9 @@ export const exportPermitAreaSiteplanV2 = async (
   try {
     // Page setup: A4 landscape in mm
     const pageMm = { width: 297, height: 210 };
-    const mapMm = { width: pageMm.width * 0.75, height: pageMm.height };
-    const legendMm = { x: mapMm.width, y: 0, width: pageMm.width * 0.25, height: pageMm.height };
+    const { noLegend = false } = exportOptions || {};
+    const mapMm = noLegend ? { width: pageMm.width, height: pageMm.height } : { width: pageMm.width * 0.75, height: pageMm.height };
+    const legendMm = noLegend ? { x: 0, y: 0, width: 0, height: 0 } : { x: mapMm.width, y: 0, width: pageMm.width * 0.25, height: pageMm.height };
 
     const dpi = 150; // basemap raster quality
     const pxPerMm = dpi / 25.4;
@@ -206,12 +242,27 @@ export const exportPermitAreaSiteplanV2 = async (
       attributionControl: false
     });
 
-    const debugPitch0 = isExportDebug() && (localStorage.getItem('EXPORT_DEBUG_PITCH0') === 'true');
-    const ISOMETRIC_PITCH_DEG = 45;
-    offscreen.setPitch(debugPitch0 ? 0 : ISOMETRIC_PITCH_DEG);
-    offscreen.setBearing(0);
+    // Projection: default top-down unless explicitly set to current
+    const projectionMode = exportOptions?.mapProjectionMode || 'topDown';
+    if (projectionMode === 'current') {
+      try {
+        const curPitch = typeof map.getPitch === 'function' ? map.getPitch() : 0;
+        const curBearing = typeof map.getBearing === 'function' ? map.getBearing() : 0;
+        offscreen.setPitch(curPitch);
+        offscreen.setBearing(curBearing);
+      } catch (_) {
+        offscreen.setPitch(0);
+        offscreen.setBearing(0);
+      }
+    } else {
+      // Top-down
+      offscreen.setPitch(0);
+      offscreen.setBearing(0);
+    }
 
-    const bounds = getPermitAreaBounds(focusedArea);
+    // If a sub-focus area is present in options, prefer that geometry for bounds
+    const areaForExport = (exportOptions && exportOptions.subFocusArea && exportOptions.subFocusArea.geometry) ? exportOptions.subFocusArea : focusedArea;
+    const bounds = getPermitAreaBounds(areaForExport);
     if (!bounds) throw new Error('Invalid focused area geometry');
 
     await new Promise((resolve, reject) => {
@@ -222,7 +273,7 @@ export const exportPermitAreaSiteplanV2 = async (
 
     // Ensure only the focused permit area is visible on the offscreen map
     try {
-      const system = focusedArea?.properties?.system || '';
+      const system = areaForExport?.properties?.system || focusedArea?.properties?.system || '';
       if (offscreen.getLayer('permit-areas-fill')) {
         offscreen.setLayoutProperty('permit-areas-fill', 'visibility', 'none');
       }
@@ -379,9 +430,11 @@ export const exportPermitAreaSiteplanV2 = async (
         drawBusStopFeatureLabelsOnCanvas(ctx, offscreen, { x: 0, y: 0 }, busStopsVisible, 'B');
       }
 
-      const legendPx = { x: mapPx.width, y: 0, width: canvas.width - mapPx.width, height: canvas.height };
-      const numbered = numberCustomShapes(customShapes || []);
-      await drawLegendOnCanvas(ctx, legendPx, layers, numbered, droppedObjects, focusedArea, pngIcons, droppedObjectPngs, eventInfo);
+      if (!noLegend) {
+        const legendPx = { x: mapPx.width, y: 0, width: canvas.width - mapPx.width, height: canvas.height };
+        const numbered = numberCustomShapes(customShapes || []);
+        await drawLegendOnCanvas(ctx, legendPx, layers, numbered, droppedObjects, areaForExport, pngIcons, droppedObjectPngs, eventInfo);
+      }
 
       canvas.toBlob((blob) => {
         if (!blob) { alert('Failed to create PNG'); cleanupOffscreen(offscreen, container); return; }
@@ -393,6 +446,8 @@ export const exportPermitAreaSiteplanV2 = async (
 
     const { default: jsPDF } = await import('jspdf');
     const pdf = new jsPDF('landscape', 'mm', 'a4');
+    registerBlueprintFonts(pdf);
+    // Map image
     pdf.addImage(baseImageUrl, 'PNG', 0, 0, mapMm.width, mapMm.height);
 
     const mmFromPx = { x: mapMm.width / mapPx.width, y: mapMm.height / mapPx.height };
@@ -403,24 +458,44 @@ export const exportPermitAreaSiteplanV2 = async (
 
     // Skip manual orange permit overlay; rely on underlying focused permit styling in raster
     // Dimension annotations around the focused area (CAD-style)
-    const { includeDimensions = true, dimensionUnits = 'm' } = exportOptions || {};
-    if (includeDimensions) {
-      // 1) Simplified, corner-aware polygon dimensions
-      drawDimensionsOnPdf(pdf, focusedArea, project, toMm, dimensionUnits);
-      // 2) Street width annotations from CSCL centerlines intersecting the map view
+    const {
+      includeObjectDimensions = true,
+      includeZoneDimensions = false,
+      includeStreetSidewalkDimensions = false,
+      dimensionUnits = 'ft'
+    } = exportOptions || {};
+    // 1) Zone boundary dimensions (off by default)
+    if (includeZoneDimensions) {
+      drawDimensionsOnPdf(pdf, areaForExport, project, toMm, dimensionUnits);
+    }
+    // 2) Street/sidewalk widths (off by default)
+    if (includeStreetSidewalkDimensions) {
       try {
         const bounds = offscreen.getBounds();
         const streetData = await loadCsclCenterlines(bounds);
         const visibleStreets = filterVisibleLineFeatures(streetData, offscreen);
-        drawStreetWidthLabelsOnPdf(pdf, visibleStreets, project, toMm, dimensionUnits);
-        // 3) NYC Sidewalk polygons within the view with width labels per sidewalk segment
+        // Build a 100ft buffer around the focused export geometry for label gating
+        const zoneBuffer = (() => {
+          try { return turfBuffer(areaForExport, 100, { units: 'feet' }); } catch (_) { return areaForExport; }
+        })();
+        const zoneStreets = { type: 'FeatureCollection', features: (visibleStreets.features || []).filter((f) => {
+          try { return turfBooleanIntersects(zoneBuffer, f); } catch (_) { return false; }
+        }) };
+        drawStreetWidthLabelsOnPdf(pdf, zoneStreets, project, toMm, dimensionUnits);
+        // Sidewalk polygons within the zone (+100ft buffer)
         const sidewalks = await loadSidewalks(bounds);
         const visibleSidewalks = filterVisiblePolygonFeatures(sidewalks, offscreen);
-        drawSidewalksOnPdf(pdf, visibleSidewalks, project, toMm);
-        drawSidewalkWidthLabelsOnPdf(pdf, visibleSidewalks, project, toMm, dimensionUnits);
+        const zoneSidewalks = { type: 'FeatureCollection', features: (visibleSidewalks.features || []).filter((f) => {
+          try { return turfBooleanIntersects(zoneBuffer, f); } catch (_) { return false; }
+        }) };
+        drawSidewalksOnPdf(pdf, zoneSidewalks, project, toMm);
+        drawSidewalkWidthLabelsOnPdf(pdf, zoneSidewalks, project, toMm, dimensionUnits);
       } catch (_) {}
     }
-    // Draw order: dimensions/sidewalks -> dropped objects -> shapes -> infrastructure -> labels on top
+    // Draw order: (optional) object dimensions -> dropped objects -> shapes -> infrastructure -> labels on top
+    if (includeObjectDimensions) {
+      try { drawObjectDimensionsOnPdf(pdf, droppedObjects, project, toMm, dimensionUnits); } catch (_) {}
+    }
     drawDroppedObjectsOnPdf(pdf, droppedObjects, project, toMm, droppedObjectPngs);
     drawDroppedObjectNotesOnPdf(pdf, droppedObjects, project, toMm);
     drawCustomShapesOnPdf(pdf, numberedShapes, project, toMm);
@@ -436,35 +511,37 @@ export const exportPermitAreaSiteplanV2 = async (
       drawBusStopFeatureLabelsOnPdf(pdf, project, toMm, busStopsVisible, 'B');
     }
 
-    // Main page legend: only title and annotations
-    drawLegendOnPdf(pdf, { x: legendMm.x, y: legendMm.y, width: legendMm.width, height: legendMm.height }, layers, numberedShapes, droppedObjects, focusedArea, pngIcons, droppedObjectPngs, eventInfo);
+    // Main page legend: only title and annotations, with blueprint theme
+    if (!noLegend) {
+      drawLegendOnPdf(pdf, { x: legendMm.x, y: legendMm.y, width: legendMm.width, height: legendMm.height }, layers, numberedShapes, droppedObjects, areaForExport, pngIcons, droppedObjectPngs, eventInfo);
+    }
 
-    // Citywide context inset (bottom-right of first page, inside legend column)
-    try {
-      const insetMargin = 6; // mm
-      const insetMaxW = Math.max(20, legendMm.width - insetMargin * 2);
-      const insetSizeMm = Math.min(55, insetMaxW); // clamp to 55mm
-      const insetX = legendMm.x + insetMargin;
-      const insetY = pageMm.height - insetSizeMm - insetMargin;
-      const insetCaptionY = insetY - 3; // small caption above
-      const insetDataUrl = await renderCitywideInsetDataUrl(focusedArea, 360);
-      if (insetDataUrl) {
-        // Caption
-        pdf.setTextColor(55, 65, 81);
-        const saved = pdf.getFontSize();
-        pdf.setFontSize(9);
-        pdf.text('Citywide context', insetX, insetCaptionY);
-        pdf.setFontSize(saved);
-        // Frame background
-        pdf.setFillColor(255, 255, 255);
-        pdf.rect(insetX - 1, insetY - 1, insetSizeMm + 2, insetSizeMm + 2, 'F');
-        // Image
-        pdf.addImage(insetDataUrl, 'PNG', insetX, insetY, insetSizeMm, insetSizeMm);
-        // Border
-        pdf.setDrawColor(220, 220, 220);
-        pdf.rect(insetX, insetY, insetSizeMm, insetSizeMm);
-      }
-    } catch (_) {}
+    // Citywide context inset (skip when noLegend)
+    if (!noLegend) {
+      try {
+        const insetMargin = 6; // mm
+        const insetMaxW = Math.max(20, legendMm.width - insetMargin * 2);
+        const insetSizeMm = Math.min(55, insetMaxW); // clamp to 55mm
+        const insetX = legendMm.x + insetMargin;
+        const insetY = pageMm.height - insetSizeMm - insetMargin;
+        const insetCaptionY = insetY - 3; // small caption above
+        const insetDataUrl = await renderCitywideInsetDataUrl(areaForExport, 360);
+        if (insetDataUrl) {
+          // Caption
+          setPdfFont(pdf, 'body', BLUEPRINT_THEME.sizesMm.small);
+          pdf.setTextColor(BLUEPRINT_THEME.colors.muted.r, BLUEPRINT_THEME.colors.muted.g, BLUEPRINT_THEME.colors.muted.b);
+          pdf.text('Location within NYC', insetX, insetCaptionY);
+          // Frame background
+          pdf.setFillColor(255, 255, 255);
+          pdf.rect(insetX - 1, insetY - 1, insetSizeMm + 2, insetSizeMm + 2, 'F');
+          // Image
+          pdf.addImage(insetDataUrl, 'PNG', insetX, insetY, insetSizeMm, insetSizeMm);
+          // Border
+          pdf.setDrawColor(220, 220, 220);
+          pdf.rect(insetX, insetY, insetSizeMm, insetSizeMm);
+        }
+      } catch (_) {}
+    }
 
     // Add summary page for Layers and Equipment only if at least one table has rows
     try {
@@ -498,7 +575,22 @@ export const exportPermitAreaSiteplanV2 = async (
       drawParkingAndTransitPage(pdf, signsVisible, metersVisible, subwayStationsVisible, dcwpGaragesVisible, busStopsInArea);
     }
 
-    pdf.save(`siteplan-${getSafeFilename(focusedArea)}.pdf`);
+    // North arrow & scale bar inside map (bottom-left with inner margin) — ensure drawn on page 1
+    try {
+      if (typeof pdf.setPage === 'function') pdf.setPage(1);
+      const inner = 6; // mm
+      const nx = inner + 10;
+      const ny = mapMm.height - inner - 14;
+      drawNorthArrow(pdf, nx, ny, 12);
+      // Estimate scale from meters per mm at map center
+      const bbox = offscreen.getBounds();
+      const centerLat = (bbox.getSouth() + bbox.getNorth()) / 2;
+      const metersAcross = turfDistance([bbox.getWest(), centerLat], [bbox.getEast(), centerLat], { units: 'meters' });
+      const metersPerMm = metersAcross / mapMm.width;
+      drawScaleBar(pdf, inner + 26, mapMm.height - inner - 2, 45, metersPerMm);
+    } catch (_) {}
+
+    pdf.save(`siteplan-${getSafeFilename(areaForExport)}.pdf`);
     cleanupOffscreen(offscreen, container);
   } catch (error) {
     console.error('Export failed:', error);
@@ -857,13 +949,15 @@ const drawDimensionsOnPdf = (pdf, focusedArea, project, toMm, units = 'm') => {
     if (!ring || ring.length < 2) return;
     // No geometry simplification: follow original vertices so dimension lines adhere to the shape
     // Iterate edges (first ring only) and label length in meters
-    pdf.setDrawColor(55, 65, 81);
-    pdf.setTextColor(31, 41, 55);
-    pdf.setFontSize(8);
+    const theme = BLUEPRINT_THEME;
+    pdf.setDrawColor(theme.colors.muted.r, theme.colors.muted.g, theme.colors.muted.b);
+    pdf.setTextColor(theme.colors.text.r, theme.colors.text.g, theme.colors.text.b);
+    setPdfFont(pdf, 'body', theme.sizesMm.small);
     const arrow = (x1, y1, x2, y2, size = 1.6) => {
       const angle = Math.atan2(y2 - y1, x2 - x1);
       const a1 = angle + Math.PI - 0.5;
       const a2 = angle + Math.PI + 0.5;
+      pdf.setLineWidth(theme.linesMm.dim);
       pdf.line(x1, y1, x2, y2);
       pdf.line(x1, y1, x1 + size * Math.cos(a1), y1 + size * Math.sin(a1));
       pdf.line(x1, y1, x1 + size * Math.cos(a2), y1 + size * Math.sin(a2));
@@ -905,12 +999,12 @@ const drawDimensionsOnPdf = (pdf, focusedArea, project, toMm, units = 'm') => {
       const oa = { x: a.x + nx * offsetMm, y: a.y + ny * offsetMm };
       const ob = { x: b.x + nx * offsetMm, y: b.y + ny * offsetMm };
       // Extension lines from vertices to dim line
-      pdf.setLineWidth(0.2);
+      pdf.setLineWidth(theme.linesMm.leader);
       pdf.line(a.x, a.y, oa.x, oa.y);
       pdf.line(b.x, b.y, ob.x, ob.y);
       // Dimension line with small arrows
-      arrow(oa.x, oa.y, ob.x, ob.y, 1.6);
-      arrow(ob.x, ob.y, oa.x, oa.y, 1.6);
+      arrow(oa.x, oa.y, ob.x, ob.y, 1.8);
+      arrow(ob.x, ob.y, oa.x, oa.y, 1.8);
       // Label at spaced intervals only
       if (sinceLastLabel >= targetSpacingMeters) {
         const cx = (oa.x + ob.x) / 2;
@@ -922,12 +1016,9 @@ const drawDimensionsOnPdf = (pdf, focusedArea, project, toMm, units = 'm') => {
         } else {
           label = meters >= 1000 ? `${(meters / 1000).toFixed(2)} km` : `${meters.toFixed(1)} m`;
         }
-        const pad = 0.8;
-        const w = pdf.getTextWidth(label) + pad * 2;
-        const h = 3.2;
-        pdf.setFillColor(255, 255, 255);
-        pdf.rect(cx - w / 2, cy - h / 2 - 0.6, w, h, 'F');
-        pdf.text(label, cx, cy, { align: 'center' });
+        // Wipe box and centered label
+        setPdfFont(pdf, 'body', theme.sizesMm.small);
+        drawTextWithWipe(pdf, label, cx, cy, { paddingMm: 0.8 });
         sinceLastLabel = 0;
       }
     }
@@ -975,10 +1066,10 @@ const drawStreetWidthLabelsOnPdf = (pdf, csclGeojson, project, toMm, units = 'm'
   try {
     const features = csclGeojson?.features || [];
     if (!features.length) return;
-    const textColor = { r: 30, g: 64, b: 175 };
-    pdf.setTextColor(textColor.r, textColor.g, textColor.b); // blue
-    pdf.setDrawColor(textColor.r, textColor.g, textColor.b);
-    pdf.setFontSize(7);
+    const theme = BLUEPRINT_THEME;
+    pdf.setTextColor(theme.colors.accent.r, theme.colors.accent.g, theme.colors.accent.b);
+    pdf.setDrawColor(theme.colors.accent.r, theme.colors.accent.g, theme.colors.accent.b);
+    setPdfFont(pdf, 'body', theme.sizesMm.small);
     const labelFor = (props) => {
       const width = Number(props.streetwidth_irr || props.streetwidth || props.segmentwidth || props.streetwidth_irregular);
       if (!isFinite(width) || width <= 0) return null;
@@ -1052,12 +1143,8 @@ const drawStreetWidthLabelsOnPdf = (pdf, csclGeojson, project, toMm, units = 'm'
             // Right half with arrow pointing inward
             drawArrow(R.x, R.y, rightEndX, rightEndY, 1.3);
           } catch (_) {}
-          // White-out and label
-          const pad = 0.8;
-          const textW = pdf.getTextWidth(label);
-          pdf.setFillColor(255, 255, 255);
-          pdf.rect(cx - textW / 2 - pad, cy - 2.5, textW + 2 * pad, 4, 'F');
-          pdf.text(label, cx, cy, { align: 'center', baseline: 'middle' });
+          // White-out and label with wipe
+          drawTextWithWipe(pdf, label, cx, cy, { paddingMm: 0.8 });
         }
       });
     });
@@ -1133,9 +1220,10 @@ const drawSidewalkWidthLabelsOnPdf = (pdf, sidewalksGeojson, project, toMm, unit
   try {
     const features = sidewalksGeojson?.features || [];
     if (!features.length) return;
-    pdf.setTextColor(107, 114, 128); // gray-500
-    pdf.setDrawColor(107, 114, 128);
-    pdf.setFontSize(7);
+    const theme = BLUEPRINT_THEME;
+    pdf.setTextColor(theme.colors.muted.r, theme.colors.muted.g, theme.colors.muted.b);
+    pdf.setDrawColor(theme.colors.muted.r, theme.colors.muted.g, theme.colors.muted.b);
+    setPdfFont(pdf, 'body', theme.sizesMm.small);
     const toMetersStr = (m) => units === 'ft' ? `${Math.round(m * 3.28084)} ft` : `${m.toFixed(1)} m`;
     features.forEach((feat) => {
       const g = feat.geometry;
@@ -1167,14 +1255,12 @@ const drawSidewalkWidthLabelsOnPdf = (pdf, sidewalksGeojson, project, toMm, unit
           const ux = vx / vlen, uy = vy / vlen, halfGap = gap / 2;
           const leftEndX = cx - ux * halfGap, leftEndY = cy - uy * halfGap;
           const rightEndX = cx + ux * halfGap, rightEndY = cy + uy * halfGap;
-          pdf.setLineWidth(0.2);
+          pdf.setLineWidth(theme.linesMm.leader);
           // open-ended ticks (no arrows) to distinguish from street widths
           pdf.line(L.x, L.y, leftEndX, leftEndY);
           pdf.line(R.x, R.y, rightEndX, rightEndY);
           // Label
-          pdf.setFillColor(255, 255, 255);
-          pdf.rect(cx - (pdf.getTextWidth(label) / 2) - 1, cy - 2.3, pdf.getTextWidth(label) + 2, 4, 'F');
-          pdf.text(label, cx, cy, { align: 'center', baseline: 'middle' });
+          drawTextWithWipe(pdf, label, cx, cy, { paddingMm: 0.8 });
         } catch (_) {}
       }
     });
@@ -1479,41 +1565,35 @@ export const wrapPdfLines = (pdf, text, maxWidthMm, fontSize = 10) => {
 };
 
 const drawLegendOnPdf = (pdf, rect, layers, numberedShapes, droppedObjects, focusedArea, pngIcons, droppedObjectPngs, eventInfo) => {
-  // High-opacity solid white background behind legend to ensure map content doesn't show through
-  // and all text is clearly visible on top
-  pdf.setFillColor(255, 255, 255);
-  pdf.rect(rect.x, rect.y, rect.width, rect.height, 'F');
-  
-  // Add a second solid white layer for maximum opacity and text contrast
+  const theme = BLUEPRINT_THEME;
+  // Solid white background
   pdf.setFillColor(255, 255, 255);
   pdf.rect(rect.x, rect.y, rect.width, rect.height, 'F');
 
-  const margin = 6;
+  const margin = theme.spacingMm.inner;
   let cursorY = rect.y + margin;
   const leftX = rect.x + margin;
-  pdf.setTextColor(31, 41, 55);
-  pdf.setFontSize(14);
+  const maxW = rect.width - 2 * margin;
+
+  // Title
   const { title: siteTitle, subtitle: siteSubtitle } = getSiteplanTitleParts(focusedArea);
-  const title = `Site Plan: ${String(siteTitle)}`;
-  const titleWidth = rect.width - 2 * margin;
-  const savedSize = pdf.getFontSize();
-  pdf.setFontSize(14);
-  wrapPdfLines(pdf, title, titleWidth, 14).forEach((line) => {
+  const title = `SITE PLAN: ${String(siteTitle).toUpperCase()}`;
+  setPdfFont(pdf, 'heading', theme.sizesMm.h2);
+  pdf.setTextColor(theme.colors.text.r, theme.colors.text.g, theme.colors.text.b);
+  wrapPdfLines(pdf, title, maxW, ptFromMm(theme.sizesMm.h2)).forEach((line) => {
     pdf.text(line, leftX, cursorY);
-    cursorY += 6;
+    cursorY += theme.sizesMm.h2 * 0.9;
   });
-  // Optional subtitle
   if (siteSubtitle) {
-    pdf.setTextColor(55, 65, 81);
-    const subSaved = pdf.getFontSize();
-    pdf.setFontSize(11);
-    wrapPdfLines(pdf, siteSubtitle, titleWidth, 11).forEach((line) => {
+    setPdfFont(pdf, 'body', theme.sizesMm.body);
+    pdf.setTextColor(theme.colors.muted.r, theme.colors.muted.g, theme.colors.muted.b);
+    wrapPdfLines(pdf, siteSubtitle, maxW, ptFromMm(theme.sizesMm.body)).forEach((line) => {
       pdf.text(line, leftX, cursorY);
-      cursorY += 5;
+      cursorY += theme.sizesMm.body * 0.9;
     });
-    pdf.setFontSize(subSaved);
   }
-  // Event Information (if provided)
+
+  // Event Information
   const infoPairs = [];
   try {
     if (eventInfo && typeof eventInfo === 'object') {
@@ -1529,54 +1609,53 @@ const drawLegendOnPdf = (pdf, rect, layers, numberedShapes, droppedObjects, focu
     }
   } catch (_) {}
   if (infoPairs.length) {
-    pdf.setTextColor(55, 65, 81);
-    const headSaved = pdf.getFontSize();
-    pdf.setFontSize(12);
-    pdf.text('Event Information', leftX, cursorY);
-    cursorY += 6;
-    pdf.setFontSize(10);
+    cursorY += theme.spacingMm.blockGap;
+    setPdfFont(pdf, 'heading', theme.sizesMm.h3);
+    pdf.setTextColor(theme.colors.muted.r, theme.colors.muted.g, theme.colors.muted.b);
+    pdf.text('EVENT INFORMATION', leftX, cursorY);
+    cursorY += theme.sizesMm.h3 + 1;
+    setPdfFont(pdf, 'body', theme.sizesMm.body);
+    pdf.setTextColor(theme.colors.text.r, theme.colors.text.g, theme.colors.text.b);
     infoPairs.forEach(([label, val]) => {
       const text = `${label}: ${val}`;
-      wrapPdfLines(pdf, text, rect.width - 2 * margin).forEach((line) => {
+      wrapPdfLines(pdf, text, maxW).forEach((line) => {
         pdf.text(line, leftX, cursorY);
-        cursorY += 5;
+        cursorY += theme.sizesMm.body + 1;
       });
     });
-    pdf.setFontSize(headSaved);
-    cursorY += 4;
   }
 
-  // Only include title on the legend column of the main page. The Layers/Equipment
-  // sections are moved to a dedicated summary page.
-  cursorY += 4;
-  pdf.setTextColor(55, 65, 81);
-  pdf.text('Annotations', leftX, cursorY);
-  cursorY += 5;
+  // Annotations
+  cursorY += theme.spacingMm.blockGap;
+  setPdfFont(pdf, 'heading', theme.sizesMm.h3);
+  pdf.setTextColor(theme.colors.muted.r, theme.colors.muted.g, theme.colors.muted.b);
+  pdf.text('ANNOTATIONS', leftX, cursorY);
+  cursorY += theme.sizesMm.h3 + 1;
+  setPdfFont(pdf, 'body', theme.sizesMm.body);
+  pdf.setTextColor(theme.colors.text.r, theme.colors.text.g, theme.colors.text.b);
   (numberedShapes || []).forEach((shape) => {
     const num = shape.properties?.__number;
     const label = shape.properties?.label || shape.geometry?.type || 'Shape';
     const text = `${num}. ${label}`;
-    pdf.setTextColor(31, 41, 55);
-    wrapPdfLines(pdf, text, rect.width - 2 * margin).forEach((line) => {
+    wrapPdfLines(pdf, text, maxW).forEach((line) => {
       pdf.text(line, leftX, cursorY);
-      cursorY += 5;
+      cursorY += theme.sizesMm.body + 1;
     });
   });
 };
 
 // Add a dedicated page with side-by-side summaries: left = layers, right = equipment
 const drawLayersAndEquipmentSummaryPage = (pdf, layers, droppedObjects, pngIcons, droppedObjectPngs) => {
+  const theme = BLUEPRINT_THEME;
   pdf.addPage('a4', 'landscape');
   const page = { w: 297, h: 210 };
-  const margin = 12;
-  const headerY = 15;
-  const sectionGap = 8;
-  const colGap = 6;
+  const margin = theme.spacingMm.pageMargin;
+  const headerY = margin;
 
   // Page title
-  pdf.setTextColor(31, 41, 55);
-  pdf.setFontSize(14);
-  pdf.text('Layers and Equipment Summary', margin, headerY);
+  setPdfFont(pdf, 'heading', theme.sizesMm.h2);
+  pdf.setTextColor(theme.colors.text.r, theme.colors.text.g, theme.colors.text.b);
+  pdf.text('LAYERS AND EQUIPMENT SUMMARY', margin, headerY);
 
   // Prepare data arrays
   const layersRows = Object.entries(layers)
@@ -1587,41 +1666,43 @@ const drawLayersAndEquipmentSummaryPage = (pdf, layers, droppedObjects, pngIcons
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([type, count]) => ({ icon: type, name: String(PLACEABLE_OBJECTS.find(p => p.id === type)?.name || type), count }));
 
-  // Use jsPDF-AutoTable for automatic pagination and layout
-  // Left half: Layers table
+  // Table theming
+  const bodyFontPt = ptFromMm(theme.sizesMm.body);
+  const headFontPt = ptFromMm(theme.sizesMm.h3);
+  const cellPad = theme.spacingMm.pad; // mm
+  const rowIconCellW = 18; // mm
+  const countCellW = 18; // mm
+  const startY = headerY + theme.sizesMm.h2 + theme.spacingMm.blockGap;
+
   try {
     if (typeof autoTable === 'function') {
       const leftWidth = (page.w / 2) - margin * 1.5;
       const rightX = (page.w / 2) + margin * 0.5;
-      const startY = headerY + sectionGap + 6;
 
       autoTable(pdf, {
         startY,
         margin: { left: margin, right: page.w - (margin + leftWidth) },
         head: [['Icon', 'Layer Name']],
-        // First column should display only the icon (no variable name)
         body: layersRows.map(r => ['', r.name]),
         theme: 'grid',
-        styles: { fontSize: 10, cellPadding: 2, valign: 'middle' },
-        headStyles: { fillColor: [59, 130, 246], textColor: 255 },
+        styles: { fontSize: bodyFontPt, cellPadding: cellPad, valign: 'middle', lineWidth: theme.linesMm.tertiary, lineColor: [220,220,220] },
+        headStyles: { fontSize: headFontPt, fillColor: [240, 244, 248], textColor: [31,41,55], halign: 'left' },
         columnStyles: {
-          0: { cellWidth: 24, halign: 'left' },
+          0: { cellWidth: rowIconCellW, halign: 'left' },
           1: { cellWidth: 'auto' }
         },
         didDrawCell: (data) => {
-          // Draw icon centered vertically within the cell, with minimal padding to maximize size
           if (data.section === 'body' && data.column.index === 0) {
             const id = layersRows[data.row.index]?.icon;
             const cellX = data.cell.x;
             const cellY = data.cell.y;
-            const cellW = data.cell.width;
             const cellH = data.cell.height;
-            const padding = 0.5;
-            const maxSize = Math.max(4, cellH - padding * 2);
+            const padding = 1;
+            const maxSize = Math.max(6, cellH - padding * 2);
             const drawW = maxSize;
             const drawH = maxSize;
-            const drawX = cellX + padding; // left-aligned with small padding
-            const drawY = cellY + (cellH - drawH) / 2; // vertically centered
+            const drawX = cellX + padding;
+            const drawY = cellY + (cellH - drawH) / 2;
             try {
               const png = pngIcons?.[id];
               if (png) {
@@ -1636,20 +1717,18 @@ const drawLayersAndEquipmentSummaryPage = (pdf, layers, droppedObjects, pngIcons
         }
       });
 
-      // Right half: Equipment table
       autoTable(pdf, {
         startY,
         margin: { left: rightX, right: margin },
         head: [['Icon', 'Equipment', 'Count']],
-        // Show only the graphic for the icon (no variable name)
         body: equipmentRows.map(r => ['', r.name, String(r.count)]),
         theme: 'grid',
-        styles: { fontSize: 10, cellPadding: 2, valign: 'middle' },
-        headStyles: { fillColor: [16, 185, 129], textColor: 255 },
+        styles: { fontSize: bodyFontPt, cellPadding: cellPad, valign: 'middle', lineWidth: theme.linesMm.tertiary, lineColor: [220,220,220] },
+        headStyles: { fontSize: headFontPt, fillColor: [243, 248, 244], textColor: [31,41,55], halign: 'left' },
         columnStyles: {
-          0: { cellWidth: 24, halign: 'left' },
+          0: { cellWidth: rowIconCellW, halign: 'left' },
           1: { cellWidth: 'auto' },
-          2: { cellWidth: 18, halign: 'right' }
+          2: { cellWidth: countCellW, halign: 'right' }
         },
         didDrawCell: (data) => {
           if (data.section === 'body' && data.column.index === 0) {
@@ -1657,8 +1736,8 @@ const drawLayersAndEquipmentSummaryPage = (pdf, layers, droppedObjects, pngIcons
             const cellX = data.cell.x;
             const cellY = data.cell.y;
             const cellH = data.cell.height;
-            const padding = 0.5;
-            const maxSize = Math.max(4, cellH - padding * 2);
+            const padding = 1;
+            const maxSize = Math.max(6, cellH - padding * 2);
             const drawW = maxSize;
             const drawH = maxSize;
             const drawX = cellX + padding;

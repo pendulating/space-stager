@@ -46,6 +46,7 @@ const MapContainer = forwardRef(({
   } = clickToPlace;
   const mapContainerRef = useRef(null);
   const [noteEditingObject, setNoteEditingObject] = useState(null);
+  const subFocusArmedRef = useRef(false);
 
   // Compass state
   const [bearing, setBearing] = useState(0);
@@ -66,6 +67,18 @@ const MapContainer = forwardRef(({
       map.off('move', updateBearing);
     };
   }, [map]);
+
+  // Listen for sub-focus arming/disarming events
+  useEffect(() => {
+    const arm = () => { subFocusArmedRef.current = true; };
+    const disarm = () => { subFocusArmedRef.current = false; };
+    window.addEventListener('subfocus:arm', arm);
+    window.addEventListener('subfocus:disarm', disarm);
+    return () => {
+      window.removeEventListener('subfocus:arm', arm);
+      window.removeEventListener('subfocus:disarm', disarm);
+    };
+  }, []);
 
   // Expose current rect mode + id for sidebar active highlight
   useEffect(() => {
@@ -99,36 +112,47 @@ const MapContainer = forwardRef(({
         const f = e?.features?.[0];
         if (!f || f.geometry?.type !== 'Polygon') return;
         const typeId = f.properties?.user_rectObjectType;
-        if (!typeId) return;
-        const objectType = placeableObjects?.find(p => p.id === typeId);
-        if (!objectType) return;
-        // Build dropped object
-        const coords = f.geometry.coordinates?.[0] || [];
-        if (coords.length < 4) return;
-        const centroid = { lng: (coords[0][0] + coords[2][0]) / 2, lat: (coords[0][1] + coords[2][1]) / 2 };
-        const obj = {
-          id: `${typeId}-${Date.now()}`,
-          type: typeId,
-          name: objectType.name,
-          position: centroid,
-          geometry: f.geometry,
-          properties: {
-            label: objectType.name,
-            rotationDeg: Number(f.properties?.user_rotationDeg || 0),
-            dimensions: f.properties?.user_dimensions_m || null,
-            timestamp: new Date().toISOString()
-          }
-        };
-        clickToPlace.setDroppedObjects(prev => [...prev, obj]);
-        // Remove from draw store so it doesn't stay as an annotation
-        try { drawTools.draw.current.delete(f.id); } catch (_) {}
+        // If a rectangle-object type was set, this is an equipment rectangle → convert to dropped object
+        if (typeId) {
+          const objectType = placeableObjects?.find(p => p.id === typeId);
+          if (!objectType) return;
+          // Build dropped object
+          const coords = f.geometry.coordinates?.[0] || [];
+          if (coords.length < 4) return;
+          const centroid = { lng: (coords[0][0] + coords[2][0]) / 2, lat: (coords[0][1] + coords[2][1]) / 2 };
+          const obj = {
+            id: `${typeId}-${Date.now()}`,
+            type: typeId,
+            name: objectType.name,
+            position: centroid,
+            geometry: f.geometry,
+            properties: {
+              label: objectType.name,
+              rotationDeg: Number(f.properties?.user_rotationDeg || 0),
+              dimensions: f.properties?.user_dimensions_m || null,
+              timestamp: new Date().toISOString()
+            }
+          };
+          clickToPlace.setDroppedObjects(prev => [...prev, obj]);
+          try { drawTools.draw.current.delete(f.id); } catch (_) {}
+          return;
+        }
+
+        // Otherwise, if sub-focus mode is armed, treat this polygon as the sub-focus scope
+        if (subFocusArmedRef.current && permitAreas?.focusedArea && permitAreas?.setSubFocusPolygon) {
+          const ok = permitAreas.setSubFocusPolygon({ type: 'Feature', properties: {}, geometry: f.geometry });
+          // Remove the transient draw shape and disarm
+          try { drawTools.draw.current.delete(f.id); } catch (_) {}
+          subFocusArmedRef.current = false;
+          if (ok) return;
+        }
       } catch (err) {
         console.warn('Failed to convert rect feature to dropped object', err);
       }
     };
     map.on('draw.create', onCreate);
     return () => { try { map.off('draw.create', onCreate); } catch (_) {} };
-  }, [map, drawTools, placeableObjects, clickToPlace]);
+  }, [map, drawTools, placeableObjects, clickToPlace, permitAreas]);
 
   if (DEBUG) console.log('MapContainer: Rendering with map instance', {
     hasMap: !!map,

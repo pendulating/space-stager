@@ -6,6 +6,7 @@ import { ensureBaseLayers as ensureGeoBaseLayers, setBaseVisibility as setGeoBas
 import { GEOGRAPHIES } from '../constants/geographies';
 import { useZoneCreatorContext } from '../contexts/ZoneCreatorContext.jsx';
 import bbox from '@turf/bbox';
+import { intersect as turfIntersect, booleanIntersects as turfBooleanIntersects } from '@turf/turf';
 
 // Minimal oriented minimum bounding box (rotating calipers) implementation
 function getOrientedMinBBox(coords) {
@@ -67,6 +68,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [focusedArea, setFocusedArea] = useState(null);
+  const [subFocusArea, setSubFocusArea] = useState(null); // Optional polygon scoping within focused area
   const [showFocusInfo, setShowFocusInfo] = useState(false);
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, content: null });
   // Persistent click popover for parks mode (single at a time)
@@ -119,6 +121,76 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   useEffect(() => {
     focusedAreaRef.current = focusedArea;
   }, [focusedArea]);
+
+  // Clear sub-focus whenever the main focused area changes
+  useEffect(() => {
+    try { setSubFocusArea(null); } catch (_) {}
+  }, [focusedArea?.id]);
+
+  // Render/remove sub-focus overlay layers when subFocusArea changes
+  useEffect(() => {
+    if (!map) return;
+    const srcId = 'sub-focus';
+    const fillId = 'sub-focus-fill';
+    const lineId = 'sub-focus-outline';
+
+    const addLayers = () => {
+      try {
+        if (!subFocusArea || !subFocusArea.geometry) return;
+        // Source
+        try { if (map.getSource(srcId)) map.removeSource(srcId); } catch (_) {}
+        map.addSource(srcId, { type: 'geojson', data: subFocusArea });
+        // Insert before draw layers if present to keep draw UI on top
+        let beforeId;
+        try {
+          const style = map.getStyle ? map.getStyle() : null;
+          const drawLayer = style && Array.isArray(style.layers)
+            ? style.layers.find(l => typeof l.id === 'string' && (l.id.startsWith('mapbox-gl-draw') || l.id.startsWith('gl-draw')))
+            : null;
+          beforeId = drawLayer ? drawLayer.id : undefined;
+        } catch (_) {}
+        // Fill
+        try { if (map.getLayer(fillId)) map.removeLayer(fillId); } catch (_) {}
+        map.addLayer({
+          id: fillId,
+          type: 'fill',
+          source: srcId,
+          paint: { 'fill-color': '#10b981', 'fill-opacity': 0.18 }
+        }, beforeId);
+        // Outline
+        try { if (map.getLayer(lineId)) map.removeLayer(lineId); } catch (_) {}
+        map.addLayer({
+          id: lineId,
+          type: 'line',
+          source: srcId,
+          paint: { 'line-color': '#10b981', 'line-width': 3, 'line-opacity': 0.9 }
+        }, beforeId);
+      } catch (_) {}
+    };
+
+    const removeLayers = () => {
+      try { if (map.getLayer(fillId)) map.removeLayer(fillId); } catch (_) {}
+      try { if (map.getLayer(lineId)) map.removeLayer(lineId); } catch (_) {}
+      try { if (map.getSource(srcId)) map.removeSource(srcId); } catch (_) {}
+    };
+
+    if (subFocusArea && subFocusArea.geometry) {
+      addLayers();
+    } else {
+      removeLayers();
+    }
+
+    // Re-add on style changes
+    const onStyle = () => {
+      removeLayers();
+      if (subFocusArea && subFocusArea.geometry) addLayers();
+    };
+    map.on('style.load', onStyle);
+    return () => {
+      try { map.off('style.load', onStyle); } catch (_) {}
+      // Do not remove here; rely on state change cleanup
+    };
+  }, [map, subFocusArea]);
 
   // Respond to external mode changes
   useEffect(() => {
@@ -303,6 +375,8 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     }
     console.log('Focusing on area:', permitArea.properties);
     setFocusedArea(permitArea);
+    // Reset any existing sub-focus scope when a new area is focused
+    try { setSubFocusArea(null); } catch (_) {}
     setShowFocusInfo(true);
     // Focus filtering and base layer visibility handling by mode
     const activeMode = options.mode || mode;
@@ -454,6 +528,72 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     }
     console.log('Permit area focused successfully');
   }, [map, calculateGeometryBounds, mode]);
+
+  // Set a sub-focus polygon inside the current focused area to scope design view
+  const setSubFocusPolygon = useCallback((polygonFeatureOrGeometry) => {
+    try {
+      const current = focusedAreaRef.current;
+      if (!map || !current || !current.geometry) return false;
+      const drawnFeature = (() => {
+        if (!polygonFeatureOrGeometry) return null;
+        if (polygonFeatureOrGeometry.type === 'Feature') return polygonFeatureOrGeometry;
+        if (polygonFeatureOrGeometry.type === 'Polygon' || polygonFeatureOrGeometry.type === 'MultiPolygon') {
+          return { type: 'Feature', geometry: polygonFeatureOrGeometry, properties: {} };
+        }
+        return null;
+      })();
+      if (!drawnFeature || !drawnFeature.geometry) return false;
+      // Compute intersection to clamp sub-scope to the focused area footprint (best-effort)
+      let subGeom = null;
+      try { const clipped = turfIntersect(current, drawnFeature); if (clipped && clipped.geometry) subGeom = clipped.geometry; } catch (_) {}
+      // If robust intersect fails, fall back to using the drawn polygon as-is as long as it intersects
+      if (!subGeom) {
+        let ok = false;
+        try { ok = turfBooleanIntersects(current, drawnFeature); } catch (_) { ok = false; }
+        if (!ok) return false;
+        subGeom = drawnFeature.geometry;
+      }
+      // Store as a special feature carrying over metadata
+      const sub = {
+        type: 'Feature',
+        id: 'subfocus',
+        properties: { ...(current.properties || {}), __subFocus: true },
+        geometry: subGeom
+      };
+      setSubFocusArea(sub);
+      // Fit/constraint camera to the sub-scope bounds
+      try {
+        const bounds = calculateGeometryBounds(sub.geometry);
+        if (bounds) {
+          const padding = 20;
+          try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
+          try { map.fitBounds(bounds, { padding, duration: 800 }); } catch (_) {}
+          const onMoveEnd = () => {
+            try {
+              const finalZoom = map.getZoom ? map.getZoom() : 16;
+              const finalCenter = map.getCenter ? map.getCenter() : null;
+              applyFocusConstraints(bounds, finalZoom);
+              try { if (finalCenter && map.setCenter) map.setCenter(finalCenter); } catch (_) {}
+            } catch (_) {}
+            try { map.off('moveend', onMoveEnd); } catch (_) {}
+          };
+          map.on('moveend', onMoveEnd);
+        }
+      } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }, [map, applyFocusConstraints, calculateGeometryBounds]);
+
+  const clearSubFocusPolygon = useCallback(() => {
+    try { setSubFocusArea(null); } catch (_) {}
+    // Re-fit to the main focused area if present
+    try {
+      const fa = focusedAreaRef.current;
+      if (fa) focusOnPermitArea(fa);
+    } catch (_) {}
+  }, [focusOnPermitArea]);
 
 
 
@@ -1146,6 +1286,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     console.log('Clearing focus');
     
     setFocusedArea(null);
+    setSubFocusArea(null);
     setShowFocusInfo(false);
     setShowOverlapSelector(false);
     setInitialFocusZoom(null);
@@ -1368,6 +1509,8 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     searchResults,
     isSearching,
     focusedArea,
+    subFocusArea,
+    hasSubFocus: !!subFocusArea,
     showFocusInfo,
     setShowFocusInfo,
     tooltip,
@@ -1381,6 +1524,9 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     mode,
     focusOnPermitArea,
     clearFocus,
+    setSubFocusPolygon,
+    clearSubFocusPolygon,
+    effectiveFocusedArea: subFocusArea || focusedArea,
     selectOverlappingArea,
     clearOverlapSelector,
     loadPermitAreas,

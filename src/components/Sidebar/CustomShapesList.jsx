@@ -183,7 +183,7 @@ const CustomShapesList = ({
         </div>
       </div>
       {customShapes.length > 0 && (
-        <div className="space-y-1 max-h-32 overflow-y-auto">
+        <div className="space-y-1 max-h-[25vh] overflow-y-auto">
           {customShapes.map(shape => (
           <div
             key={shape.id}

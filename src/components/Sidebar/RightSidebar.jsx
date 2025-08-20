@@ -19,11 +19,6 @@ const RightSidebar = ({
   return (
     <>
       <div className="w-80 h-full bg-white dark:bg-gray-800 dark:text-gray-100 shadow-lg z-10 flex flex-col border-l border-gray-200 dark:border-gray-700 sidebar-right">
-      {/* Header */}
-      <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-blue-50 dark:bg-gray-900">
-        <h2 className="text-lg font-semibold text-blue-900 dark:text-blue-300">Site Plan Designer</h2>
-        <p className="text-sm text-blue-700 dark:text-blue-300/80 mt-1">Design tools for focused area</p>
-      </div>
 
       {/* Middle scroll area with flexible Event Objects panel */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -46,8 +41,8 @@ const RightSidebar = ({
           />
         )}
 
-        {/* Placeable Objects Panel (scrolls within remaining space) */}
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        {/* Placeable Objects Panel (reserve space for at least 3 rows) */}
+        <div className="flex-1 min-h-[20rem] overflow-y-auto">
           <PlaceableObjectsPanel
             objects={placeableObjects}
             onActivation={clickToPlace.activatePlacementMode}
