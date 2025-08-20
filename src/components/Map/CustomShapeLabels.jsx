@@ -11,12 +11,16 @@ const CustomShapeLabels = ({
   // Track which labels are new or recently renamed to apply animations only when needed
   const animatedLabels = useRef(new Set());
   const previousLabels = useRef(new Map()); // Track previous label text to detect changes
-  if (DEBUG) console.log('CustomShapeLabels: Component render', {
-    shapeCount: customShapes.length,
-    objectUpdateTrigger,
-    hasMap: !!map,
-    showLabels
-  });
+  if (DEBUG) {
+    let shapeCount = 0;
+    try { shapeCount = draw?.current?.getAll()?.features?.length || 0; } catch (_) {}
+    console.log('CustomShapeLabels: Component render', {
+      shapeCount,
+      objectUpdateTrigger,
+      hasMap: !!map,
+      showLabels
+    });
+  }
 
   // Cleanup effect to clear tracking when draw instance changes
   useEffect(() => {
@@ -25,28 +29,15 @@ const CustomShapeLabels = ({
     previousLabels.current.clear();
   }, [draw]);
 
-  // Test effect to see if we can manually trigger updates
+  // Trigger immediate refresh on annotation change events
   useEffect(() => {
-    if (!map || !draw?.current || !showLabels) return;
-    
-    if (DEBUG) console.log('CustomShapeLabels: useEffect triggered', { objectUpdateTrigger });
-    
-    // Test the map project function
-    const allShapes = draw.current.getAll();
-    if (allShapes.features.length > 0) {
-      const testShape = allShapes.features[0];
-      try {
-        // For shapes, we need to calculate the center point
-        const center = calculateShapeCenter(testShape);
-        if (center) {
-          const pixel = map.project([center.lng, center.lat]);
-          if (DEBUG) console.log('CustomShapeLabels: Test projection successful', { pixel });
-        }
-      } catch (error) {
-        if (DEBUG) console.error('CustomShapeLabels: Test projection failed', error);
-      }
-    }
-  }, [map, draw, objectUpdateTrigger, showLabels]);
+    if (!map || !draw?.current) return;
+    const bump = () => {
+      try { if (map && map.triggerRepaint) map.triggerRepaint(); } catch (_) {}
+    };
+    window.addEventListener('annotations:changed', bump);
+    return () => window.removeEventListener('annotations:changed', bump);
+  }, [map, draw]);
 
   // Calculate the center point of a shape
   const calculateShapeCenter = useCallback((shape) => {
@@ -149,7 +140,7 @@ const CustomShapeLabels = ({
     if (DEBUG) console.log('CustomShapeLabels: All shapes from draw instance:', allShapes);
     
     const shapesWithLabels = allShapes.features.filter(shape => 
-      shape.properties && shape.properties.label && shape.properties.label.trim()
+      shape.properties && shape.properties.label && shape.properties.label.trim() && shape.properties.type !== 'text'
     );
     if (DEBUG) console.log('CustomShapeLabels: Shapes with labels:', shapesWithLabels);
     

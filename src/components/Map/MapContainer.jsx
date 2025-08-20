@@ -12,6 +12,8 @@ import NudgeMarkers from './NudgeMarkers';
 import ActiveToolIndicator from './ActiveToolIndicator';
 import LoadingOverlay from './LoadingOverlay';
 import PlacementPreview from './PlacementPreview';
+import { useMemo } from 'react';
+import TextAnnotationEditor from './TextAnnotationEditor';
 
 const DEBUG = false; // Set to true to enable MapContainer debug logs
 
@@ -46,7 +48,11 @@ const MapContainer = forwardRef(({
   } = clickToPlace;
   const mapContainerRef = useRef(null);
   const [noteEditingObject, setNoteEditingObject] = useState(null);
+  const [textEditorFeatureId, setTextEditorFeatureId] = useState(null);
+  const [annotationsTrigger, setAnnotationsTrigger] = useState(0);
   const subFocusArmedRef = useRef(false);
+  const derivedSourceId = 'annotations-derived';
+  const arrowIconId = 'annotation-arrowhead';
 
   // Compass state
   const [bearing, setBearing] = useState(0);
@@ -68,6 +74,13 @@ const MapContainer = forwardRef(({
     };
   }, [map]);
 
+  // Force immediate label refresh on external annotation change events
+  useEffect(() => {
+    const bump = () => setAnnotationsTrigger(v => v + 1);
+    window.addEventListener('annotations:changed', bump);
+    return () => window.removeEventListener('annotations:changed', bump);
+  }, []);
+
   // Listen for sub-focus arming/disarming events
   useEffect(() => {
     const arm = () => { subFocusArmedRef.current = true; };
@@ -79,6 +92,155 @@ const MapContainer = forwardRef(({
       window.removeEventListener('subfocus:disarm', disarm);
     };
   }, []);
+
+  // Build derived features (text points and arrowheads) from Draw features
+  const derivedAnnotations = useMemo(() => {
+    try {
+      const features = drawTools?.draw?.current ? drawTools.draw.current.getAll().features : [];
+      const texts = [];
+      const arrowheads = [];
+      (features || []).forEach((f) => {
+        if (!f || !f.geometry) return;
+        const props = f.properties || {};
+        if (props.type === 'text' && f.geometry.type === 'Point' && props.label) {
+          texts.push({ type: 'Feature', geometry: f.geometry, properties: { label: props.label, textSize: props.textSize || 14, textColor: props.textColor || '#111827', halo: props.halo !== false } });
+        } else if (props.type === 'arrow' && f.geometry.type === 'LineString') {
+          const coords = f.geometry.coordinates || [];
+          if (coords.length >= 2) {
+            const a = coords[coords.length - 2];
+            const b = coords[coords.length - 1];
+            const dx = b[0] - a[0];
+            const dy = b[1] - a[1];
+            // MapLibre icon-rotate is clockwise from the icon's default orientation (our icon points East).
+            // Math.atan2 returns CCW angle from East. Use negative to convert to clockwise.
+            const bearing = -(Math.atan2(dy, dx) * 180) / Math.PI;
+            arrowheads.push({ type: 'Feature', geometry: { type: 'Point', coordinates: b }, properties: { bearing, size: f.properties?.arrowSize || 1 } });
+          }
+        }
+      });
+      return { type: 'FeatureCollection', features: [...texts, ...arrowheads] };
+    } catch (_) { return { type: 'FeatureCollection', features: [] }; }
+  }, [drawTools?.draw, clickToPlace.objectUpdateTrigger, annotationsTrigger]);
+
+  // Register arrowhead icon; re-register on style load and handle missing images
+  useEffect(() => {
+    if (!map) return;
+    const register = () => {
+      try {
+        if (map.hasImage && map.hasImage(arrowIconId)) return;
+      } catch (_) {}
+      try {
+        const size = 64;
+        const canvas = document.createElement('canvas');
+        canvas.width = size; canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0,0,size,size);
+        ctx.fillStyle = '#111827';
+        ctx.beginPath();
+        // Draw a classic triangle pointing to the right (east)
+        ctx.moveTo(size*0.2, size*0.15);
+        ctx.lineTo(size*0.2, size*0.85);
+        ctx.lineTo(size*0.9, size*0.5);
+        ctx.closePath();
+        ctx.fill();
+        const data = ctx.getImageData(0,0,size,size);
+        if (map.addImage) map.addImage(arrowIconId, data, { pixelRatio: 2 });
+      } catch (e) {
+        console.warn('Failed to register arrow icon', e);
+      }
+    };
+    // Initial attempt
+    register();
+    // On style load
+    const onStyleLoad = () => register();
+    map.on('style.load', onStyleLoad);
+    // Handle on-demand missing image
+    const onMissing = (e) => { try { if (e && e.id === arrowIconId) register(); } catch (_) {} };
+    map.on('styleimagemissing', onMissing);
+    return () => {
+      try { map.off('style.load', onStyleLoad); } catch (_) {}
+      try { map.off('styleimagemissing', onMissing); } catch (_) {}
+    };
+  }, [map]);
+
+  // Sync derived annotations source & layers
+  useEffect(() => {
+    if (!map) return;
+    const ensure = () => {
+      try {
+        if (!map.getSource(derivedSourceId)) {
+          map.addSource(derivedSourceId, { type: 'geojson', data: derivedAnnotations });
+        } else {
+          const src = map.getSource(derivedSourceId);
+          src.setData(derivedAnnotations);
+        }
+        // Text layer
+        if (!map.getLayer('annotation-text')) {
+          map.addLayer({
+            id: 'annotation-text',
+            type: 'symbol',
+            source: derivedSourceId,
+            filter: ['has', 'label'],
+            layout: {
+              'text-field': ['get', 'label'],
+              'text-size': ['coalesce', ['get', 'textSize'], 14],
+              'text-font': ['literal', ['Open Sans Bold','Arial Unicode MS Bold']],
+              'text-offset': [0, 1.0],
+              'text-anchor': 'top'
+            },
+            paint: {
+              'text-color': ['coalesce', ['get', 'textColor'], '#111827'],
+              'text-halo-color': '#ffffff',
+              'text-halo-width': 1.0
+            }
+          });
+        }
+        // Arrowhead layer
+        if (!map.getLayer('annotation-arrowheads')) {
+          // Place arrowheads above draw layers if possible
+          let beforeId;
+          try {
+            const style = map.getStyle ? map.getStyle() : null;
+            const firstDrawLayer = style && Array.isArray(style.layers)
+              ? style.layers.find(l => typeof l.id === 'string' && (l.id.startsWith('mapbox-gl-draw') || l.id.startsWith('gl-draw')))
+              : null;
+            beforeId = firstDrawLayer ? firstDrawLayer.id : undefined;
+          } catch (_) {}
+          map.addLayer({
+            id: 'annotation-arrowheads',
+            type: 'symbol',
+            source: derivedSourceId,
+            filter: ['all', ['!', ['has', 'label']], ['has', 'bearing']],
+            layout: {
+              'icon-image': arrowIconId,
+              'icon-rotate': ['get', 'bearing'],
+              'icon-size': ['interpolate', ['linear'], ['zoom'], 12, 0.4, 18, 0.9],
+              'icon-allow-overlap': true,
+              'icon-ignore-placement': true
+            }
+          }, beforeId);
+        }
+      } catch (e) {
+        // noop
+      }
+    };
+    const ready = typeof map.isStyleLoaded === 'function' ? map.isStyleLoaded() : true;
+    if (ready) ensure(); else map.once('style.load', ensure);
+  }, [map, derivedAnnotations]);
+
+  // Keep annotation layers above MapboxDraw layers (which may be added later)
+  useEffect(() => {
+    if (!map) return;
+    const bringToTop = (id) => {
+      try { if (map.getLayer(id)) map.moveLayer(id); } catch (_) {}
+    };
+    // Slight delay to allow Draw to (re)insert its layers
+    const t = setTimeout(() => {
+      bringToTop('annotation-text');
+      bringToTop('annotation-arrowheads');
+    }, 50);
+    return () => clearTimeout(t);
+  }, [map, drawTools?.draw, derivedAnnotations]);
 
   // Expose current rect mode + id for sidebar active highlight
   useEffect(() => {
@@ -103,6 +265,36 @@ const MapContainer = forwardRef(({
       map.doubleClickZoom.disable();
     }
   }, [mapLoaded, map]);
+
+  // Open text editor on text feature creation anywhere
+  useEffect(() => {
+    if (!map || !drawTools?.draw?.current) return;
+    const onCreateAny = (e) => {
+      try {
+        const f = e?.features?.[0];
+        if (f && f.geometry?.type === 'Point' && f.properties?.type === 'text') {
+          setTextEditorFeatureId(f.id);
+        }
+        setAnnotationsTrigger(v => v + 1);
+      } catch (_) {}
+    };
+    map.on('draw.create', onCreateAny);
+    return () => { try { map.off('draw.create', onCreateAny); } catch (_) {} };
+  }, [map, drawTools]);
+
+  // Refresh derived annotations on updates/deletes as well
+  useEffect(() => {
+    if (!map || !drawTools?.draw?.current) return;
+    const bump = () => setAnnotationsTrigger(v => v + 1);
+    map.on('draw.update', bump);
+    map.on('draw.delete', bump);
+    map.on('draw.selectionchange', bump);
+    return () => {
+      try { map.off('draw.update', bump); } catch (_) {}
+      try { map.off('draw.delete', bump); } catch (_) {}
+      try { map.off('draw.selectionchange', bump); } catch (_) {}
+    };
+  }, [map, drawTools]);
 
   // Listen for rectangle draw completion to convert into dropped object and remove draw feature
   useEffect(() => {
@@ -146,6 +338,8 @@ const MapContainer = forwardRef(({
           subFocusArmedRef.current = false;
           if (ok) return;
         }
+        // If a text annotation was created, open inline editor (also handle when created via point tool then tagged)
+        setAnnotationsTrigger(v => v + 1);
       } catch (err) {
         console.warn('Failed to convert rect feature to dropped object', err);
       }
@@ -225,9 +419,19 @@ const MapContainer = forwardRef(({
       <CustomShapeLabels
         draw={drawTools.draw}
         map={map}
-        objectUpdateTrigger={clickToPlace.objectUpdateTrigger}
+        objectUpdateTrigger={(clickToPlace.objectUpdateTrigger || 0) + (annotationsTrigger || 0)}
         showLabels={drawTools.showLabels}
       />
+
+      {textEditorFeatureId && (
+        <TextAnnotationEditor
+          map={map}
+          featureId={textEditorFeatureId}
+          drawRef={drawTools.draw}
+          onSave={() => { setTextEditorFeatureId(null); setAnnotationsTrigger(v => v + 1); }}
+          onCancel={() => setTextEditorFeatureId(null)}
+        />
+      )}
       
       {/* Placement Preview */}
       <PlacementPreview

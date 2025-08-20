@@ -1,11 +1,13 @@
 import React from 'react';
-import { Circle, Pencil, Square, Trash2 } from 'lucide-react';
+import { Circle, Pencil, Square, Trash2, Type, ArrowRight } from 'lucide-react';
 
 const DrawingTools = ({ activeTool, onToolSelect, selectedShape, onDelete, drawAvailable = true, onRetry }) => {
   const tools = [
     { id: 'point', icon: Circle, title: 'Add Point' },
     { id: 'line', icon: Pencil, title: 'Draw Line' },
-    { id: 'polygon', icon: Square, title: 'Draw Polygon' }
+    { id: 'polygon', icon: Square, title: 'Draw Polygon' },
+    { id: 'text', icon: Type, title: 'Text Annotation' },
+    { id: 'arrow', icon: ArrowRight, title: 'Arrow Annotation' }
   ];
 
   return (
@@ -34,7 +36,7 @@ const DrawingTools = ({ activeTool, onToolSelect, selectedShape, onDelete, drawA
           </button>
         </div>
       )}
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-5 gap-2">
         {tools.map(({ id, icon: Icon, title }) => (
           <button
             key={id}

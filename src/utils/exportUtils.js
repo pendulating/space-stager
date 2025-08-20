@@ -1309,19 +1309,7 @@ const drawInfrastructureOnPdf = (pdf, layers, infrastructureData, project, toMm,
         const isBike = layerId === 'bikeLanes';
         const lw = isBike ? 1.2 : 0.6;
         pdf.setLineWidth(lw);
-        // Apply 0.6 opacity for bike lanes when supported
-        let restoreOpacity = false;
-        if (isBike && pdf.setGState) {
-          try {
-            const gs = new pdf.GState({ opacity: 0.6 });
-            pdf.setGState(gs);
-            restoreOpacity = true;
-          } catch (_) {}
-        }
         pdf.lines(toRelativeSegments(coords), coords[0].x, coords[0].y, [1, 1], 'S', false);
-        if (restoreOpacity && pdf.saveGraphicsState && pdf.restoreGraphicsState) {
-          try { pdf.restoreGraphicsState(); } catch (_) {}
-        }
       } else if (g.type === 'MultiLineString') {
         g.coordinates.forEach(line => {
           const coords = line.map(([lng, lat]) => toMm(project(lng, lat)));
@@ -1329,30 +1317,16 @@ const drawInfrastructureOnPdf = (pdf, layers, infrastructureData, project, toMm,
           const isBike = layerId === 'bikeLanes';
           const lw = isBike ? 1.2 : 0.6;
           pdf.setLineWidth(lw);
-          let restoreOpacity = false;
-          if (isBike && pdf.setGState) {
-            try {
-              const gs = new pdf.GState({ opacity: 0.6 });
-              pdf.setGState(gs);
-              restoreOpacity = true;
-            } catch (_) {}
-          }
           pdf.lines(toRelativeSegments(coords), coords[0].x, coords[0].y, [1, 1], 'S', false);
-          if (restoreOpacity && pdf.saveGraphicsState && pdf.restoreGraphicsState) {
-            try { pdf.restoreGraphicsState(); } catch (_) {}
-          }
         });
       } else if (g.type === 'Polygon') {
         let ring = g.coordinates[0].map(([lng, lat]) => toMm(project(lng, lat)));
         ring = normalizeRingPoints(ring);
         if (ring.length < 3) return;
         const segs = toRelativeSegments(ring);
-        // Fill light
-        pdf.saveGraphicsState && pdf.saveGraphicsState();
-        if (pdf.setGState) pdf.setGState(new pdf.GState({ opacity: 0.12 }));
+        // Fill at full opacity
         pdf.setFillColor(color.r, color.g, color.b);
         pdf.lines(segs, ring[0].x, ring[0].y, [1, 1], 'F', true);
-        pdf.restoreGraphicsState && pdf.restoreGraphicsState();
         // Stroke
         pdf.setDrawColor(color.r, color.g, color.b);
         pdf.setLineWidth(0.4);
@@ -1363,11 +1337,9 @@ const drawInfrastructureOnPdf = (pdf, layers, infrastructureData, project, toMm,
           ring = normalizeRingPoints(ring);
           if (ring.length < 3) return;
           const segs = toRelativeSegments(ring);
-          pdf.saveGraphicsState && pdf.saveGraphicsState();
-          if (pdf.setGState) pdf.setGState(new pdf.GState({ opacity: 0.12 }));
+          // Fill at full opacity
           pdf.setFillColor(color.r, color.g, color.b);
           pdf.lines(segs, ring[0].x, ring[0].y, [1, 1], 'F', true);
-          pdf.restoreGraphicsState && pdf.restoreGraphicsState();
           pdf.setDrawColor(color.r, color.g, color.b);
           pdf.setLineWidth(0.4);
           pdf.lines(segs, ring[0].x, ring[0].y, [1, 1], 'S', true);
@@ -1461,10 +1433,27 @@ const drawCustomShapesOnPdf = (pdf, shapes, project, toMm) => {
     const g = shape.geometry;
     if (!g) return;
     let labelPoint = null;
+    const kind = (shape.properties && shape.properties.type) || '';
     if (g.type === 'Point') {
       const p = toMm(project(g.coordinates[0], g.coordinates[1]));
-      pdf.circle(p.x, p.y, 1.2, 'S');
-      labelPoint = p;
+      if (kind === 'text') {
+        // Render text label directly at the point (with halo)
+        const label = String(shape.properties?.label || '').trim();
+        if (label) {
+          const x = p.x, y = p.y;
+          // White wipe box behind text for contrast
+          const pad = 0.8;
+          const w = pdf.getTextWidth(label) + pad * 2;
+          pdf.setFillColor(255, 255, 255);
+          pdf.rect(x - w / 2, y - 2.6, w, 5.2, 'F');
+          pdf.setTextColor(17, 24, 39);
+          pdf.text(label, x, y, { align: 'center', baseline: 'middle' });
+        }
+      } else {
+        // Default point marker + numbered badge
+        pdf.circle(p.x, p.y, 1.2, 'S');
+        labelPoint = p;
+      }
     } else if (g.type === 'LineString') {
       const coords = g.coordinates.map(([lng, lat]) => toMm(project(lng, lat)));
       if (coords.length < 2) return;
@@ -1473,6 +1462,21 @@ const drawCustomShapesOnPdf = (pdf, shapes, project, toMm) => {
       }
       pdf.setLineWidth(0.5);
       pdf.lines(toRelativeSegments(coords), coords[0].x, coords[0].y, [1, 1], 'S', false);
+      // Arrowhead if this is an arrow
+      if (kind === 'arrow') {
+        const a = coords[coords.length - 2];
+        const b = coords[coords.length - 1];
+        const dx = b.x - a.x; const dy = b.y - a.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const ux = dx / len; const uy = dy / len;
+        const size = 3; // mm
+        // Triangle points at end
+        const tip = b;
+        const left = { x: b.x - ux * size - uy * (size * 0.6), y: b.y - uy * size + ux * (size * 0.6) };
+        const right = { x: b.x - ux * size + uy * (size * 0.6), y: b.y - uy * size - ux * (size * 0.6) };
+        pdf.setFillColor(17, 24, 39);
+        pdf.lines([[left.x - tip.x, left.y - tip.y], [right.x - left.x, right.y - left.y], [tip.x - right.x, tip.y - right.y]], tip.x, tip.y, [1,1], 'F', true);
+      }
       labelPoint = coords[Math.floor(coords.length / 2)];
     } else if (g.type === 'Polygon') {
       const ring = g.coordinates[0].map(([lng, lat]) => toMm(project(lng, lat)));
@@ -1685,11 +1689,11 @@ const drawLayersAndEquipmentSummaryPage = (pdf, layers, droppedObjects, pngIcons
         head: [['Icon', 'Layer Name']],
         body: layersRows.map(r => ['', r.name]),
         theme: 'grid',
-        styles: { fontSize: bodyFontPt, cellPadding: cellPad, valign: 'middle', lineWidth: theme.linesMm.tertiary, lineColor: [220,220,220] },
-        headStyles: { fontSize: headFontPt, fillColor: [240, 244, 248], textColor: [31,41,55], halign: 'left' },
+        styles: { fontSize: bodyFontPt, fontStyle: 'normal', textColor: [31,41,55], cellPadding: cellPad, valign: 'middle', lineWidth: theme.linesMm.tertiary, lineColor: [220,220,220] },
+        headStyles: { fontSize: headFontPt, fontStyle: 'bold', fillColor: [240, 244, 248], textColor: [31,41,55], halign: 'left' },
         columnStyles: {
-          0: { cellWidth: rowIconCellW, halign: 'left' },
-          1: { cellWidth: 'auto' }
+          0: { cellWidth: rowIconCellW, halign: 'left', fontSize: bodyFontPt, fontStyle: 'normal', textColor: [31,41,55] },
+          1: { cellWidth: 'auto', fontSize: bodyFontPt, fontStyle: 'normal', textColor: [31,41,55] }
         },
         didDrawCell: (data) => {
           if (data.section === 'body' && data.column.index === 0) {
@@ -1723,12 +1727,12 @@ const drawLayersAndEquipmentSummaryPage = (pdf, layers, droppedObjects, pngIcons
         head: [['Icon', 'Equipment', 'Count']],
         body: equipmentRows.map(r => ['', r.name, String(r.count)]),
         theme: 'grid',
-        styles: { fontSize: bodyFontPt, cellPadding: cellPad, valign: 'middle', lineWidth: theme.linesMm.tertiary, lineColor: [220,220,220] },
-        headStyles: { fontSize: headFontPt, fillColor: [243, 248, 244], textColor: [31,41,55], halign: 'left' },
+        styles: { fontSize: bodyFontPt, fontStyle: 'normal', textColor: [31,41,55], cellPadding: cellPad, valign: 'middle', lineWidth: theme.linesMm.tertiary, lineColor: [220,220,220] },
+        headStyles: { fontSize: headFontPt, fontStyle: 'bold', fillColor: [240, 244, 248], textColor: [31,41,55], halign: 'left' },
         columnStyles: {
-          0: { cellWidth: rowIconCellW, halign: 'left' },
-          1: { cellWidth: 'auto' },
-          2: { cellWidth: countCellW, halign: 'right' }
+          0: { cellWidth: rowIconCellW, halign: 'left', fontSize: bodyFontPt, fontStyle: 'normal', textColor: [31,41,55] },
+          1: { cellWidth: 'auto', fontSize: bodyFontPt, fontStyle: 'normal', textColor: [31,41,55] },
+          2: { cellWidth: countCellW, halign: 'right', fontSize: bodyFontPt, fontStyle: 'normal', textColor: [31,41,55] }
         },
         didDrawCell: (data) => {
           if (data.section === 'body' && data.column.index === 0) {
@@ -1992,12 +1996,10 @@ const drawOverlaysOnCanvas = async (ctx, offscreen, mapPx, originPx, layers, cus
           const pts = g.coordinates.map(([lng, lat]) => project(lng, lat));
           ctx.beginPath();
           pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x + originPx.x, p.y + originPx.y) : ctx.lineTo(p.x + originPx.x, p.y + originPx.y));
-          // Thicker, semi-transparent for bike lanes
+          // Thicker for bike lanes
           if (id === 'bikeLanes') {
             ctx.lineWidth = 6;
-            ctx.globalAlpha = 0.6;
             ctx.stroke();
-            ctx.globalAlpha = 1.0;
           } else {
             ctx.lineWidth = 2;
             ctx.stroke();
@@ -2009,9 +2011,7 @@ const drawOverlaysOnCanvas = async (ctx, offscreen, mapPx, originPx, layers, cus
             pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x + originPx.x, p.y + originPx.y) : ctx.lineTo(p.x + originPx.x, p.y + originPx.y));
             if (id === 'bikeLanes') {
               ctx.lineWidth = 6;
-              ctx.globalAlpha = 0.6;
               ctx.stroke();
-              ctx.globalAlpha = 1.0;
             } else {
               ctx.lineWidth = 2;
               ctx.stroke();
@@ -2030,41 +2030,49 @@ const drawCustomShapesOnCanvas = (ctx, mapArea, map, customShapes) => {
   customShapes.forEach(shape => {
     try {
       if (shape.geometry.type === 'Point') {
-        // Draw point annotation
+        const props = shape.properties || {};
         const pixel = map.project([shape.geometry.coordinates[0], shape.geometry.coordinates[1]]);
         const mapPixelX = mapArea.x + pixel.x;
         const mapPixelY = mapArea.y + pixel.y;
-        
-        // Draw point marker
-        ctx.fillStyle = '#3b82f6';
-        ctx.beginPath();
-        ctx.arc(mapPixelX, mapPixelY, 8, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.strokeStyle = 'white';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        
-        // Draw label if available
-        if (shape.properties && shape.properties.label) {
-          ctx.fillStyle = '#1f2937';
-          ctx.font = 'bold 12px Arial';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'bottom';
-          
-          // Add background for label
-          const textWidth = ctx.measureText(shape.properties.label).width;
-          const labelX = mapPixelX;
-          const labelY = mapPixelY - 15;
-          
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-          ctx.fillRect(labelX - textWidth/2 - 4, labelY - 12, textWidth + 8, 16);
-          
-          ctx.fillStyle = '#1f2937';
-          ctx.fillText(shape.properties.label, labelX, labelY);
+        const isText = props.type === 'text';
+        if (isText) {
+          const label = String(props.label || '').trim();
+          if (label) {
+            ctx.font = 'bold 14px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const w = ctx.measureText(label).width + 8;
+            ctx.fillStyle = 'rgba(255,255,255,0.9)';
+            ctx.fillRect(mapPixelX - w / 2, mapPixelY - 10, w, 20);
+            ctx.fillStyle = props.textColor || '#111827';
+            ctx.fillText(label, mapPixelX, mapPixelY);
+          }
+        } else {
+          // Default point annotation
+          ctx.fillStyle = '#3b82f6';
+          ctx.beginPath();
+          ctx.arc(mapPixelX, mapPixelY, 8, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.strokeStyle = 'white';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          if (props && props.label) {
+            ctx.fillStyle = '#1f2937';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            const textWidth = ctx.measureText(props.label).width;
+            const labelX = mapPixelX;
+            const labelY = mapPixelY - 15;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.fillRect(labelX - textWidth/2 - 4, labelY - 12, textWidth + 8, 16);
+            ctx.fillStyle = '#1f2937';
+            ctx.fillText(props.label, labelX, labelY);
+          }
         }
         
       } else if (shape.geometry.type === 'LineString') {
-        // Draw line annotation
+        const props = shape.properties || {};
         ctx.strokeStyle = '#3b82f6';
         ctx.lineWidth = 3;
         ctx.lineCap = 'round';
@@ -2089,9 +2097,27 @@ const drawCustomShapesOnCanvas = (ctx, mapArea, map, customShapes) => {
           lastPx = { x: mapPixelX, y: mapPixelY };
         });
         ctx.stroke();
+        if (props.type === 'arrow') {
+          try {
+            const coords = shape.geometry.coordinates;
+            const aPx = map.project(coords[coords.length - 2]);
+            const bPx = map.project(coords[coords.length - 1]);
+            const ax = mapArea.x + aPx.x, ay = mapArea.y + aPx.y;
+            const bx = mapArea.x + bPx.x, by = mapArea.y + bPx.y;
+            const dx = bx - ax, dy = by - ay; const len = Math.hypot(dx, dy) || 1; const ux = dx / len, uy = dy / len;
+            const size = 16;
+            ctx.fillStyle = '#111827';
+            ctx.beginPath();
+            ctx.moveTo(bx, by);
+            ctx.lineTo(bx - ux * size - uy * (size * 0.6), by - uy * size + ux * (size * 0.6));
+            ctx.lineTo(bx - ux * size + uy * (size * 0.6), by - uy * size - ux * (size * 0.6));
+            ctx.closePath();
+            ctx.fill();
+          } catch (_) {}
+        }
         
         // Draw label at midpoint if available
-        if (shape.properties && shape.properties.label) {
+        if (props && props.label) {
           const midIndex = Math.floor(shape.geometry.coordinates.length / 2);
           const midCoord = shape.geometry.coordinates[midIndex];
           const pixel = map.project([midCoord[0], midCoord[1]]);
@@ -2104,7 +2130,7 @@ const drawCustomShapesOnCanvas = (ctx, mapArea, map, customShapes) => {
           ctx.textBaseline = 'middle';
           
           // Add background for label
-          const textWidth = ctx.measureText(shape.properties.label).width;
+          const textWidth = ctx.measureText(props.label).width;
           const labelX = mapPixelX;
           const labelY = mapPixelY;
           
@@ -2112,7 +2138,7 @@ const drawCustomShapesOnCanvas = (ctx, mapArea, map, customShapes) => {
           ctx.fillRect(labelX - textWidth/2 - 4, labelY - 8, textWidth + 8, 16);
           
           ctx.fillStyle = '#1f2937';
-          ctx.fillText(shape.properties.label, labelX, labelY);
+          ctx.fillText(props.label, labelX, labelY);
         }
         
       } else if (shape.geometry.type === 'Polygon') {
@@ -2295,6 +2321,39 @@ const drawDroppedObjectsOnCanvas = async (ctx, mapArea, map, droppedObjects) => 
         const angleStr = String((((obj?.properties?.rotationDeg ?? 0) % 360) + 360) % 360).padStart(3, '0');
         const src = isEnhanced && base ? `${dir}/${base}_${angleStr}.png` : objectType.imageUrl;
         const img = await loadImage(src);
+        // Draw a contrasting background circle for visibility
+        try {
+          const c = document.createElement('canvas');
+          const w = Math.max(1, Math.min(24, img.width || 24));
+          const h = Math.max(1, Math.min(24, img.height || 24));
+          c.width = w; c.height = h;
+          const cctx = c.getContext('2d', { willReadFrequently: true });
+          cctx.drawImage(img, 0, 0, w, h);
+          const { data } = cctx.getImageData(0, 0, w, h);
+          let lumSum = 0, aSum = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3] / 255;
+            if (a < 0.1) continue;
+            lumSum += (0.2126 * r + 0.7152 * g + 0.0722 * b) * a;
+            aSum += a;
+          }
+          const avgLum = aSum > 0 ? lumSum / aSum : 0;
+          const isLight = avgLum >= 200;
+          let bg = 'rgba(255,255,255,0.9)';
+          if (isLight) {
+            const rgb = hexToRgb(objectType.color || '#64748b') || { r: 31, g: 41, b: 55 };
+            bg = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.9)`;
+          }
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(mapPixelX, mapPixelY, objSize / 2, 0, 2 * Math.PI);
+          ctx.fillStyle = bg;
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.restore();
+        } catch (_) {}
         if (obj?.properties?.flipped) {
           ctx.save();
           // Mirror around the image center

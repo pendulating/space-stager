@@ -135,16 +135,23 @@ export const getIconDataUrl = (layerId) => {
 
 // Get zoom-independent icon size expression for PNG icons
 export const getZoomIndependentIconSize = (baseSize) => {
-  // For zoom-independent sizing, use a small constant value that doesn't scale with zoom
-  // This approach prevents the geographic scaling and keeps icons at screen pixel size
+  // Most of our layer icons are SVGs rasterized at large intrinsic sizes (e.g., 512px),
+  // so Maplibre's icon-size must be quite small. Normalize the provided base into a small
+  // scale and interpolate with zoom so icons are readable but not huge.
+  const b = Math.max(0.01, Math.min(1, baseSize));
+  const s = Math.max(0.01, Math.min(0.2, b * 0.04)); // 0.8 -> ~0.032
   return [
-    "interpolate",
-    ["linear"], ["zoom"],
-    0, 0.02,
-    16, 0.02,  // Smallest icon at minimum zoom
-    20, 0.5,
-    24, 0.5  // Same size at max zoom
-  ] // Very small constant value to test visibility
+    'interpolate', ['linear'], ['zoom'],
+    10, s * 0.7,
+    12, s * 0.85,
+    14, s,
+    16, s * 2.6,
+    18, s * 3.6,
+    20, s * 4.6,
+    22, s * 6.6,
+    24, s * 8.6,
+    30, s * 10.6
+  ];
 };
 
 // Check if a layer uses PNG icons
@@ -154,49 +161,54 @@ export const layerUsesPngIcon = (layerId) => {
 };
 
 // Add icons to Mapbox map
-export const addIconsToMap = (map) => {
-  console.log('[DEBUG] addIconsToMap called');
+// Track which icon ids we've already attempted to add (to reduce repeated work/logging)
+const requestedIconIds = new Set();
+
+export const addIconsToMap = (map, onlyLayerIds = null) => {
+  if (!map) return false;
+  const targetEntries = onlyLayerIds && Array.isArray(onlyLayerIds) && onlyLayerIds.length > 0
+    ? Object.entries(INFRASTRUCTURE_ICONS).filter(([layerId]) => onlyLayerIds.includes(layerId))
+    : Object.entries(INFRASTRUCTURE_ICONS);
+  // Only log when truly adding new icons
   
-  if (!map || !map.isStyleLoaded()) {
-    console.log('Map not ready for icons, will retry later');
+  if (!map.isStyleLoaded || !map.isStyleLoaded()) {
+    // Map not ready yet
     return false;
   }
 
   let allIconsLoaded = true;
   let iconsAdded = 0;
-  
-  console.log('[DEBUG] Starting to add icons to map');
-  
-  Object.entries(INFRASTRUCTURE_ICONS).forEach(([layerId, icon]) => {
-    console.log(`[DEBUG] Processing icon for ${layerId}: ${icon.id}`);
+
+  targetEntries.forEach(([layerId, icon]) => {
     
     // Skip if icon already exists
     if (map.hasImage(icon.id)) {
-      console.log(`Icon ${icon.id} already exists`);
       iconsAdded++;
+      return;
+    }
+
+    if (requestedIconIds.has(icon.id)) {
+      // Already requested/attempted; skip duplicate work
       return;
     }
 
     let dataUrl;
     if (icon.type === 'svg') {
       dataUrl = svgToDataUrl(icon.svg);
-      console.log(`[DEBUG] Created SVG data URL for ${icon.id}:`, dataUrl.substring(0, 100) + '...');
     } else if (icon.type === 'png') {
       dataUrl = icon.src;
-      console.log(`[DEBUG] Using PNG source for ${icon.id}:`, dataUrl);
     }
     
     // Create an image element to load the icon
     const img = new Image();
+    requestedIconIds.add(icon.id);
     
     img.onload = () => {
       try {
-        console.log(`[DEBUG] Image loaded for ${icon.id}, adding to map`);
         if (map.hasImage(icon.id)) {
           map.removeImage(icon.id);
         }
         map.addImage(icon.id, img);
-        console.log(`Successfully added icon: ${icon.id}`);
         iconsAdded++;
       } catch (error) {
         console.error(`Error adding icon ${icon.id}:`, error);
@@ -212,12 +224,11 @@ export const addIconsToMap = (map) => {
     img.src = dataUrl;
   });
   
-  console.log(`[DEBUG] Icon loading complete. Icons added: ${iconsAdded}, all loaded: ${allIconsLoaded}`);
   return allIconsLoaded;
 };
 
 // Retry loading icons if they fail
-export const retryLoadIcons = (map, maxRetries = 3) => {
+export const retryLoadIcons = (map, maxRetries = 3, layerIds = null) => {
   let retryCount = 0;
   
   const attemptLoad = () => {
@@ -227,9 +238,7 @@ export const retryLoadIcons = (map, maxRetries = 3) => {
     }
     
     retryCount++;
-    console.log(`Attempting to load icons (attempt ${retryCount}/${maxRetries})`);
-    
-    const success = addIconsToMap(map);
+    const success = addIconsToMap(map, layerIds);
     if (!success) {
       setTimeout(attemptLoad, 1000); // Retry after 1 second
     }

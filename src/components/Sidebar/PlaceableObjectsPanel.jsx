@@ -1,4 +1,5 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { getContrastingBackgroundForIcon } from '../../utils/colorUtils';
 
 const PlaceableObjectsPanel = ({ 
   objects, 
@@ -17,6 +18,42 @@ const PlaceableObjectsPanel = ({
     const isBatchMode = e.shiftKey;
     onActivation(obj, isBatchMode);
   }, [onActivation, onRectActivation]);
+
+  const [bgBySrc, setBgBySrc] = useState({});
+
+  // Precompute contrasting backgrounds for all object thumbnails (base icon or 135° variant)
+  useEffect(() => {
+    if (!objects || !objects.length) return;
+    const needed = {};
+    objects.forEach((obj) => {
+      if (!obj?.imageUrl) return;
+      const isEnhanced = !!obj?.enhancedRendering?.enabled;
+      let src = obj.imageUrl;
+      if (isEnhanced) {
+        const base = obj.enhancedRendering.spriteBase;
+        const dir = obj.enhancedRendering.publicDir || '/data/icons/isometric-bw';
+        src = `${dir}/${base}_135.png`;
+      }
+      if (src && !bgBySrc[src]) {
+        needed[src] = obj.color || '#64748b';
+      }
+    });
+    const srcs = Object.keys(needed);
+    if (srcs.length === 0) return;
+    let active = true;
+    Promise.all(srcs.map(async (src) => {
+      const bg = await getContrastingBackgroundForIcon(src, needed[src], 0.9);
+      return [src, bg];
+    })).then((pairs) => {
+      if (!active) return;
+      setBgBySrc((prev) => {
+        const next = { ...prev };
+        pairs.forEach(([s, bg]) => { next[s] = bg; });
+        return next;
+      });
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [objects, bgBySrc]);
 
   return (
     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
@@ -43,7 +80,6 @@ const PlaceableObjectsPanel = ({
             >
               {obj.imageUrl ? (
                 (() => {
-                  // If this dropped object supports enhanced variants, show the 135° variant in the panel
                   const isEnhanced = !!obj?.enhancedRendering?.enabled;
                   let src = obj.imageUrl;
                   if (isEnhanced) {
@@ -51,14 +87,20 @@ const PlaceableObjectsPanel = ({
                     const dir = obj.enhancedRendering.publicDir || '/data/icons/isometric-bw';
                     src = `${dir}/${base}_135.png`;
                   }
+                  const bg = bgBySrc[src] || (obj.color ? `${obj.color}E6` : undefined); // fallback alpha if not computed yet
                   return (
-                    <img
-                      src={src}
-                      alt={obj.name}
-                      className="w-12 h-12 mb-2 rounded"
-                      style={{ objectFit: 'contain' }}
-                      draggable={false}
-                    />
+                    <div
+                      className="w-12 h-12 mb-2 rounded-full flex items-center justify-center"
+                      style={{ backgroundColor: bg || 'rgba(255,255,255,0.9)' }}
+                    >
+                      <img
+                        src={src}
+                        alt={obj.name}
+                        className="w-10 h-10"
+                        style={{ objectFit: 'contain' }}
+                        draggable={false}
+                      />
+                    </div>
                   );
                 })()
               ) : (

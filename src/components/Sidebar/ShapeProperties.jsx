@@ -8,14 +8,25 @@ const ShapeProperties = ({
   onUpdateShape 
 }) => {
   const [shapeLabel, setShapeLabel] = useState('');
+  const [textSize, setTextSize] = useState(14);
+  const [textColor, setTextColor] = useState('#111827');
+  const [halo, setHalo] = useState(true);
 
   // Update local state when selected shape changes
   useEffect(() => {
     if (selectedShape) {
       const shape = customShapes.find(s => s.id === selectedShape);
       setShapeLabel(shape?.label || '');
+      const feature = draw?.current ? draw.current.get(selectedShape) : null;
+      const p = feature?.properties || {};
+      setTextSize(Number(p.textSize || 14));
+      setTextColor(p.textColor || '#111827');
+      setHalo(p.halo !== false);
     } else {
       setShapeLabel('');
+      setTextSize(14);
+      setTextColor('#111827');
+      setHalo(true);
     }
   }, [selectedShape, customShapes]);
 
@@ -28,6 +39,9 @@ const ShapeProperties = ({
       const feature = draw.current.get(selectedShape);
       if (feature) {
         feature.properties.label = shapeLabel;
+        feature.properties.textSize = Number(textSize) || 14;
+        feature.properties.textColor = textColor;
+        feature.properties.halo = !!halo;
         draw.current.add(feature);
       }
     }
@@ -76,6 +90,20 @@ const ShapeProperties = ({
             </button>
           </div>
         </div>
+        <div className="grid grid-cols-3 gap-2 items-center">
+          <div className="col-span-2">
+            <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Text Color</label>
+            <input type="color" value={textColor} onChange={(e) => setTextColor(e.target.value)} className="w-full h-9 p-0 border border-gray-300 dark:border-gray-700 rounded" />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Size</label>
+            <input type="number" min={8} max={48} value={textSize} onChange={(e) => setTextSize(e.target.value)} className="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" />
+          </div>
+        </div>
+        <label className="flex items-center text-sm text-gray-700 dark:text-gray-200">
+          <input type="checkbox" checked={!!halo} onChange={(e) => setHalo(e.target.checked)} className="mr-2" />
+          Text halo for contrast
+        </label>
       </div>
     </div>
   );

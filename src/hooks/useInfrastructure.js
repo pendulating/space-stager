@@ -173,7 +173,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     loadingLayersRef.current.clear();
   }, [focusedAreaId, map]); // Trigger when focused area ID changes
 
-  // Load infrastructure icons on initial ready and on EVERY style change
+  // Load infrastructure icons lazily when style is ready
   useEffect(() => {
     if (!map) return;
     const onStyleLoad = () => {
@@ -192,8 +192,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     
     removeInfrastructureLayer(layerId);
     const sourceId = `source-${layerId}`;
-    // Best-effort ensure icons exist for this style before/after layers are added
-    try { addIconsToMap(map); } catch (_) {}
+    // Lazily add only the icons needed for this specific layer
+    try { addIconsToMap(map, [layerId]); } catch (_) {}
     
     // Add source
     map.addSource(sourceId, {

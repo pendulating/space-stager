@@ -538,7 +538,7 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
   switch(layerId) {
     case 'hydrants':
       if (hasIconDef) {
-        const base = 0.8 * sizeScale;
+        const base = 0.55 * sizeScale;
         const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         const iconImage = (layerConfig?.enhancedRendering?.enabled)
           ? ['coalesce', ['get', 'icon_image'], 'hydrant-icon']

@@ -100,7 +100,7 @@ const RightSidebar = ({
             className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2 export-button export-event-plan"
           >
             <Download className="w-4 h-4" />
-            <span>Export Event Plan</span>
+            <span>Save Draft</span>
           </button>
           
           {/* Export Siteplan Menu */}
