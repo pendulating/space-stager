@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { padAngle } from '../../utils/enhancedRenderingUtils';
 
 const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects }) => {
   const previewStyle = useMemo(() => {
@@ -79,7 +80,18 @@ const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects }) =
   return (
     <div style={previewStyle}>
       {objectType.imageUrl ? (
-        <img src={objectType.imageUrl} alt={objectType.name} style={iconStyle} draggable={false} />
+        (() => {
+          // If enhanced, preview the variant image for the current placement rotation
+          const isEnhanced = !!objectType?.enhancedRendering?.enabled;
+          let src = objectType.imageUrl;
+          if (isEnhanced) {
+            const base = objectType.enhancedRendering.spriteBase;
+            const dir = objectType.enhancedRendering.publicDir || '/data/icons/isometric-bw';
+            const angle = typeof placementMode?.rotationDeg === 'number' ? placementMode.rotationDeg : 0;
+            src = `${dir}/${base}_${padAngle(angle)}.png`;
+          }
+          return <img src={src} alt={objectType.name} style={iconStyle} draggable={false} />;
+        })()
       ) : (
         <div style={iconStyle}>{objectType.icon}</div>
       )}

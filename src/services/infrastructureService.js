@@ -3,6 +3,7 @@ import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
 import proj4 from 'proj4';
 import { expandBounds } from '../utils/geometryUtils';
 import { INFRASTRUCTURE_ICONS, getZoomIndependentIconSize, layerUsesPngIcon } from '../utils/iconUtils';
+import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, buildSpriteImageId } from '../utils/enhancedRenderingUtils';
 
 export const loadInfrastructureData = async (layerId, bounds) => {
   const endpoint = INFRASTRUCTURE_ENDPOINTS[layerId];
@@ -27,7 +28,7 @@ export const loadInfrastructureData = async (layerId, bounds) => {
     let whereConditions = [];
     
     // Add bounding box (or polygon intersects) filter
-    if ((layerId === 'bikeLanes' || layerId === 'fireLanes' || layerId === 'specialDisasterRoutes') && endpoint.geoField) {
+    if ((layerId === 'bikeLanes' || layerId === 'fireLanes' || layerId === 'specialDisasterRoutes' || layerId === 'stationEnvelopes') && endpoint.geoField) {
       // Use polygon intersects for line-based layers to better approximate area buffer
       const wktPoly = `POLYGON((
         ${minLng} ${minLat},
@@ -539,10 +540,13 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       if (hasIconDef) {
         const base = 0.8 * sizeScale;
         const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
+        const iconImage = (layerConfig?.enhancedRendering?.enabled)
+          ? ['coalesce', ['get', 'icon_image'], 'hydrant-icon']
+          : 'hydrant-icon';
         return {
           type: 'symbol',
           layout: {
-            'icon-image': 'hydrant-icon',
+            'icon-image': iconImage,
             'icon-size': iconSize,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true
@@ -568,10 +572,13 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       if (hasIconDef) {
         const base = 0.7 * sizeScale;
         const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
+        const iconImage = (layerConfig?.enhancedRendering?.enabled)
+          ? ['coalesce', ['get', 'icon_image'], 'tree-icon']
+          : 'tree-icon';
         return {
           type: 'symbol',
           layout: {
-            'icon-image': 'tree-icon',
+            'icon-image': iconImage,
             'icon-size': iconSize,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true
@@ -626,10 +633,13 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       if (hasIconDef) {
         const base = 0.8 * sizeScale;
         const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
+        const iconImage = (layerConfig?.enhancedRendering?.enabled)
+          ? ['coalesce', ['get', 'icon_image'], 'bench-icon']
+          : 'bench-icon';
         return {
           type: 'symbol',
           layout: {
-            'icon-image': 'bench-icon',
+            'icon-image': iconImage,
             'icon-size': iconSize,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true
@@ -679,10 +689,13 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       if (hasIconDef) {
         const base = 0.8 * sizeScale;
         const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
+        const iconImage = (layerConfig?.enhancedRendering?.enabled)
+          ? ['coalesce', ['get', 'icon_image'], 'bike-parking-icon']
+          : 'bike-parking-icon';
         return {
           type: 'symbol',
           layout: {
-            'icon-image': 'bike-parking-icon',
+            'icon-image': iconImage,
             'icon-size': iconSize,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true
@@ -817,10 +830,13 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       if (hasIconDef) {
         const base = 0.6 * sizeScale;
         const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
+        const iconImage = (layerConfig?.enhancedRendering?.enabled)
+          ? ['coalesce', ['get', 'icon_image'], 'parking-meter-icon']
+          : 'parking-meter-icon';
         return {
           type: 'symbol',
           layout: {
-            'icon-image': 'parking-meter-icon',
+            'icon-image': iconImage,
             'icon-size': iconSize,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true
@@ -846,10 +862,14 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       if (hasIconDef) {
         const base = 0.9 * sizeScale;
         const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
+        // If enhanced rendering is enabled, let per-feature icon_image decide the variant
+        const iconImage = (layerConfig?.enhancedRendering?.enabled)
+          ? ['coalesce', ['get', 'icon_image'], 'linknyc-kiosk-icon']
+          : 'linknyc-kiosk-icon';
         return {
           type: 'symbol',
           layout: {
-            'icon-image': 'linknyc-kiosk-icon',
+            'icon-image': iconImage,
             'icon-size': iconSize,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true

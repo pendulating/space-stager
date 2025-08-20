@@ -117,7 +117,8 @@ export const useClickToPlace = (map) => {
         ...placementMode.objectType,
         label: placementMode.objectType.name,
         timestamp: new Date().toISOString(),
-        flipped: !!placementMode.isFlipped
+        flipped: !!placementMode.isFlipped,
+        rotationDeg: typeof placementMode.rotationDeg === 'number' ? placementMode.rotationDeg : 0
       }
     };
     
@@ -144,7 +145,8 @@ export const useClickToPlace = (map) => {
       setPlacementMode({
         objectType,
         isBatchMode,
-        isFlipped: false
+        isFlipped: false,
+        rotationDeg: 0
       });
       if (DEBUG) console.log('ClickToPlace: Activated placement mode for', objectType.name, 'batch:', isBatchMode);
     }
@@ -206,18 +208,46 @@ export const useClickToPlace = (map) => {
     setCursorPosition(null);
   }, []);
 
-  // Keyboard: toggle horizontal flip during placement with '<' or '>'
+  // Keyboard controls during placement: , / . or [ / ] to rotate 45° steps
   useEffect(() => {
     if (!placementMode) return;
     const onKeyDown = (e) => {
-      // Support both comma/period keys (with or without Shift) and literal '<'/'>'
-      const isComma = e.code === 'Comma' || e.key === ',';
-      const isPeriod = e.code === 'Period' || e.key === '.';
-      const isLeftAngle = e.key === '<';
-      const isRightAngle = e.key === '>';
-      if (isComma || isPeriod || isLeftAngle || isRightAngle) {
+      // Ignore when typing in inputs/textarea/contentEditable
+      const t = e.target;
+      const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+
+      // Rotate during placement with ',' and '.' (and variants '<' '>')
+      const isComma = e.code === 'Comma' || e.key === ',' || e.key === '<';
+      const isPeriod = e.code === 'Period' || e.key === '.' || e.key === '>';
+      if (!typing && (isComma || isPeriod)) {
         e.preventDefault();
-        setPlacementMode(prev => prev ? { ...prev, isFlipped: !prev.isFlipped } : prev);
+        setPlacementMode(prev => {
+          if (!prev) return prev;
+          const cur = typeof prev.rotationDeg === 'number' ? prev.rotationDeg : 0;
+          const delta = isPeriod ? 45 : -45;
+          let next = (cur + delta) % 360;
+          if (next < 0) next += 360;
+          const q = Math.round(next / 45) * 45;
+          return { ...prev, rotationDeg: ((q % 360) + 360) % 360 };
+        });
+        return;
+      }
+
+      // Rotate during placement with '[' and ']'
+      const isLeftBracket = e.code === 'BracketLeft' || e.key === '[';
+      const isRightBracket = e.code === 'BracketRight' || e.key === ']';
+      if (!typing && (isLeftBracket || isRightBracket)) {
+        e.preventDefault();
+        setPlacementMode(prev => {
+          if (!prev) return prev;
+          const cur = typeof prev.rotationDeg === 'number' ? prev.rotationDeg : 0;
+          const delta = isRightBracket ? 45 : -45;
+          let next = (cur + delta) % 360;
+          if (next < 0) next += 360;
+          // Quantize to nearest 45 bucket
+          const q = Math.round(next / 45) * 45;
+          return { ...prev, rotationDeg: ((q % 360) + 360) % 360 };
+        });
       }
     };
     window.addEventListener('keydown', onKeyDown, { passive: false });

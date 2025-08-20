@@ -1,5 +1,6 @@
 // hooks/useDrawTools.js
 import { useState, useEffect, useRef, useCallback } from 'react';
+import RectObjectMode from '../draw-modes/rectObjectMode';
 
 export const useDrawTools = (map, focusedArea = null) => {
   const draw = useRef(null);
@@ -8,6 +9,7 @@ export const useDrawTools = (map, focusedArea = null) => {
   const [shapeLabel, setShapeLabel] = useState('');
   const [drawInitialized, setDrawInitialized] = useState(false);
   const [showLabels, setShowLabelsState] = useState(true);
+  const [activeRectObjectTypeId, setActiveRectObjectTypeId] = useState(null);
   
   const setShowLabels = useCallback((value) => {
     setShowLabelsState(value);
@@ -77,7 +79,9 @@ export const useDrawTools = (map, focusedArea = null) => {
         const drawInstance = new window.MapboxDraw({
           displayControlsDefault: false,
           controls: {},
-          defaultMode: 'simple_select'
+          defaultMode: 'simple_select',
+          userProperties: true,
+          modes: Object.assign({}, window.MapboxDraw.modes, { draw_rect_object: RectObjectMode })
         });
         
         console.log('Adding draw control to map...');
@@ -197,6 +201,26 @@ export const useDrawTools = (map, focusedArea = null) => {
     }
   }, []);
 
+  // Start/stop rectangle-object placement mode from sidebar
+  const startRectObjectPlacement = useCallback((objectType) => {
+    if (!draw.current) {
+      console.warn('Draw controls not initialized, cannot activate rectangle placement');
+      return;
+    }
+    try {
+      const isActive = activeRectObjectTypeId === objectType.id;
+      if (isActive) {
+        draw.current.changeMode('simple_select');
+        setActiveRectObjectTypeId(null);
+      } else {
+        setActiveRectObjectTypeId(objectType.id);
+        draw.current.changeMode('draw_rect_object', { objectTypeId: objectType.id });
+      }
+    } catch (e) {
+      console.warn('Failed to start rectangle placement', e);
+    }
+  }, [activeRectObjectTypeId]);
+
   // Update shape label
   const updateShapeLabel = useCallback(() => {
     if (selectedShape && draw.current) {
@@ -281,7 +305,9 @@ export const useDrawTools = (map, focusedArea = null) => {
         const drawInstance = new window.MapboxDraw({
           displayControlsDefault: false,
           controls: {},
-          defaultMode: 'simple_select'
+          defaultMode: 'simple_select',
+          userProperties: true,
+          modes: Object.assign({}, window.MapboxDraw.modes, { draw_rect_object: RectObjectMode })
         });
         draw.current = drawInstance;
         map.addControl(drawInstance);
@@ -296,6 +322,20 @@ export const useDrawTools = (map, focusedArea = null) => {
     };
     const styleReady = typeof map.isStyleLoaded === 'function' ? map.isStyleLoaded() : true;
     if (styleReady) ensure(); else map.once('style.load', ensure);
+  }, [map]);
+
+  // Reset active rect indicator when mode changes away from our custom mode
+  useEffect(() => {
+    if (!map) return;
+    const onModeChange = (e) => {
+      try {
+        if (e?.mode !== 'draw_rect_object') {
+          setActiveRectObjectTypeId(null);
+        }
+      } catch (_) {}
+    };
+    map.on('draw.modechange', onModeChange);
+    return () => { try { map.off('draw.modechange', onModeChange); } catch (_) {} };
   }, [map]);
 
   // Manual initialization function for retry button
@@ -320,6 +360,8 @@ export const useDrawTools = (map, focusedArea = null) => {
     forceReinitialize: reinitializeDrawControls, // Internal function for automatic reinit
     drawInitialized,
     showLabels,
-    setShowLabels
+    setShowLabels,
+    startRectObjectPlacement,
+    activeRectObjectTypeId
   };
 };

@@ -3,21 +3,30 @@ import React, { useCallback } from 'react';
 const PlaceableObjectsPanel = ({ 
   objects, 
   onActivation, 
-  placementMode 
+  placementMode,
+  onRectActivation,
+  activeRectObjectTypeId
 }) => {
   const handleClick = useCallback((e, obj) => {
-    // Check if shift is held for batch mode
+    // If object is rectangle-based, use rect activation path
+    if (obj?.geometryType === 'rect') {
+      if (onRectActivation) onRectActivation(obj);
+      return;
+    }
+    // Check if shift is held for batch mode (only for point objects)
     const isBatchMode = e.shiftKey;
     onActivation(obj, isBatchMode);
-  }, [onActivation]);
+  }, [onActivation, onRectActivation]);
 
   return (
     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
       <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-3">Event Objects</h3>
       <div className="grid grid-cols-2 gap-2 placeable-objects-grid">
         {objects.map((obj) => {
-          const isActive = placementMode?.objectType.id === obj.id;
-          const isBatchMode = isActive && placementMode.isBatchMode;
+          const isActivePoint = placementMode?.objectType?.id === obj.id;
+          const isBatchMode = isActivePoint && placementMode.isBatchMode;
+          const isActiveRect = activeRectObjectTypeId === obj.id;
+          const isActive = isActivePoint || isActiveRect;
           
           return (
             <div
@@ -33,13 +42,25 @@ const PlaceableObjectsPanel = ({
               title={`Click to place ${obj.name}${isActive ? ' (click again to cancel)' : ''}`}
             >
               {obj.imageUrl ? (
-                <img
-                  src={obj.imageUrl}
-                  alt={obj.name}
-                  className="w-12 h-12 mb-2 rounded"
-                  style={{ objectFit: 'contain' }}
-                  draggable={false}
-                />
+                (() => {
+                  // If this dropped object supports enhanced variants, show the 135° variant in the panel
+                  const isEnhanced = !!obj?.enhancedRendering?.enabled;
+                  let src = obj.imageUrl;
+                  if (isEnhanced) {
+                    const base = obj.enhancedRendering.spriteBase;
+                    const dir = obj.enhancedRendering.publicDir || '/data/icons/isometric-bw';
+                    src = `${dir}/${base}_135.png`;
+                  }
+                  return (
+                    <img
+                      src={src}
+                      alt={obj.name}
+                      className="w-12 h-12 mb-2 rounded"
+                      style={{ objectFit: 'contain' }}
+                      draggable={false}
+                    />
+                  );
+                })()
               ) : (
                 <div 
                   className="w-12 h-12 mb-2 rounded-full flex items-center justify-center text-white text-sm font-medium"

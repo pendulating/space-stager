@@ -63,7 +63,14 @@ export const INITIAL_LAYERS = {
     color: '#b2c5a5',
     loading: false,
     loaded: false,
-    endpoint: '/api/bike-parking'
+    endpoint: '/api/bike-parking',
+    enhancedRendering: {
+      enabled: true,
+      spriteBase: 'bike-rack',
+      publicDir: '/data/icons/isometric-bw',
+      desiredParallelTo: 'cscl',
+      angles: [0, 45, 90, 135, 180, 225, 270, 315]
+    }
   },
   citibikeStations: {
     visible: false,
@@ -111,7 +118,14 @@ export const INITIAL_LAYERS = {
     color: '#f59e0b',
     loading: false,
     loaded: false,
-    endpoint: '/api/parking-meters'
+    endpoint: '/api/parking-meters',
+    enhancedRendering: {
+      enabled: true,
+      spriteBase: 'parking-meter',
+      publicDir: '/data/icons/isometric-bw',
+      desiredParallelTo: 'cscl',
+      angles: [0, 45, 90, 135, 180, 225, 270, 315]
+    }
   },
   streetParkingSigns: {
     visible: false,
@@ -127,7 +141,15 @@ export const INITIAL_LAYERS = {
     color: '#06b6d4',
     loading: false,
     loaded: false,
-    endpoint: '/api/linknyc-kiosks'
+    endpoint: '/api/linknyc-kiosks',
+    // Pilot: enhanced isometric sprite rendering aligned to CSCL centerlines
+    enhancedRendering: {
+      enabled: true,
+      spriteBase: 'linknyc', // expects {base}_{000|045|...}.png
+      publicDir: '/data/icons/isometric-bw',
+      desiredParallelTo: 'cscl',
+      angles: [0, 45, 90, 135, 180, 225, 270, 315]
+    }
   },
   publicRestrooms: {
     visible: false,
@@ -191,7 +213,13 @@ export const INITIAL_LAYERS = {
     color: '#22c55e', 
     loading: false,
     loaded: false,
-    endpoint: '/api/trees'
+    endpoint: '/api/trees',
+    enhancedRendering: {
+      enabled: true,
+      spriteBase: 'tree_maple',
+      publicDir: '/data/icons/isometric-bw',
+      angles: [0, 45, 90, 135, 180, 225, 270, 315]
+    }
   },
   hydrants: { 
     visible: false, 
@@ -199,7 +227,13 @@ export const INITIAL_LAYERS = {
     color: '#ef4444', 
     loading: false,
     loaded: false,
-    endpoint: '/api/hydrants'
+    endpoint: '/api/hydrants',
+    enhancedRendering: {
+      enabled: true,
+      spriteBase: 'fire-hydrant',
+      publicDir: '/data/icons/isometric-bw',
+      angles: [0, 45, 90, 135, 180, 225, 270, 315]
+    }
   },
 
   busStops: { 
@@ -216,7 +250,14 @@ export const INITIAL_LAYERS = {
     color: '#8b5cf6', 
     loading: false,
     loaded: false,
-    endpoint: '/api/benches'
+    endpoint: '/api/benches',
+    enhancedRendering: {
+      enabled: true,
+      spriteBase: 'bench',
+      publicDir: '/data/icons/isometric-bw',
+      desiredParallelTo: 'cscl',
+      angles: [0, 45, 90, 135, 180, 225, 270, 315]
+    }
   },
   stationEnvelopes: {
     visible: false,

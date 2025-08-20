@@ -188,10 +188,10 @@ export const INFRASTRUCTURE_ENDPOINTS = {
     // MTA Subway and Rail Station Envelopes (NY State open data)
     // Docs: https://dev.socrata.com/foundry/data.ny.gov/vkng-7ivg
     baseUrl: 'https://data.ny.gov/resource/vkng-7ivg.geojson',
-    geoField: 'the_geom',
+    geoField: 'shape',
     isLocal: false,
     selectFields: [
-      'station_na', 'agency', 'boro', 'globalid'
+      'station_name', 'agency', 'borough', 'shape_id'
     ]
   }
 };

@@ -1,11 +1,16 @@
 import bpy
 import math
 import os
+import glob
 from mathutils import Vector
+from bpy_extras.object_utils import world_to_camera_view
+import sys 
 
 # Configuration
-model_path = "/Users/mattfranchi/Repos/space-stager/processing/models/linknyc-081825.blend"  # Optional: .blend to open or ignore if already open
-output_dir = "/Users/mattfranchi/Repos/space-stager/processing/svg_outputs"
+output_dir = "/Users/mattfranchi/Repos/space-stager/processing/outputs"
+# Directory containing .blend models to process
+models_dir = "/Users/mattfranchi/Repos/space-stager/processing/models"
+# Eight isometric yaws at 45° increments (including 0°)
 angles = [0, 45, 90, 135, 180, 225, 270, 315]  # in degrees around Z (yaw)
 
 # Output configuration
@@ -17,6 +22,7 @@ base_yaw_offset_deg = float(os.environ.get("SS_BASE_YAW_DEG", "0"))
 engine_choice = os.environ.get("SS_ENGINE", "EEVEE").upper()  # EEVEE|CYCLES
 film_transparent = os.environ.get("SS_FILM_TRANSPARENT", "1") not in ("0", "false", "False")
 debug_overlay = os.environ.get("SS_DEBUG_OVERLAY", "0") in ("1", "true", "True")
+env_hdri_path = os.environ.get("SS_ENV_HDRI", "")
 
 # Ensure output folder exists
 os.makedirs(output_dir, exist_ok=True)
@@ -32,6 +38,21 @@ def get_main_mesh_objects():
         except ReferenceError:
             continue
     return mesh_objects
+
+
+def get_model_stem(model_path_arg=None):
+    """Derive a stable filename stem from the provided model path or current .blend."""
+    try:
+        if model_path_arg and os.path.isfile(model_path_arg):
+            return os.path.splitext(os.path.basename(model_path_arg))[0]
+    except Exception:
+        pass
+    try:
+        if bpy.data.filepath:
+            return os.path.splitext(os.path.basename(bpy.data.filepath))[0]
+    except Exception:
+        pass
+    return "model"
 
 
 def compute_world_bounds_center_and_size(objects):
@@ -199,283 +220,375 @@ def export_gp_to_svg(filepath: str):
 
 
 def main():
-    # Attempt to open model .blend if provided and different from current
-    try:
-        if model_path and os.path.isfile(model_path):
-            # Only open if current file path differs to avoid reloading
-            current_filepath = bpy.data.filepath
-            if not current_filepath or os.path.abspath(current_filepath) != os.path.abspath(model_path):
-                bpy.ops.wm.open_mainfile(filepath=model_path)
-    except Exception:
-        # Non-fatal; continue with current scene
-        pass
+    # Collect all .blend files to process
+    blend_files = sorted([p for p in glob.glob(os.path.join(models_dir, "*.blend")) if os.path.isfile(p)])
 
-    # Always use the current active scene after potential file load
-    scene = bpy.context.scene
-    if not scene:
-        return
-
-    # Scene setup
-    # Render engine selection
-    if engine_choice == 'CYCLES':
-        scene.render.engine = 'CYCLES'
+    for model_path in blend_files:
+        # Attempt to open model .blend
         try:
-            scene.cycles.device = 'CPU'
-            scene.cycles.samples = 32
+            if model_path and os.path.isfile(model_path):
+                current_filepath = bpy.data.filepath
+                if not current_filepath or os.path.abspath(current_filepath) != os.path.abspath(model_path):
+                    bpy.ops.wm.open_mainfile(filepath=model_path)
         except Exception:
             pass
-    else:
-        scene.render.engine = 'BLENDER_EEVEE_NEXT'
-    scene.render.use_freestyle = False  # Avoid Freestyle; prefer raster or GP Line Art only if explicitly requested
 
-    # High-quality orthographic render defaults (for PNG path)
-    scene.render.resolution_x = output_resolution
-    scene.render.resolution_y = output_resolution
-    scene.render.resolution_percentage = 100
-    # Transparent background so non-model pixels are fully transparent
-    scene.render.film_transparent = True
-    try:
-        scene.view_settings.view_transform = 'Filmic'
-        scene.view_settings.look = 'None'
-        scene.view_settings.exposure = 0.0
-    except Exception:
-        pass
+        # Always use the current active scene after potential file load
+        scene = bpy.context.scene
+        if not scene:
+            continue
 
-    mesh_objects = get_main_mesh_objects()
-    center, size_x, size_y = compute_world_bounds_center_and_size(mesh_objects)
-
-    # Ensure all collections are enabled in the active view layer and renderable
-    def enable_all_layer_collections(layer_collection):
-        try:
-            layer_collection.exclude = False
-            if hasattr(layer_collection, 'hide_viewport'):
-                layer_collection.hide_viewport = False
-        except Exception:
-            pass
-        for child in getattr(layer_collection, 'children', []):
-            enable_all_layer_collections(child)
-
-    try:
-        enable_all_layer_collections(bpy.context.view_layer.layer_collection)
-    except Exception:
-        pass
-
-    # Also mark object and collection render flags on
-    try:
-        for obj in bpy.data.objects:
+        # Scene setup
+        # Render engine selection
+        if engine_choice == 'CYCLES':
+            scene.render.engine = 'CYCLES'
             try:
-                obj.hide_render = False
-                if hasattr(obj, 'visible_get') and not obj.visible_get():
-                    obj.hide_set(False)
+                scene.cycles.device = 'CPU'
+                scene.cycles.samples = 32
             except Exception:
                 pass
-        for coll in bpy.data.collections:
-            try:
-                coll.hide_render = False
-            except Exception:
-                pass
-    except Exception:
-        pass
+        else:
+            scene.render.engine = 'BLENDER_EEVEE_NEXT'
+        scene.render.use_freestyle = False  # Avoid Freestyle; prefer raster or GP Line Art only if explicitly requested
 
-    cam = ensure_camera("BatchCam", scene)
-    scene.camera = cam
-
-    # Orthographic camera framing
-    cam.data.type = 'ORTHO'
-    max_size = max(2.0, max(size_x, size_y))
-    cam.data.ortho_scale = max_size * 1.25
-    cam.data.clip_start = 0.01
-    cam.data.clip_end = 5000.0
-
-    # Improve lighting: world and a simple 3-sun rig
-    try:
-        world = scene.world or bpy.data.worlds.new("World")
-        scene.world = world
-        world.use_nodes = True
-        nodes = world.node_tree.nodes
-        links = world.node_tree.links
-        bg = nodes.get("Background") or nodes.new("ShaderNodeBackground")
-        out = nodes.get("World Output") or nodes.new("ShaderNodeOutputWorld")
-        bg.inputs[0].default_value = (1.0, 1.0, 1.0, 1.0)
-        bg.inputs[1].default_value = 1.5
-        # Ensure links
-        has_link = any(l.to_node == out and l.from_node == bg for l in links)
-        if not has_link:
-            links.new(bg.outputs[0], out.inputs[0])
-    except Exception:
-        pass
-
-    # Optional debug overlay: bright emissive axis cross at center
-    if debug_overlay:
+        # High-quality orthographic render defaults (for PNG path)
+        scene.render.resolution_x = output_resolution
+        scene.render.resolution_y = output_resolution
+        scene.render.resolution_percentage = 100
+        # Transparent background so non-model pixels are fully transparent
+        scene.render.film_transparent = True
         try:
-            mat = bpy.data.materials.get("SS_Debug_Emissive") or bpy.data.materials.new("SS_Debug_Emissive")
-            mat.use_nodes = True
-            nt = mat.node_tree
-            for n in list(nt.nodes):
-                nt.nodes.remove(n)
-            out = nt.nodes.new("ShaderNodeOutputMaterial")
-            emit = nt.nodes.new("ShaderNodeEmission")
-            emit.inputs[0].default_value = (1.0, 0.2, 0.2, 1.0)
-            emit.inputs[1].default_value = 5.0
-            nt.links.new(emit.outputs[0], out.inputs[0])
-            for axis, color in (('X', (1, 0.2, 0.2, 1)), ('Y', (0.2, 1, 0.2, 1)), ('Z', (0.2, 0.2, 1, 1))):
-                mesh = bpy.data.meshes.new(f"SS_Debug_{axis}")
-                obj = bpy.data.objects.new(f"SS_Debug_{axis}", mesh)
-                bpy.context.scene.collection.objects.link(obj)
-                verts = [
-                    (center.x - 0.5, center.y, center.z),
-                    (center.x + 0.5, center.y, center.z),
-                ] if axis == 'X' else [
-                    (center.x, center.y - 0.5, center.z),
-                    (center.x, center.y + 0.5, center.z),
-                ] if axis == 'Y' else [
-                    (center.x, center.y, center.z - 0.5),
-                    (center.x, center.y, center.z + 0.5),
-                ]
-                edges = [(0, 1)]
-                mesh.from_pydata(verts, edges, [])
-                if obj.data.materials:
-                    obj.data.materials[0] = mat
-                else:
-                    obj.data.materials.append(mat)
-                obj.hide_render = False
+            # Punchier highlights and sun: Filmic with high contrast
+            scene.view_settings.view_transform = 'Filmic'
+            scene.view_settings.look = 'Very High Contrast'
+            scene.view_settings.exposure = 0.6
+            scene.view_settings.gamma = 1.0
+            scene.display_settings.display_device = 'sRGB'
         except Exception:
             pass
 
-    def ensure_sun(name: str, rotation_euler, energy: float, color=(1.0, 1.0, 1.0)):
-        light_obj = bpy.data.objects.get(name)
-        if not light_obj or light_obj.type != 'LIGHT':
-            light_data = bpy.data.lights.new(name=name, type='SUN')
-            light_obj = bpy.data.objects.new(name, light_data)
-            scene.collection.objects.link(light_obj)
-        light_obj.rotation_euler = rotation_euler
-        light_obj.data.energy = energy
-        try:
-            light_obj.data.color = color
-        except Exception:
-            pass
-        return light_obj
+        mesh_objects = get_main_mesh_objects()
+        center, size_x, size_y = compute_world_bounds_center_and_size(mesh_objects)
 
-    try:
-        # Key light
-        ensure_sun("IsoSunKey", (math.radians(50), 0.0, math.radians(45)), 3.0, (1.0, 0.98, 0.95))
-        # Fill
-        ensure_sun("IsoSunFill", (math.radians(70), 0.0, math.radians(180+30)), 0.9, (0.9, 0.95, 1.0))
-        # Rim
-        ensure_sun("IsoSunRim", (math.radians(40), 0.0, math.radians(-60)), 0.7, (0.95, 0.97, 1.0))
-        # AO and shadows
-        if hasattr(scene, 'eevee'):
+        # Ensure all collections are enabled in the active view layer and renderable
+        def enable_all_layer_collections(layer_collection):
             try:
-                scene.eevee.use_gtao = True
-                scene.eevee.gtao_distance = 0.8
-                scene.eevee.gtao_factor = 1.0
-                scene.eevee.use_shadows = True
+                layer_collection.exclude = False
+                if hasattr(layer_collection, 'hide_viewport'):
+                    layer_collection.hide_viewport = False
             except Exception:
                 pass
-    except Exception:
-        pass
+            for child in getattr(layer_collection, 'children', []):
+                enable_all_layer_collections(child)
 
-    # Utility: set camera to look at target with world up
-    def set_camera_look_at(cam_obj, cam_loc: Vector, target: Vector, world_up: Vector = Vector((0, 0, 1))):
-        """Aim camera with a stable roll relative to world_up to avoid tilt at 0/90/180/270."""
-        cam_obj.location = cam_loc
-        import mathutils
-        forward = (target - cam_loc)
-        if forward.length == 0:
-            forward = Vector((0.0, 0.0, -1.0))
-        forward.normalize()
-        # If nearly parallel, choose an alternate up
-        if abs(forward.dot(world_up)) > 0.999:
-            world_up = Vector((0.0, 1.0, 0.0))
-        right = world_up.cross(forward)
-        if right.length == 0:
-            right = Vector((1.0, 0.0, 0.0))
-        right.normalize()
-        true_up = forward.cross(right)
-        true_up.normalize()
-        rot = mathutils.Matrix((
-            (right.x,  true_up.x, -forward.x),
-            (right.y,  true_up.y, -forward.y),
-            (right.z,  true_up.z, -forward.z),
-        ))
-        cam_obj.rotation_euler = rot.to_euler()
+        try:
+            enable_all_layer_collections(bpy.context.view_layer.layer_collection)
+        except Exception:
+            pass
 
-    def fit_ortho_scale_to_bounds(cam_obj, world_corners, margin: float = 1.1):
-        """Fit orthographic width to contain all world corners with given margin.
-        Accounts for render aspect ratio so both width and height fit.
-        """
-        if not world_corners:
-            return
-        inv = cam_obj.matrix_world.inverted()
-        xs = []
-        ys = []
-        for wc in world_corners:
-            lc = inv @ wc
-            xs.append(lc.x)
-            ys.append(lc.y)
-        if not xs or not ys:
-            return
-        half_w = max(abs(min(xs)), abs(max(xs)))
-        half_h = max(abs(min(ys)), abs(max(ys)))
-        # Compute width needed so that height also fits given output aspect
-        scn = bpy.context.scene
-        aspect = (scn.render.resolution_x or 1) / max(1, scn.render.resolution_y)
-        width_needed = max(2.0 * half_w, 2.0 * half_h * aspect)
-        width_needed *= margin
-        if not math.isfinite(width_needed) or width_needed <= 0:
-            return
-        cam_obj.data.ortho_scale = max(width_needed, 0.1)
+        # Also mark object and collection render flags on
+        try:
+            for obj in bpy.data.objects:
+                try:
+                    obj.hide_render = False
+                    if hasattr(obj, 'visible_get') and not obj.visible_get():
+                        obj.hide_set(False)
+                except Exception:
+                    pass
+            for coll in bpy.data.collections:
+                try:
+                    coll.hide_render = False
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
-    # Ensure Line Art GP object exists and is configured only if SVG requested
-    gp = None
-    if output_format in ("SVG", "BOTH"):
-        gp = ensure_lineart_gp_object("LineArt", cam)
+        cam = ensure_camera("BatchCam", scene)
+        scene.camera = cam
 
-    # Precompute constants for isometric camera placement
-    elev_rad = math.radians(isometric_elevation_deg)
-    base_yaw_rad = math.radians(base_yaw_offset_deg)
-    radius = max_size * 2.0 + 1.0
+        # Orthographic camera framing
+        cam.data.type = 'ORTHO'
+        max_size = max(2.0, max(size_x, size_y))
+        cam.data.ortho_scale = max_size * 1.25
+        cam.data.clip_start = 0.01
+        cam.data.clip_end = 5000.0
 
-    # Render/Export for each yaw angle
-    # Precompute trig with snapping to stabilize cardinal views
-    def snap_trig(val: float) -> float:
-        v = round(val, 10)
-        # Snap tiny to 0, near +/-1 to exact
-        if abs(v) < 1e-10:
-            return 0.0
-        if abs(1.0 - abs(v)) < 1e-10:
-            return 1.0 if v > 0 else -1.0
-        return v
+        # Improve lighting: world and a simple 3-sun rig
+        try:
+            world = scene.world or bpy.data.worlds.new("World")
+            scene.world = world
+            world.use_nodes = True
+            nodes = world.node_tree.nodes
+            links = world.node_tree.links
+            # Clear and rebuild world tree for clean setup
+            for n in list(nodes):
+                nodes.remove(n)
+            out = nodes.new("ShaderNodeOutputWorld")
+            bg = nodes.new("ShaderNodeBackground")
+            if env_hdri_path and os.path.isfile(env_hdri_path):
+                env = nodes.new("ShaderNodeTexEnvironment")
+                try:
+                    env.image = bpy.data.images.load(env_hdri_path)
+                except Exception:
+                    env = None
+                if env:
+                    links.new(env.outputs['Color'], bg.inputs['Color'])
+            # Strength: balanced to avoid darkness while keeping transparent film
+            bg.inputs[1].default_value = 1.0
+            links.new(bg.outputs['Background'], out.inputs['Surface'])
+        except Exception:
+            pass
 
-    cos_elev = snap_trig(math.cos(elev_rad))
-    sin_elev = snap_trig(math.sin(elev_rad))
+        # Optional debug overlay: bright emissive axis cross at center
+        if debug_overlay:
+            try:
+                mat = bpy.data.materials.get("SS_Debug_Emissive") or bpy.data.materials.new("SS_Debug_Emissive")
+                mat.use_nodes = True
+                nt = mat.node_tree
+                for n in list(nt.nodes):
+                    nt.nodes.remove(n)
+                out = nt.nodes.new("ShaderNodeOutputMaterial")
+                emit = nt.nodes.new("ShaderNodeEmission")
+                emit.inputs[0].default_value = (1.0, 0.2, 0.2, 1.0)
+                emit.inputs[1].default_value = 5.0
+                nt.links.new(emit.outputs[0], out.inputs[0])
+                for axis, color in (('X', (1, 0.2, 0.2, 1)), ('Y', (0.2, 1, 0.2, 1)), ('Z', (0.2, 0.2, 1, 1))):
+                    mesh = bpy.data.meshes.new(f"SS_Debug_{axis}")
+                    obj = bpy.data.objects.new(f"SS_Debug_{axis}", mesh)
+                    bpy.context.scene.collection.objects.link(obj)
+                    verts = [
+                        (center.x - 0.5, center.y, center.z),
+                        (center.x + 0.5, center.y, center.z),
+                    ] if axis == 'X' else [
+                        (center.x, center.y - 0.5, center.z),
+                        (center.x, center.y + 0.5, center.z),
+                    ] if axis == 'Y' else [
+                        (center.x, center.y, center.z - 0.5),
+                        (center.x, center.y, center.z + 0.5),
+                    ]
+                    edges = [(0, 1)]
+                    mesh.from_pydata(verts, edges, [])
+                    if obj.data.materials:
+                        obj.data.materials[0] = mat
+                    else:
+                        obj.data.materials.append(mat)
+                    obj.hide_render = False
+            except Exception:
+                pass
 
-    for angle in angles:
-        yaw_rad = math.radians(angle) + base_yaw_rad
-        cos_yaw = snap_trig(math.cos(yaw_rad))
-        sin_yaw = snap_trig(math.sin(yaw_rad))
-        # Camera position on a circle around Z with fixed elevation
-        x = center.x + radius * cos_yaw * cos_elev
-        y = center.y + radius * sin_yaw * cos_elev
-        z = center.z + radius * sin_elev
-        cam_loc = Vector((x, y, z))
-        set_camera_look_at(cam, cam_loc, center, world_up=Vector((0, 0, 1)))
-        # Fit ortho scale precisely against current camera orientation
-        fit_ortho_scale_to_bounds(cam, get_world_corners(mesh_objects), margin=1.15)
-        bpy.context.view_layer.update()
+        def ensure_sun(name: str, rotation_euler, energy: float, color=(1.0, 1.0, 1.0)):
+            light_obj = bpy.data.objects.get(name)
+            if not light_obj or light_obj.type != 'LIGHT':
+                light_data = bpy.data.lights.new(name=name, type='SUN')
+                light_obj = bpy.data.objects.new(name, light_data)
+                scene.collection.objects.link(light_obj)
+            light_obj.rotation_euler = rotation_euler
+            light_obj.data.energy = energy
+            try:
+                light_obj.data.color = color
+            except Exception:
+                pass
+            return light_obj
 
-        # SVG export path (optional)
-        if output_format in ("SVG", "BOTH") and gp is not None:
-            bake_lineart_if_available(gp)
-            svg_path = os.path.join(output_dir, f"view_{angle:03d}.svg")
-            export_gp_to_svg(svg_path)
+        try:
+            # Key light
+            ensure_sun("IsoSunKey", (math.radians(50), 0.0, math.radians(45)), 5.0, (1.0, 0.98, 0.95))
+            # Fill
+            ensure_sun("IsoSunFill", (math.radians(70), 0.0, math.radians(180+30)), 1.2, (0.9, 0.95, 1.0))
+            # Rim
+            ensure_sun("IsoSunRim", (math.radians(40), 0.0, math.radians(-60)), 2.0, (0.95, 0.97, 1.0))
+            # AO and shadows
+            if hasattr(scene, 'eevee'):
+                try:
+                    scene.eevee.use_gtao = True
+                    scene.eevee.gtao_distance = 0.8
+                    scene.eevee.gtao_factor = 1.0
+                    scene.eevee.use_shadows = True
+                    # Reflections for metallic materials
+                    if hasattr(scene.eevee, 'use_ssr'):
+                        scene.eevee.use_ssr = True
+                    if hasattr(scene.eevee, 'use_ssr_refraction'):
+                        scene.eevee.use_ssr_refraction = True
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
-        # PNG export path (default)
-        if output_format in ("PNG", "BOTH"):
-            scene.render.image_settings.file_format = 'PNG'
-            scene.render.image_settings.color_mode = 'RGBA'
-            scene.render.filepath = os.path.join(output_dir, f"view_{angle:03d}.png")
-            bpy.ops.render.render(write_still=True)
+        # Utility: set camera to look at target with world up
+        def set_camera_look_at(cam_obj, cam_loc: Vector, target: Vector, world_up: Vector = Vector((0, 0, 1))):
+            """Aim camera using to_track_quat, then correct roll so image-plane up aligns with projected world_up.
+            This stabilizes cardinal views without risking degenerate matrices.
+            """
+            import mathutils
+            from mathutils import Quaternion
+            cam_obj.location = cam_loc
+            forward = (target - cam_loc)
+            if forward.length == 0:
+                forward = Vector((0.0, 0.0, -1.0))
+            # Aim camera forward (-Z)
+            rot_quat = forward.to_track_quat('-Z', 'Y')
+            cam_obj.rotation_euler = rot_quat.to_euler()
+            # Roll correction: align camera up (+Y) with world_up projected into image plane
+            cam_quat = cam_obj.rotation_euler.to_quaternion()
+            cam_forward_world = cam_quat @ Vector((0.0, 0.0, -1.0))
+            cam_up_world = cam_quat @ Vector((0.0, 1.0, 0.0))
+            up_proj = world_up - cam_forward_world * world_up.dot(cam_forward_world)
+            if up_proj.length > 1e-8 and cam_up_world.length > 1e-8:
+                up_proj.normalize()
+                cam_up_world.normalize()
+                # Signed angle around forward axis
+                cross = cam_up_world.cross(up_proj)
+                sign = 1.0 if cam_forward_world.dot(cross) > 0 else -1.0
+                angle = cam_up_world.angle(up_proj)
+                roll_delta = -sign * angle
+                # Apply roll around camera forward axis (world space)
+                roll_quat = Quaternion(cam_forward_world, roll_delta)
+                cam_quat = roll_quat @ cam_quat
+                cam_obj.rotation_euler = cam_quat.to_euler()
+
+        def fit_ortho_scale_to_bounds(cam_obj, world_corners, margin: float = 1.1):
+            """Fit orthographic width to contain all world corners with given margin.
+            Accounts for render aspect ratio so both width and height fit.
+            """
+            if not world_corners:
+                return
+            inv = cam_obj.matrix_world.inverted()
+            xs = []
+            ys = []
+            for wc in world_corners:
+                lc = inv @ wc
+                xs.append(lc.x)
+                ys.append(lc.y)
+            if not xs or not ys:
+                return
+            half_w = max(abs(min(xs)), abs(max(xs)))
+            half_h = max(abs(min(ys)), abs(max(ys)))
+            # Compute width needed so that height also fits given output aspect
+            scn = bpy.context.scene
+            aspect = (scn.render.resolution_x or 1) / max(1, scn.render.resolution_y)
+            width_needed = max(2.0 * half_w, 2.0 * half_h * aspect)
+            width_needed *= margin
+            # Ensure at least a few pixels of border to avoid visible edge cropping
+            border_px = int(os.environ.get("SS_BORDER_PX", "4"))
+            if border_px > 0 and scn.render.resolution_x > 0:
+                world_per_px = width_needed / scn.render.resolution_x
+                width_needed += 2.0 * world_per_px * border_px
+            if not math.isfinite(width_needed) or width_needed <= 0:
+                return
+            cam_obj.data.ortho_scale = max(width_needed, 0.1)
+
+        def compute_needed_ortho_scale_for_current_pose(cam_obj, world_corners, scn, margin: float = 1.18, border_px: int = 4):
+            """Compute required orthographic width for current camera pose to fit all points with margin.
+            Returns the width needed (ortho_scale) without mutating the camera.
+            """
+            if not world_corners:
+                return cam_obj.data.ortho_scale
+            inv = cam_obj.matrix_world.inverted()
+            xs = []
+            ys = []
+            for wc in world_corners:
+                lc = inv @ wc
+                xs.append(lc.x)
+                ys.append(lc.y)
+            if not xs or not ys:
+                return cam_obj.data.ortho_scale
+            half_w = max(abs(min(xs)), abs(max(xs)))
+            half_h = max(abs(min(ys)), abs(max(ys)))
+            aspect = (scn.render.resolution_x or 1) / max(1, scn.render.resolution_y)
+            width_needed = max(2.0 * half_w, 2.0 * half_h * aspect)
+            width_needed *= margin
+            if border_px > 0 and scn.render.resolution_x > 0:
+                world_per_px = width_needed / scn.render.resolution_x
+                width_needed += 2.0 * world_per_px * border_px
+            if not math.isfinite(width_needed) or width_needed <= 0:
+                return cam_obj.data.ortho_scale
+            return max(width_needed, 0.1)
+
+        def fit_ortho_scale_by_ndc(scn, cam_obj, world_points, margin: float = 1.05):
+            """Ensure no cropping by measuring object span in normalized device coords.
+            If the projected span exceeds the frame (>=1.0), increase ortho_scale accordingly.
+            """
+            if not world_points:
+                return
+            # Compute normalized coordinates [0..1]
+            min_x = 1.0
+            min_y = 1.0
+            max_x = 0.0
+            max_y = 0.0
+            for p in world_points:
+                uvw = world_to_camera_view(scn, cam_obj, p)
+                x, y = uvw.x, uvw.y
+                # Clamp for safety
+                if x < min_x:
+                    min_x = x
+                if x > max_x:
+                    max_x = x
+                if y < min_y:
+                    min_y = y
+                if y > max_y:
+                    max_y = y
+            span_x = max(1e-6, max_x - min_x)
+            span_y = max(1e-6, max_y - min_y)
+            span = max(span_x, span_y)
+            if not math.isfinite(span):
+                return
+            if span * margin > 1.0:
+                factor = span * margin
+                cam_obj.data.ortho_scale = max(0.1, cam_obj.data.ortho_scale * factor)
+
+        # Ensure Line Art GP object exists and is configured only if SVG requested
+        gp = None
+        if output_format in ("SVG", "BOTH"):
+            gp = ensure_lineart_gp_object("LineArt", cam)
+
+        # Precompute constants for isometric camera placement
+        elev_rad = math.radians(isometric_elevation_deg)
+        base_yaw_rad = math.radians(base_yaw_offset_deg)
+        radius = max_size * 2.0 + 1.0
+
+        # Two-pass fit: compute a single max ortho_scale that fits all angles, then render
+        cos_elev = math.cos(elev_rad)
+        sin_elev = math.sin(elev_rad)
+
+        # Pass 1: compute max required scale across angles
+        max_required_scale = cam.data.ortho_scale
+        for angle in angles:
+            yaw_rad = math.radians(angle) + base_yaw_rad
+            cos_yaw = math.cos(yaw_rad)
+            sin_yaw = math.sin(yaw_rad)
+            x = center.x + radius * cos_yaw * cos_elev
+            y = center.y + radius * sin_yaw * cos_elev
+            z = center.z + radius * sin_elev
+            cam_loc = Vector((x, y, z))
+            set_camera_look_at(cam, cam_loc, center, world_up=Vector((0, 0, 1)))
+            angle_mod = int(angle) % 360
+            is_diag = angle_mod in (45, 135, 225, 315)
+            base_margin = 1.22 if is_diag else 1.18
+            if angle_mod in (0, 360, 45):
+                base_margin = max(base_margin, 1.30)
+            req = compute_needed_ortho_scale_for_current_pose(cam, get_world_corners(mesh_objects), scene, margin=base_margin, border_px=int(os.environ.get("SS_BORDER_PX", "6")))
+            if req > max_required_scale:
+                max_required_scale = req
+
+        cam.data.ortho_scale = max_required_scale
+
+        # Pass 2: render with unified scale
+        for angle in angles:
+            yaw_rad = math.radians(angle) + base_yaw_rad
+            cos_yaw = math.cos(yaw_rad)
+            sin_yaw = math.sin(yaw_rad)
+            x = center.x + radius * cos_yaw * cos_elev
+            y = center.y + radius * sin_yaw * cos_elev
+            z = center.z + radius * sin_elev
+            cam_loc = Vector((x, y, z))
+            set_camera_look_at(cam, cam_loc, center, world_up=Vector((0, 0, 1)))
+            bpy.context.view_layer.update()
+
+            if output_format in ("PNG", "BOTH"):
+                scene.render.image_settings.file_format = 'PNG'
+                scene.render.image_settings.color_mode = 'RGBA'
+                scene.render.filepath = os.path.join(output_dir, f"{get_model_stem(model_path)}_{angle:03d}.png")
+                bpy.ops.render.render(write_still=True)
 
 
 if __name__ == "__main__":

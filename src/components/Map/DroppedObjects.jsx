@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useEffect } from 'react';
+import { padAngle } from '../../utils/enhancedRenderingUtils';
 import { X } from 'lucide-react';
 
 const DEBUG = false; // Set to true to enable DroppedObjects debug logs
@@ -105,6 +106,8 @@ const DroppedObjects = ({
     return objects.map((obj) => {
       const objectType = placeableObjects.find(p => p.id === obj.type);
       if (!objectType) return null;
+      // Skip rectangle-type objects; rendered by DroppedRectangles overlay
+      if (objectType.geometryType === 'rect') return null;
       
       const style = getObjectStyle(obj);
       if (style.display === 'none') return null;
@@ -124,12 +127,25 @@ const DroppedObjects = ({
           className="group relative placed-object"
         >
           {objectType.imageUrl ? (
-            <img
-              src={objectType.imageUrl}
-              alt={objectType.name}
-              style={{ width: iconSize, height: iconSize, objectFit: 'contain', transform: obj?.properties?.flipped ? 'scaleX(-1)' : undefined }}
-              draggable={false}
-            />
+            (() => {
+              // If enhanced rendering is enabled for this object type, swap image by 45° variant
+              const isEnhanced = !!objectType?.enhancedRendering?.enabled;
+              let src = objectType.imageUrl;
+              if (isEnhanced) {
+                const base = objectType.enhancedRendering.spriteBase;
+                const dir = objectType.enhancedRendering.publicDir || '/data/icons/isometric-bw';
+                const angle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
+                src = `${dir}/${base}_${padAngle(angle)}.png`;
+              }
+              return (
+                <img
+                  src={src}
+                  alt={objectType.name}
+                  style={{ width: iconSize, height: iconSize, objectFit: 'contain', transform: obj?.properties?.flipped ? 'scaleX(-1)' : undefined }}
+                  draggable={false}
+                />
+              );
+            })()
           ) : (
             <div 
               style={{ 

@@ -5,9 +5,11 @@ import {
   filterFeaturesByType,
   getLayerStyle 
 } from '../services/infrastructureService';
-import { calculateGeometryBounds } from '../utils/geometryUtils';
+import { calculateGeometryBounds, expandBounds } from '../utils/geometryUtils';
 import { createInfrastructureTooltipContent } from '../utils/tooltipUtils';
 import { addIconsToMap, retryLoadIcons } from '../utils/iconUtils';
+import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
+import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, buildSpriteImageId } from '../utils/enhancedRenderingUtils';
 
 export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
   console.log('[DEBUG] useInfrastructure hook called with map:', !!map);
@@ -399,11 +401,85 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
         filteredFeatures = filterFeaturesByType(data.features, layerId);
       }
       
-      const filteredData = {
+      let filteredData = {
         type: 'FeatureCollection',
         features: filteredFeatures,
         crs: data.crs || { type: "name", properties: { name: "urn:ogc:def:crs:OGC:1.3:CRS84" } }
       };
+
+      // Enhanced rendering: annotate features for angle-specific sprite IDs when enabled
+      try {
+        const cfg = layers[layerId];
+        if (cfg?.enhancedRendering?.enabled) {
+          // Ensure sprites are loaded for variants
+          try {
+            await addEnhancedSpritesToMap(map, {
+              baseName: cfg.enhancedRendering.spriteBase,
+              publicDir: cfg.enhancedRendering.publicDir,
+              angles: cfg.enhancedRendering.angles
+            });
+          } catch (_) {}
+
+          // For point features, compute a bearing from nearest CSCL centerline when desired
+          let lineFeatures = [];
+          try {
+            if (cfg.enhancedRendering.desiredParallelTo === 'cscl') {
+              const expandFactor = 0.0015;
+              const expanded = expandBounds(bounds, expandFactor);
+              const minLng = expanded[0][0];
+              const minLat = expanded[0][1];
+              const maxLng = expanded[1][0];
+              const maxLat = expanded[1][1];
+              const ep = INFRASTRUCTURE_ENDPOINTS.csclCenterlines;
+              let csclUrl = '';
+              if (ep && ep.baseUrl && ep.geoField) {
+                const wktPoly = `POLYGON((
+                  ${minLng} ${minLat},
+                  ${minLng} ${maxLat},
+                  ${maxLng} ${maxLat},
+                  ${maxLng} ${minLat},
+                  ${minLng} ${minLat}
+                ))`.replace(/\s+/g, ' ').trim();
+                const where = `intersects(${ep.geoField}, '${wktPoly}')`;
+                csclUrl = `${ep.baseUrl}?$where=${encodeURIComponent(where)}&$limit=5000`;
+              }
+              if (csclUrl) {
+                try {
+                  const resp = await fetch(csclUrl);
+                  if (resp.ok) {
+                    const gj = await resp.json();
+                    lineFeatures = Array.isArray(gj?.features) ? gj.features : [];
+                  }
+                } catch (_) {}
+              }
+            }
+          } catch (_) {}
+
+          // Annotate each Point feature with icon_image property
+          filteredData = {
+            ...filteredData,
+            features: filteredData.features.map((f) => {
+              if (!f || f.geometry?.type !== 'Point') return f;
+              let img = null;
+              if (lineFeatures && lineFeatures.length > 0) {
+                const br = computeNearestLineBearing(f, lineFeatures);
+                if (br != null) {
+                  const q = quantizeAngleTo45(br);
+                  img = buildSpriteImageId(cfg.enhancedRendering.spriteBase, q);
+                }
+              }
+              if (!img) {
+                // Fallback to 000
+                img = buildSpriteImageId(cfg.enhancedRendering.spriteBase, 0);
+              }
+              const p = f.properties || {};
+              return { ...f, properties: { ...p, icon_image: img } };
+            })
+          };
+        }
+      } catch (e) {
+        console.warn('[enhancedRendering] failed to annotate features:', e);
+      }
       
       console.log(`Loaded ${layerId}: ${filteredData.features.length} features found for area ${focusedArea.properties?.name || focusedArea.id}`);
       if (layerId === 'dcwpParkingGarages') {

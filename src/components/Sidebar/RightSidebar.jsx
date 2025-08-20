@@ -18,57 +18,64 @@ const RightSidebar = ({
   const [showExportMenu, setShowExportMenu] = useState(false);
   return (
     <>
-      <div className="w-80 bg-white dark:bg-gray-800 dark:text-gray-100 shadow-lg z-10 flex flex-col border-l border-gray-200 dark:border-gray-700 sidebar-right">
+      <div className="w-80 h-full bg-white dark:bg-gray-800 dark:text-gray-100 shadow-lg z-10 flex flex-col border-l border-gray-200 dark:border-gray-700 sidebar-right">
       {/* Header */}
       <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-blue-50 dark:bg-gray-900">
         <h2 className="text-lg font-semibold text-blue-900 dark:text-blue-300">Site Plan Designer</h2>
         <p className="text-sm text-blue-700 dark:text-blue-300/80 mt-1">Design tools for focused area</p>
       </div>
 
-      {/* Drawing Tools */}
-      <DrawingTools 
-        activeTool={drawTools.activeTool}
-        onToolSelect={drawTools.activateDrawingTool}
-        selectedShape={drawTools.selectedShape}
-        onDelete={drawTools.deleteSelectedShape}
-        drawAvailable={Boolean(drawTools.draw?.current)}
-        onRetry={drawTools.reinitializeDrawControls}
-      />
-
-      {/* Shape Properties */}
-      {drawTools.selectedShape && (
-        <ShapeProperties
-          shapeLabel={drawTools.shapeLabel}
-          onLabelChange={drawTools.setShapeLabel}
-          onApply={drawTools.updateShapeLabel}
+      {/* Middle scroll area with flexible Event Objects panel */}
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        {/* Drawing Tools */}
+        <DrawingTools 
+          activeTool={drawTools.activeTool}
+          onToolSelect={drawTools.activateDrawingTool}
+          selectedShape={drawTools.selectedShape}
+          onDelete={drawTools.deleteSelectedShape}
+          drawAvailable={Boolean(drawTools.draw?.current)}
+          onRetry={drawTools.reinitializeDrawControls}
         />
-      )}
 
-      {/* Placeable Objects Panel */}
-      <PlaceableObjectsPanel
-        objects={placeableObjects}
-        onActivation={clickToPlace.activatePlacementMode}
-        placementMode={clickToPlace.placementMode}
-      />
+        {/* Shape Properties */}
+        {drawTools.selectedShape && (
+          <ShapeProperties
+            shapeLabel={drawTools.shapeLabel}
+            onLabelChange={drawTools.setShapeLabel}
+            onApply={drawTools.updateShapeLabel}
+          />
+        )}
 
-      {/* Custom Shapes List */}
-      <CustomShapesList
-        selectedShape={drawTools.selectedShape}
-        onShapeSelect={drawTools.selectShape}
-        draw={drawTools.draw}
-        onShapeRename={drawTools.renameShape}
-        showLabels={drawTools.showLabels}
-        onToggleLabels={drawTools.setShowLabels}
-      />
+        {/* Placeable Objects Panel (scrolls within remaining space) */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <PlaceableObjectsPanel
+            objects={placeableObjects}
+            onActivation={clickToPlace.activatePlacementMode}
+            placementMode={clickToPlace.placementMode}
+            activeRectObjectTypeId={drawTools.activeRectObjectTypeId}
+            onRectActivation={(obj) => drawTools.startRectObjectPlacement(obj)}
+          />
+        </div>
 
-      {/* Dropped Objects List */}
-      {clickToPlace.droppedObjects.length > 0 && (
-        <DroppedObjectsList
-          objects={clickToPlace.droppedObjects}
-          placeableObjects={placeableObjects}
-          onRemove={clickToPlace.removeDroppedObject}
+        {/* Custom Shapes List */}
+        <CustomShapesList
+          selectedShape={drawTools.selectedShape}
+          onShapeSelect={drawTools.selectShape}
+          draw={drawTools.draw}
+          onShapeRename={drawTools.renameShape}
+          showLabels={drawTools.showLabels}
+          onToggleLabels={drawTools.setShowLabels}
         />
-      )}
+
+        {/* Dropped Objects List */}
+        {clickToPlace.droppedObjects.length > 0 && (
+          <DroppedObjectsList
+            objects={clickToPlace.droppedObjects}
+            placeableObjects={placeableObjects}
+            onRemove={clickToPlace.removeDroppedObject}
+          />
+        )}
+      </div>
 
 
       {/* Export Section */}

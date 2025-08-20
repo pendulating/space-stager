@@ -247,6 +247,38 @@ export const exportPermitAreaSiteplanV2 = async (
           }
         });
       } catch (_) {}
+      // Hide CARTO sidewalk dashed lines and app-added infrastructure layers from the offscreen raster
+      try {
+        const style = offscreen.getStyle();
+        const hideIf = (layer) => {
+          try {
+            if (!layer || !layer.id) return false;
+            // Heuristic: dashed line layers related to sidewalks/footways/paths
+            const id = String(layer.id).toLowerCase();
+            const srcLayer = String(layer['source-layer'] || '').toLowerCase();
+            const isLine = layer.type === 'line';
+            const hasDash = !!(layer.paint && (layer.paint['line-dasharray'] || layer.paint['line-dasharray-transition']));
+            const looksLikeSidewalk = /sidewalk|footway|pedestrian/.test(id) || /sidewalk|footway|pedestrian/.test(srcLayer);
+            return isLine && hasDash && looksLikeSidewalk;
+          } catch (_) { return false; }
+        };
+        style.layers?.forEach((layer) => {
+          if (hideIf(layer)) {
+            try { offscreen.setLayoutProperty(layer.id, 'visibility', 'none'); } catch (_) {}
+          }
+        });
+        // Also hide any app-added infrastructure layers so they are not baked into the raster
+        try {
+          Object.keys(layers || {}).forEach((layerId) => {
+            if (layerId === 'permitAreas') return;
+            const suffixes = ['point', 'line', 'polygon'];
+            suffixes.forEach((suf) => {
+              const id = `layer-${layerId}-${suf}`;
+              try { if (offscreen.getLayer(id)) offscreen.setLayoutProperty(id, 'visibility', 'none'); } catch (_) {}
+            });
+          });
+        } catch (_) {}
+      } catch (_) {}
     } catch (_) {}
 
     // Fit bounds to the left 75% viewport without scaling the image output
@@ -269,6 +301,8 @@ export const exportPermitAreaSiteplanV2 = async (
 
     // Preload PNG icons for visible layers for both PDF and PNG flows
     const pngIcons = await loadVisibleLayerIconsAsPngDataUrls(layers);
+    // Preload per-feature enhanced variant icons (e.g., linknyc 0..315) when available
+    const enhancedVariantPngs = await collectEnhancedVariantPngs(layers, infrastructureData);
     const droppedObjectPngs = await loadDroppedObjectIconPngs(droppedObjects);
     // Ensure we have infra data for meters, signs, and bus stops even if not preloaded
     let ensuredInfra = infrastructureData || {};
@@ -330,9 +364,11 @@ export const exportPermitAreaSiteplanV2 = async (
       }
       ctx.drawImage(img, 0, 0, mapPx.width, mapPx.height);
 
-      drawOverlaysOnCanvas(ctx, offscreen, mapPx, { x: 0, y: 0 }, layers, customShapes, droppedObjects, infrastructureData, focusedArea, pngIcons);
+      // Draw order for clarity: shapes -> dropped objects -> infrastructure overlays -> labels
       drawCustomShapesOnCanvas(ctx, { x: 0, y: 0, width: mapPx.width, height: mapPx.height }, offscreen, customShapes);
-      // Label regulations (P), meters (M), and bus stops (B) on the map image
+      await drawDroppedObjectsOnCanvas(ctx, { x: 0, y: 0, width: mapPx.width, height: mapPx.height }, offscreen, droppedObjects);
+      await drawOverlaysOnCanvas(ctx, offscreen, mapPx, { x: 0, y: 0 }, layers, customShapes, droppedObjects, infrastructureData, focusedArea, pngIcons, enhancedVariantPngs);
+      // Labels last so they sit on top of everything
       if (regsVisible.length > 0) {
         drawParkingFeatureLabelsOnCanvas(ctx, offscreen, { x: 0, y: 0 }, regsVisible, 'P');
       }
@@ -342,8 +378,6 @@ export const exportPermitAreaSiteplanV2 = async (
       if (busStopsVisible.length > 0) {
         drawBusStopFeatureLabelsOnCanvas(ctx, offscreen, { x: 0, y: 0 }, busStopsVisible, 'B');
       }
-      // Draw dropped objects on top of basemap and overlays
-      await drawDroppedObjectsOnCanvas(ctx, { x: 0, y: 0, width: mapPx.width, height: mapPx.height }, offscreen, droppedObjects);
 
       const legendPx = { x: mapPx.width, y: 0, width: canvas.width - mapPx.width, height: canvas.height };
       const numbered = numberCustomShapes(customShapes || []);
@@ -367,9 +401,7 @@ export const exportPermitAreaSiteplanV2 = async (
 
     const numberedShapes = numberCustomShapes(customShapes);
 
-    // Skip manual orange permit overlay; rely on underlying dashed permit styling if present
-    // drawPermitAreaOnPdf(pdf, focusedArea, project, toMm);
-    drawInfrastructureOnPdf(pdf, layers, infrastructureData, project, toMm, mmFromPx, pngIcons);
+    // Skip manual orange permit overlay; rely on underlying focused permit styling in raster
     // Dimension annotations around the focused area (CAD-style)
     const { includeDimensions = true, dimensionUnits = 'm' } = exportOptions || {};
     if (includeDimensions) {
@@ -388,7 +420,12 @@ export const exportPermitAreaSiteplanV2 = async (
         drawSidewalkWidthLabelsOnPdf(pdf, visibleSidewalks, project, toMm, dimensionUnits);
       } catch (_) {}
     }
-    // Label regulations (P), meters (M), and bus stops (B) on PDF map page
+    // Draw order: dimensions/sidewalks -> dropped objects -> shapes -> infrastructure -> labels on top
+    drawDroppedObjectsOnPdf(pdf, droppedObjects, project, toMm, droppedObjectPngs);
+    drawDroppedObjectNotesOnPdf(pdf, droppedObjects, project, toMm);
+    drawCustomShapesOnPdf(pdf, numberedShapes, project, toMm);
+    drawInfrastructureOnPdf(pdf, layers, infrastructureData, project, toMm, mmFromPx, pngIcons, enhancedVariantPngs);
+    // Labels last so they overlay icons/lines
     if (regsVisible.length > 0) {
       drawParkingFeatureLabelsOnPdf(pdf, project, toMm, regsVisible, 'P');
     }
@@ -398,9 +435,6 @@ export const exportPermitAreaSiteplanV2 = async (
     if (busStopsVisible.length > 0) {
       drawBusStopFeatureLabelsOnPdf(pdf, project, toMm, busStopsVisible, 'B');
     }
-    drawDroppedObjectsOnPdf(pdf, droppedObjects, project, toMm, droppedObjectPngs);
-    drawDroppedObjectNotesOnPdf(pdf, droppedObjects, project, toMm);
-    drawCustomShapesOnPdf(pdf, numberedShapes, project, toMm);
 
     // Main page legend: only title and annotations
     drawLegendOnPdf(pdf, { x: legendMm.x, y: legendMm.y, width: legendMm.width, height: legendMm.height }, layers, numberedShapes, droppedObjects, focusedArea, pngIcons, droppedObjectPngs, eventInfo);
@@ -432,10 +466,16 @@ export const exportPermitAreaSiteplanV2 = async (
       }
     } catch (_) {}
 
-    // Add summary page for Layers and Equipment (autotable-powered)
-    drawLayersAndEquipmentSummaryPage(pdf, layers, droppedObjects, pngIcons, droppedObjectPngs);
+    // Add summary page for Layers and Equipment only if at least one table has rows
+    try {
+      const hasVisibleLayers = Object.entries(layers || {}).some(([id, cfg]) => id !== 'permitAreas' && !!cfg?.visible);
+      const hasEquipment = Array.isArray(droppedObjects) && droppedObjects.length > 0;
+      if (hasVisibleLayers || hasEquipment) {
+        drawLayersAndEquipmentSummaryPage(pdf, layers, droppedObjects, pngIcons, droppedObjectPngs);
+      }
+    } catch (_) {}
 
-    // Add combined Parking & Transit summary page (page 3)
+    // Add combined Parking & Transit summary page (page 3) only if any table has rows
     const subwayStationsVisible = (layers?.subwayEntrances?.visible)
       ? listSubwayStationsVisibleOnMap(offscreen, mapPx, ensuredInfra?.subwayEntrances?.features || [])
       : [];
@@ -448,7 +488,15 @@ export const exportPermitAreaSiteplanV2 = async (
     const busStopsInArea = (layers?.busStops?.visible)
       ? listBusStopsWithinArea(ensuredInfra?.busStops?.features || [], focusedArea)
       : [];
-    drawParkingAndTransitPage(pdf, signsVisible, metersVisible, subwayStationsVisible, dcwpGaragesVisible, busStopsInArea);
+    const hasParkingTransitData =
+      (Array.isArray(signsVisible) && signsVisible.length > 0) ||
+      (Array.isArray(metersVisible) && metersVisible.length > 0) ||
+      (Array.isArray(subwayStationsVisible) && subwayStationsVisible.length > 0) ||
+      (Array.isArray(dcwpGaragesVisible) && dcwpGaragesVisible.length > 0) ||
+      (Array.isArray(busStopsInArea) && busStopsInArea.length > 0);
+    if (hasParkingTransitData) {
+      drawParkingAndTransitPage(pdf, signsVisible, metersVisible, subwayStationsVisible, dcwpGaragesVisible, busStopsInArea);
+    }
 
     pdf.save(`siteplan-${getSafeFilename(focusedArea)}.pdf`);
     cleanupOffscreen(offscreen, container);
@@ -1133,7 +1181,7 @@ const drawSidewalkWidthLabelsOnPdf = (pdf, sidewalksGeojson, project, toMm, unit
   } catch (_) {}
 };
 
-const drawInfrastructureOnPdf = (pdf, layers, infrastructureData, project, toMm, mmFromPx, pngIcons) => {
+const drawInfrastructureOnPdf = (pdf, layers, infrastructureData, project, toMm, mmFromPx, pngIcons, enhancedVariantPngs) => {
   if (!layers) return;
   const entries = Object.entries(layers).filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible);
   entries.forEach(([layerId, cfg]) => {
@@ -1149,7 +1197,10 @@ const drawInfrastructureOnPdf = (pdf, layers, infrastructureData, project, toMm,
         // Treat fire lanes and disaster routes as lines only (no icons)
         if (layerId === 'fireLanes' || layerId === 'specialDisasterRoutes') return;
         const p = toMm(project(g.coordinates[0], g.coordinates[1]));
-        const iconSrc = pngIcons?.[layerId];
+        // Prefer per-feature enhanced icon if present
+        const iconSrc = (feat.properties && feat.properties.icon_image && enhancedVariantPngs?.[feat.properties.icon_image])
+          ? enhancedVariantPngs[feat.properties.icon_image]
+          : pngIcons?.[layerId];
         if (iconSrc) {
           // Match (and slightly upscale) UI symbol size for print legibility
           const areaScale = (INFRASTRUCTURE_ICONS[layerId]?.areaScale ?? 1);
@@ -1243,9 +1294,61 @@ const drawInfrastructureOnPdf = (pdf, layers, infrastructureData, project, toMm,
 const drawDroppedObjectsOnPdf = (pdf, droppedObjects, project, toMm, droppedObjectPngs) => {
   if (!droppedObjects || droppedObjects.length === 0) return;
   droppedObjects.forEach((obj) => {
-    const p = toMm(project(obj.position.lng, obj.position.lat));
     const objType = PLACEABLE_OBJECTS.find(p => p.id === obj.type);
-    const imgPng = droppedObjectPngs?.[obj.type];
+    // Rectangle polygons: draw stroke + hatch; then return
+    if (objType?.geometryType === 'rect' && obj?.geometry?.type === 'Polygon') {
+      try {
+        const ringLngLat = obj.geometry.coordinates?.[0] || [];
+        const pts = ringLngLat.map(([lng, lat]) => toMm(project(lng, lat)));
+        if (pts.length >= 4) {
+          // Outline only for stability
+          pdf.setDrawColor(17, 24, 39);
+          pdf.setLineWidth(0.5);
+          // lines expects relative segments
+          const segments = (function toRelativeSegments(points){ const segs=[]; for(let i=1;i<points.length;i++){segs.push([points[i].x-points[i-1].x, points[i].y-points[i-1].y]);} return segs; })(pts);
+          pdf.lines(segments, pts[0].x, pts[0].y, [1, 1], 'S', true);
+          // Simple hatch: short diagonals along edges
+          try {
+            pdf.setDrawColor(156, 163, 175);
+            for (let i = 0; i < pts.length - 1; i += 1) {
+              const a = pts[i], b = pts[i + 1];
+              const mx = (a.x + b.x) / 2; const my = (a.y + b.y) / 2;
+              const dx = b.x - a.x; const dy = b.y - a.y; const len = Math.hypot(dx, dy) || 1;
+              const nx = -dy / len; const ny = dx / len; const s = 1.5;
+              pdf.line(mx - nx * s, my - ny * s, mx + nx * s, my + ny * s);
+            }
+          } catch (_) {}
+          // Label
+          try {
+            const a = pts[0], c = pts[2];
+            const cx = (a.x + c.x) / 2; const cy = (a.y + c.y) / 2;
+            const dims = obj?.properties?.dimensions || obj?.properties?.user_dimensions_m;
+            let label = objType.name;
+            if (dims) {
+              if (objType.units === 'ft') {
+                const wFt = Math.round((dims.width || 0) * 3.28084);
+                const hFt = Math.round((dims.height || 0) * 3.28084);
+                label = `${objType.name} ${wFt} ft × ${hFt} ft`;
+              } else {
+                label = `${objType.name} ${(dims.width || 0).toFixed(1)} m × ${(dims.height || 0).toFixed(1)} m`;
+              }
+            }
+            const pad = 1;
+            const w = pdf.getTextWidth(label) + pad * 2;
+            pdf.setFillColor(255, 255, 255);
+            pdf.rect(cx - w / 2, cy - 2.6, w, 5.2, 'F');
+            pdf.setTextColor(17, 24, 39);
+            pdf.text(label, cx, cy, { align: 'center', baseline: 'middle' });
+          } catch (_) {}
+        }
+      } catch (_) {}
+      return;
+    }
+    const p = toMm(project(obj.position.lng, obj.position.lat));
+    const isEnhanced = !!objType?.enhancedRendering?.enabled;
+    const angleStr = String((((obj?.properties?.rotationDeg ?? 0) % 360) + 360) % 360).padStart(3, '0');
+    const key = isEnhanced ? `${obj.type}::${angleStr}` : `${obj.type}`;
+    const imgPng = droppedObjectPngs?.[key];
     if (imgPng) {
       try {
         // Scale up 3x compared to base size
@@ -1677,18 +1780,68 @@ const loadVisibleLayerIconsAsPngDataUrls = async (layers) => {
 const loadDroppedObjectIconPngs = async (droppedObjects) => {
   const map = {};
   if (!droppedObjects || droppedObjects.length === 0) return map;
-  const uniqueTypes = Array.from(new Set(droppedObjects.map(o => o.type)));
-  for (const type of uniqueTypes) {
-    const objType = PLACEABLE_OBJECTS.find(p => p.id === type);
-    if (objType?.imageUrl) {
-      try {
-        // High-res rasterization for crisp PDF rendering
-        map[type] = await rasterizeToPngDataUrl(objType.imageUrl, 192);
-      } catch {
-        // ignore
+  // Build unique keys for base or per-angle variants
+  const uniqueKeys = new Set();
+  for (const obj of droppedObjects) {
+    const objType = PLACEABLE_OBJECTS.find(p => p.id === obj.type);
+    if (!objType) continue;
+    const isEnhanced = !!objType?.enhancedRendering?.enabled;
+    if (isEnhanced) {
+      const base = objType.enhancedRendering.spriteBase;
+      const dir = objType.enhancedRendering.publicDir || '/data/icons/isometric-bw';
+      const ang = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
+      const angleStr = String(((ang % 360) + 360) % 360).padStart(3, '0');
+      const key = `${obj.type}::${angleStr}`;
+      if (!uniqueKeys.has(key)) {
+        uniqueKeys.add(key);
+        try {
+          map[key] = await rasterizeToPngDataUrl(`${dir}/${base}_${angleStr}.png`, 192);
+        } catch (_) {
+          // fallback to 000 variant
+          try { map[key] = await rasterizeToPngDataUrl(`${dir}/${base}_000.png`, 192); } catch {}
+        }
+      }
+    } else if (objType?.imageUrl) {
+      const key = `${obj.type}`;
+      if (!uniqueKeys.has(key)) {
+        uniqueKeys.add(key);
+        try { map[key] = await rasterizeToPngDataUrl(objType.imageUrl, 192); } catch {}
       }
     }
   }
+  return map;
+};
+
+// Collect enhanced-variant PNGs referenced by visible layers' features.
+// Returns a map { imageId: dataUrl } where imageId matches feature.properties.icon_image
+const collectEnhancedVariantPngs = async (layers, infrastructureData) => {
+  const map = {};
+  try {
+    for (const [layerId, cfg] of Object.entries(layers)) {
+      if (layerId === 'permitAreas' || !cfg?.visible) continue;
+      if (!cfg?.enhancedRendering?.enabled) continue;
+      const data = infrastructureData?.[layerId];
+      if (!data?.features) continue;
+      // Collect unique imageIds referenced by features
+      const ids = new Set();
+      data.features.forEach((f) => {
+        const id = f?.properties?.icon_image;
+        if (typeof id === 'string' && id) ids.add(id);
+      });
+      // Resolve each to a public URL then rasterize to PNG data URL
+      const dir = cfg.enhancedRendering.publicDir || '/data/icons/isometric-bw';
+      await Promise.all(Array.from(ids).map(async (imageId) => {
+        if (map[imageId]) return; // skip cached
+        // imageId is of form `${spriteBase}_NNN`
+        const suffix = imageId.split('_').pop();
+        const base = cfg.enhancedRendering.spriteBase;
+        const src = `${dir}/${base}_${suffix}.png`;
+        try {
+          map[imageId] = await rasterizeToPngDataUrl(src, 96);
+        } catch (_) {}
+      }));
+    }
+  } catch (_) {}
   return map;
 };
 
@@ -1720,31 +1873,37 @@ const isExportDebug = () => {
 
 
 // Draw visible infrastructure overlays onto PNG canvas (points with icons, lines with stroke; polygons skipped)
-const drawOverlaysOnCanvas = (ctx, offscreen, mapPx, originPx, layers, customShapes, droppedObjects, infrastructureData, focusedArea, pngIcons) => {
+const drawOverlaysOnCanvas = async (ctx, offscreen, mapPx, originPx, layers, customShapes, droppedObjects, infrastructureData, focusedArea, pngIcons, enhancedVariantPngs) => {
   const project = (lng, lat) => offscreen.project([lng, lat]);
   if (isExportDebug()) {
     console.log('[ExportDebug] drawing overlays with originPx', originPx, 'mapPx', mapPx);
   }
-  Object.entries(layers)
+  await Promise.all(Object.entries(layers)
     .filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible)
-    .forEach(([id, cfg]) => {
+    .map(async ([id, cfg]) => {
       const data = infrastructureData?.[id];
       if (!data?.features) return;
       const color = cfg.color || '#333333';
       ctx.strokeStyle = color;
       ctx.fillStyle = color;
-      data.features.forEach((feat) => {
+      for (const feat of data.features) {
         const g = feat.geometry;
         if (!g) return;
         if (g.type === 'Point') {
           // Treat fire lanes and disaster routes as lines, not point icons
           if (id === 'fireLanes' || id === 'specialDisasterRoutes') return;
           const p = project(g.coordinates[0], g.coordinates[1]);
-          const iconSrc = pngIcons?.[id];
+          const perFeatureId = feat.properties?.icon_image;
+          const iconSrc = perFeatureId && enhancedVariantPngs?.[perFeatureId] ? enhancedVariantPngs[perFeatureId] : pngIcons?.[id];
           if (iconSrc) {
-            const img = new Image();
-            img.onload = () => ctx.drawImage(img, p.x + originPx.x - 6, p.y + originPx.y - 6, 12, 12);
-            img.src = iconSrc;
+            try {
+              const img = await loadImage(iconSrc);
+              ctx.drawImage(img, p.x + originPx.x - 6, p.y + originPx.y - 6, 12, 12);
+            } catch (_) {
+              ctx.beginPath();
+              ctx.arc(p.x + originPx.x, p.y + originPx.y, 3, 0, Math.PI * 2);
+              ctx.fill();
+            }
           } else {
             ctx.beginPath();
             ctx.arc(p.x + originPx.x, p.y + originPx.y, 3, 0, Math.PI * 2);
@@ -1781,8 +1940,8 @@ const drawOverlaysOnCanvas = (ctx, offscreen, mapPx, originPx, layers, customSha
           });
         }
         // Intentionally skip Polygon/MultiPolygon to avoid misalignment and unwanted fills
-      });
-    });
+      }
+    }));
 };
 
 // Draw custom shapes (annotations) on the export canvas
@@ -1955,6 +2114,74 @@ const drawDroppedObjectsOnCanvas = async (ctx, mapArea, map, droppedObjects) => 
     }
     
     try {
+      // Rectangle polygons: draw textured polygon instead of icon
+      if (objectType.geometryType === 'rect' && obj?.geometry?.type === 'Polygon') {
+        const ring = Array.isArray(obj.geometry.coordinates?.[0]) ? obj.geometry.coordinates[0] : [];
+        if (ring.length >= 4) {
+          // Build path in export canvas coordinates using offscreen map projection
+          ctx.save();
+          ctx.beginPath();
+          ring.forEach((coord, i) => {
+            const px = map.project([coord[0], coord[1]]);
+            const x = mapArea.x + px.x;
+            const y = mapArea.y + px.y;
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          });
+          ctx.closePath();
+          // Texture fill if available
+          try {
+            if (objectType.texture?.url) {
+              const img = await loadImage(objectType.texture.url);
+              const pat = ctx.createPattern(img, 'repeat');
+              if (pat) {
+                ctx.fillStyle = pat;
+                ctx.globalAlpha = 0.9;
+                ctx.fill();
+                ctx.globalAlpha = 1;
+              }
+            } else {
+              ctx.fillStyle = 'rgba(0,0,0,0.08)';
+              ctx.fill();
+            }
+          } catch (_) {
+            ctx.fillStyle = 'rgba(0,0,0,0.08)';
+            ctx.fill();
+          }
+          // Outline
+          ctx.strokeStyle = '#111827';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          // Dimension label at center
+          try {
+            const a = map.project([ring[0][0], ring[0][1]]);
+            const c = map.project([ring[2][0], ring[2][1]]);
+            const cx = mapArea.x + (a.x + c.x) / 2;
+            const cy = mapArea.y + (a.y + c.y) / 2;
+            const dims = obj?.properties?.dimensions || obj?.properties?.user_dimensions_m;
+            let label = objectType.name;
+            if (dims) {
+              if (objectType.units === 'ft') {
+                const wFt = Math.round((dims.width || 0) * 3.28084);
+                const hFt = Math.round((dims.height || 0) * 3.28084);
+                label = `${objectType.name} ${wFt} ft × ${hFt} ft`;
+              } else {
+                label = `${objectType.name} ${(dims.width || 0).toFixed(1)} m × ${(dims.height || 0).toFixed(1)} m`;
+              }
+            }
+            ctx.font = 'bold 14px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            // white halo
+            const w = ctx.measureText(label).width + 8;
+            ctx.fillStyle = 'rgba(255,255,255,0.9)';
+            ctx.fillRect(cx - w / 2, cy - 10, w, 20);
+            ctx.fillStyle = '#111827';
+            ctx.fillText(label, cx, cy);
+          } catch (_) {}
+          ctx.restore();
+          continue;
+        }
+      }
       // Convert lat/lng to normalized screen coordinates (0-1)
       const pixel = map.project([obj.position.lng, obj.position.lat]);
       const mapCanvas = map.getCanvas();
@@ -1983,7 +2210,12 @@ const drawDroppedObjectsOnCanvas = async (ctx, mapArea, map, droppedObjects) => 
       // Draw the object icon (prefer PNG image if available)
       const objSize = Math.max(objectType.size.width, objectType.size.height, 28) * 3;
       if (objectType.imageUrl) {
-        const img = await loadImage(objectType.imageUrl);
+        const isEnhanced = !!objectType?.enhancedRendering?.enabled;
+        const base = objectType.enhancedRendering?.spriteBase;
+        const dir = objectType.enhancedRendering?.publicDir || '/data/icons/isometric-bw';
+        const angleStr = String((((obj?.properties?.rotationDeg ?? 0) % 360) + 360) % 360).padStart(3, '0');
+        const src = isEnhanced && base ? `${dir}/${base}_${angleStr}.png` : objectType.imageUrl;
+        const img = await loadImage(src);
         if (obj?.properties?.flipped) {
           ctx.save();
           // Mirror around the image center

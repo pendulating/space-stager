@@ -72,6 +72,29 @@ const LayersPanel = ({
   const renderLayerIcon = (layerId, config) => {
     const icon = INFRASTRUCTURE_ICONS[layerId];
     
+    // If enhanced rendering is enabled for this layer, prefer the 135° variant sprite for panel icon
+    if (config?.enhancedRendering?.enabled) {
+      const base = config.enhancedRendering.spriteBase;
+      const dir = config.enhancedRendering.publicDir || '/data/icons/isometric-bw';
+      const src = `${dir}/${base}_135.png`;
+      return (
+        <div 
+          className={`w-6 h-6 flex items-center justify-center ${config.loading ? 'animate-pulse' : ''}`}
+          style={{ opacity: config.visible ? 1 : 0.3 }}
+        >
+          <img 
+            src={src}
+            alt={config.name}
+            className="w-8 h-8 object-contain"
+            style={{
+              filter: config.loading ? 'grayscale(100%)' : 'none',
+              opacity: config.visible ? 1 : 0.6
+            }}
+          />
+        </div>
+      );
+    }
+
     if (!icon) {
       // Fallback to colored circle for layers without icons (like bikeLanes)
       return (

@@ -5,6 +5,7 @@ import ClickPopover from './ClickPopover';
 import { useZoneCreator } from '../../hooks/useZoneCreator';
 import OverlapSelector from './OverlapSelector';
 import DroppedObjects from './DroppedObjects';
+import DroppedRectangles from './DroppedRectangles';
 import DroppedObjectNoteEditor from './DroppedObjectNoteEditor';
 import CustomShapeLabels from './CustomShapeLabels';
 import NudgeMarkers from './NudgeMarkers';
@@ -66,6 +67,16 @@ const MapContainer = forwardRef(({
     };
   }, [map]);
 
+  // Expose current rect mode + id for sidebar active highlight
+  useEffect(() => {
+    try {
+      window.__app = Object.assign({}, window.__app || {}, {
+        drawMode: drawTools?.draw?.current?.getMode ? drawTools.draw.current.getMode() : null,
+        activeRectId: drawTools?.activeRectObjectTypeId || null
+      });
+    } catch (_) {}
+  }, [drawTools]);
+
   // Compass click handler
   const handleCompassClick = () => {
     if (map && map.rotateTo) {
@@ -79,6 +90,45 @@ const MapContainer = forwardRef(({
       map.doubleClickZoom.disable();
     }
   }, [mapLoaded, map]);
+
+  // Listen for rectangle draw completion to convert into dropped object and remove draw feature
+  useEffect(() => {
+    if (!map || !drawTools?.draw?.current) return;
+    const onCreate = (e) => {
+      try {
+        const f = e?.features?.[0];
+        if (!f || f.geometry?.type !== 'Polygon') return;
+        const typeId = f.properties?.user_rectObjectType;
+        if (!typeId) return;
+        const objectType = placeableObjects?.find(p => p.id === typeId);
+        if (!objectType) return;
+        // Build dropped object
+        const coords = f.geometry.coordinates?.[0] || [];
+        if (coords.length < 4) return;
+        const centroid = { lng: (coords[0][0] + coords[2][0]) / 2, lat: (coords[0][1] + coords[2][1]) / 2 };
+        const obj = {
+          id: `${typeId}-${Date.now()}`,
+          type: typeId,
+          name: objectType.name,
+          position: centroid,
+          geometry: f.geometry,
+          properties: {
+            label: objectType.name,
+            rotationDeg: Number(f.properties?.user_rotationDeg || 0),
+            dimensions: f.properties?.user_dimensions_m || null,
+            timestamp: new Date().toISOString()
+          }
+        };
+        clickToPlace.setDroppedObjects(prev => [...prev, obj]);
+        // Remove from draw store so it doesn't stay as an annotation
+        try { drawTools.draw.current.delete(f.id); } catch (_) {}
+      } catch (err) {
+        console.warn('Failed to convert rect feature to dropped object', err);
+      }
+    };
+    map.on('draw.create', onCreate);
+    return () => { try { map.off('draw.create', onCreate); } catch (_) {} };
+  }, [map, drawTools, placeableObjects, clickToPlace]);
 
   if (DEBUG) console.log('MapContainer: Rendering with map instance', {
     hasMap: !!map,
@@ -129,6 +179,7 @@ const MapContainer = forwardRef(({
         onEditNote={(obj) => setNoteEditingObject(obj)}
         isNoteEditing={!!noteEditingObject}
       />
+
 
       {noteEditingObject && (
         <div className="absolute inset-0" style={{ pointerEvents: 'none' }}>
@@ -199,6 +250,13 @@ const MapContainer = forwardRef(({
           onClose={permitAreas.clearOverlapSelector}
         />
       )}
+      {/* Ensure rectangles overlay renders on top of other overlays */}
+      <DroppedRectangles
+        objects={droppedObjects}
+        placeableObjects={placeableObjects}
+        map={map}
+        objectUpdateTrigger={clickToPlace.objectUpdateTrigger}
+      />
     </div>
   );
 });

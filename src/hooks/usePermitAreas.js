@@ -246,7 +246,21 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       const padLng = (ne[0] - sw[0]) * 0.25;
       const padLat = (ne[1] - sw[1]) * 0.25;
       const padded = [[sw[0] - padLng, sw[1] - padLat], [ne[0] + padLng, ne[1] + padLat]];
-      try { if (map.setMaxBounds) map.setMaxBounds(padded); } catch (_) {}
+      // Union with the current viewport so applying maxBounds never recenters the map
+      let union = padded;
+      try {
+        const b = (typeof map.getBounds === 'function') ? map.getBounds() : null;
+        if (b && typeof b.getWest === 'function') {
+          const cur = [[b.getWest(), b.getSouth()], [b.getEast(), b.getNorth()]];
+          const epsLng = Math.max(1e-6, (cur[1][0] - cur[0][0]) * 0.01);
+          const epsLat = Math.max(1e-6, (cur[1][1] - cur[0][1]) * 0.01);
+          union = [
+            [Math.min(padded[0][0], cur[0][0]) - epsLng, Math.min(padded[0][1], cur[0][1]) - epsLat],
+            [Math.max(padded[1][0], cur[1][0]) + epsLng, Math.max(padded[1][1], cur[1][1]) + epsLat]
+          ];
+        }
+      } catch (_) {}
+      try { if (map.setMaxBounds) map.setMaxBounds(union); } catch (_) {}
       // Set a floor slightly below the focused zoom to prevent zooming too far out
       const minZoomFloor = Math.max(1, (typeof finalZoom === 'number' ? finalZoom : map.getZoom ? map.getZoom() : 16) - 2);
       try { if (map.setMinZoom) map.setMinZoom(minZoomFloor); } catch (_) {}
@@ -345,10 +359,11 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         const targetZoom = 18;
         try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
         map.easeTo({ center: geom.coordinates, zoom: targetZoom, duration: 1100, essential: true, easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) });
-        // Apply constraints when camera settles
+        // Apply constraints when camera settles, but preserve visual end-center to avoid a jarring jump
         map.once('idle', () => {
           try {
             const finalZoom = map.getZoom ? map.getZoom() : targetZoom;
+            const finalCenter = map.getCenter ? map.getCenter() : null;
             setInitialFocusZoom(finalZoom);
             setMinAllowedZoom(Math.max(1, finalZoom - 2));
             // Build a synthetic bounds around point based on pixels to ensure useful panning clamp
@@ -357,6 +372,8 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
             const sw = map.unproject([ptPx.x - padPx, ptPx.y + padPx]).toArray();
             const ne = map.unproject([ptPx.x + padPx, ptPx.y - padPx]).toArray();
             applyFocusConstraints([sw, ne], finalZoom);
+            // Restore animation end-center so constraints do not cause a visible recenter
+            try { if (finalCenter && map.setCenter) map.setCenter(finalCenter); } catch (_) {}
           } catch (_) {}
           setIsCameraAnimating(false);
         });
@@ -404,9 +421,13 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       map.once('idle', () => {
         try {
           const finalZoom = map.getZoom ? map.getZoom() : 16;
+          const finalCenter = map.getCenter ? map.getCenter() : null;
           setInitialFocusZoom(finalZoom);
           setMinAllowedZoom(Math.max(1, finalZoom - 2));
+          // Apply constraints but first set maxBounds using a union that includes current viewport to avoid any recenter
           applyFocusConstraints([[minX, minY], [maxX, maxY]], finalZoom);
+          // Preserve the exact end-center from the animation to avoid any jump when constraints engage
+          try { if (finalCenter && map.setCenter) map.setCenter(finalCenter); } catch (_) {}
         } catch (_) {}
         setIsCameraAnimating(false);
       });
@@ -421,9 +442,11 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         map.once('idle', () => {
           try {
             const finalZoom = map.getZoom ? map.getZoom() : 16;
+            const finalCenter = map.getCenter ? map.getCenter() : null;
             setInitialFocusZoom(finalZoom);
             setMinAllowedZoom(Math.max(1, finalZoom - 2));
             applyFocusConstraints(bounds, finalZoom);
+            try { if (finalCenter && map.setCenter) map.setCenter(finalCenter); } catch (_) {}
           } catch (_) {}
           setIsCameraAnimating(false);
         });
