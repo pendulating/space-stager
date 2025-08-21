@@ -23,6 +23,8 @@ engine_choice = os.environ.get("SS_ENGINE", "EEVEE").upper()  # EEVEE|CYCLES
 film_transparent = os.environ.get("SS_FILM_TRANSPARENT", "1") not in ("0", "false", "False")
 debug_overlay = os.environ.get("SS_DEBUG_OVERLAY", "0") in ("1", "true", "True")
 env_hdri_path = os.environ.get("SS_ENV_HDRI", "")
+# Add top-down view export option
+export_top_down = os.environ.get("SS_EXPORT_TOP_DOWN", "1") in ("1", "true", "True")
 
 # Ensure output folder exists
 os.makedirs(output_dir, exist_ok=True)
@@ -536,10 +538,37 @@ def main():
                 factor = span * margin
                 cam_obj.data.ortho_scale = max(0.1, cam_obj.data.ortho_scale * factor)
 
+        def render_top_down_view(cam_obj, angle_deg, model_stem, model_output_dir):
+            """Render a top-down view from the given angle around the Z-axis."""
+            yaw_rad = math.radians(angle_deg) + base_yaw_rad
+            
+            # Position camera directly above the center, looking straight down
+            cam_obj.location = Vector((center.x, center.y, center.z + radius))
+            
+            # Rotate camera to look down at the target
+            # Start with camera pointing down (-Z)
+            cam_obj.rotation_euler = (0, 0, yaw_rad)
+            
+            # Then rotate around X to look down
+            cam_obj.rotation_euler = (math.radians(90), 0, yaw_rad)
+            
+            bpy.context.view_layer.update()
+            
+            if output_format in ("PNG", "BOTH"):
+                scene.render.image_settings.file_format = 'PNG'
+                scene.render.image_settings.color_mode = 'RGBA'
+                scene.render.filepath = os.path.join(model_output_dir, f"{model_stem}_TOP_{angle_deg:03d}.png")
+                bpy.ops.render.render(write_still=True)
+
         # Ensure Line Art GP object exists and is configured only if SVG requested
         gp = None
         if output_format in ("SVG", "BOTH"):
             gp = ensure_lineart_gp_object("LineArt", cam)
+
+        # Create model-specific output directory
+        model_stem = get_model_stem(model_path)
+        model_output_dir = os.path.join(output_dir, model_stem)
+        os.makedirs(model_output_dir, exist_ok=True)
 
         # Precompute constants for isometric camera placement
         elev_rad = math.radians(isometric_elevation_deg)
@@ -550,7 +579,7 @@ def main():
         cos_elev = math.cos(elev_rad)
         sin_elev = math.sin(elev_rad)
 
-        # Pass 1: compute max required scale across angles
+        # Pass 1: compute max required scale across angles for isometric views
         max_required_scale = cam.data.ortho_scale
         for angle in angles:
             yaw_rad = math.radians(angle) + base_yaw_rad
@@ -572,7 +601,7 @@ def main():
 
         cam.data.ortho_scale = max_required_scale
 
-        # Pass 2: render with unified scale
+        # Pass 2: render isometric views with unified scale
         for angle in angles:
             yaw_rad = math.radians(angle) + base_yaw_rad
             cos_yaw = math.cos(yaw_rad)
@@ -587,8 +616,38 @@ def main():
             if output_format in ("PNG", "BOTH"):
                 scene.render.image_settings.file_format = 'PNG'
                 scene.render.image_settings.color_mode = 'RGBA'
-                scene.render.filepath = os.path.join(output_dir, f"{get_model_stem(model_path)}_{angle:03d}.png")
+                scene.render.filepath = os.path.join(model_output_dir, f"{model_stem}_{angle:03d}.png")
                 bpy.ops.render.render(write_still=True)
+
+        # Render top-down views if enabled
+        if export_top_down:
+            # For top-down views, we need to adjust the ortho scale to fit the model from above
+            # Reset camera to top-down position for scale calculation
+            cam.location = Vector((center.x, center.y, center.z + radius))
+            cam.rotation_euler = (math.radians(90), 0, 0)
+            
+            # Calculate appropriate ortho scale for top-down view
+            world_corners = get_world_corners(mesh_objects)
+            if world_corners:
+                # Project corners to 2D (X,Y) plane for top-down view
+                min_x = min_y = float('inf')
+                max_x = max_y = float('-inf')
+                for corner in world_corners:
+                    min_x = min(min_x, corner.x)
+                    max_x = max(max_x, corner.x)
+                    min_y = min(min_y, corner.y)
+                    max_y = max(max_y, corner.y)
+                
+                size_x = max_x - min_x
+                size_y = max_y - min_y
+                max_size_2d = max(size_x, size_y)
+                
+                # Set ortho scale with margin
+                cam.data.ortho_scale = max_size_2d * 1.25
+            
+            # Render all 8 top-down rotated views
+            for angle in angles:
+                render_top_down_view(cam, angle, model_stem, model_output_dir)
 
 
 if __name__ == "__main__":
