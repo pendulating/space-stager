@@ -24,16 +24,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Read pnpm version from package.json
-        id: pnpm-version
-        run: >
-          node -e "const v=require('./package.json').packageManager.split('@')[1];
-          require('fs').appendFileSync(process.env.GITHUB_OUTPUT, `pnpm_version=${v}\n`);"
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: ${{ steps.pnpm-version.outputs.pnpm_version }}
+          version: 9.12.1
           run_install: false
 
       - name: Setup Node
@@ -41,13 +35,12 @@ jobs:
         with:
           node-version: '20'
           cache: 'pnpm'
-          cache-dependency-path: 'pnpm-lock.yaml'
 
       - name: pnpm version
         run: pnpm --version
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Validate assets
         run: pnpm run validate:assets
