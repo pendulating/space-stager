@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { loadMapLibraries, initializeMap } from '../utils/mapUtils';
+import { loadMapLibraries, initializeMap } from '../utils/mapUtils.js';
 
 function isHarnessEnabled() {
   try {

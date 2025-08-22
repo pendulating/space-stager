@@ -11,7 +11,7 @@ export function SitePlanProvider({ children }) {
     // Enter site plan mode when:
     // 1. There's a focused area AND
     // 2. Zoom level is high enough (indicating detailed view)
-    return focusedArea && zoom >= 14;
+    return !!focusedArea && zoom >= 14;
   };
 
   // Update site plan mode based on focused area and zoom

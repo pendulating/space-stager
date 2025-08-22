@@ -1815,7 +1815,7 @@ const getPermitAreaBounds = (focusedArea) => {
 };
 
 // Preload PNG icons for visible layers; returns a map { layerId: src }
-const rasterizeToPngDataUrl = async (src, size = 64) => {
+export const rasterizeToPngDataUrl = async (src, size = 64) => {
   const img = await loadImage(src);
   const dpr = Math.max(2, Math.floor(window.devicePixelRatio || 1));
   const canvas = document.createElement('canvas');
@@ -1840,7 +1840,7 @@ const rasterizeToPngDataUrl = async (src, size = 64) => {
 };
 
 // Prepares visible layer icons as PNG data URLs for safe embedding in PDFs
-const loadVisibleLayerIconsAsPngDataUrls = async (layers) => {
+export const loadVisibleLayerIconsAsPngDataUrls = async (layers) => {
   const result = {};
   try {
     const entries = Object.entries(layers).filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible);
@@ -1860,7 +1860,7 @@ const loadVisibleLayerIconsAsPngDataUrls = async (layers) => {
 
 // Preload dropped object images to ensure consistency in canvas and PDF
 // Prepare dropped object icons as PNG data URLs for jsPDF
-const loadDroppedObjectIconPngs = async (droppedObjects) => {
+export const loadDroppedObjectIconPngs = async (droppedObjects) => {
   const map = {};
   if (!droppedObjects || droppedObjects.length === 0) return map;
   // Build unique keys for base or per-angle variants
@@ -1926,6 +1926,15 @@ const collectEnhancedVariantPngs = async (layers, infrastructureData) => {
     }
   } catch (_) {}
   return map;
+};
+
+// Testing-only named exports for pure helpers
+export {
+  wrapCanvasLines as __wrapCanvasLines,
+  getSiteplanTitleParts as __getSiteplanTitleParts,
+  getSafeFilename as __getSafeFilename,
+  getPermitAreaBounds as __getPermitAreaBounds,
+  renderCitywideInsetDataUrl as __renderCitywideInsetDataUrl
 };
 
 

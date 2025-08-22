@@ -7,10 +7,27 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    setupFiles: [],
+    setupFiles: ['src/test/setupTests.js'],
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'lcov']
+      reporter: ['text', 'lcov'],
+      include: ['src/**/*.{js,jsx}'],
+      exclude: [
+        'node_modules/**',
+        'public/**',
+        'scripts/**',
+        '**/*.config.*',
+        'vite.config.*',
+        'playwright.config.*',
+        'tailwind.config.js',
+        'postcss.config.js'
+      ],
+      thresholds: {
+        lines: 70,
+        functions: 70,
+        branches: 65,
+        statements: 70
+      }
     }
   },
   server: {

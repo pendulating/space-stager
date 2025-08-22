@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { PLACEABLE_OBJECTS } from '../constants/placeableObjects';
+import { PLACEABLE_OBJECTS } from '../constants/placeableObjects.js';
 
 const DEBUG = false; // Set to true to enable click-to-place debug logs
 
