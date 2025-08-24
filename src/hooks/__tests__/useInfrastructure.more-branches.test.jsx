@@ -64,6 +64,7 @@ describe('useInfrastructure more branches', () => {
     await waitFor(() => apiRef.current);
     act(() => { apiRef.current.toggleLayer('linknycKiosks'); });
     await waitFor(() => expect(loadInfrastructureData).toHaveBeenCalled());
+    await waitFor(() => expect(apiRef.current.infrastructureData.linknycKiosks).toBeTruthy());
     const data = apiRef.current.infrastructureData.linknycKiosks;
     expect(data.features.some(f => f.properties?.icon_image)).toBe(true);
   });
