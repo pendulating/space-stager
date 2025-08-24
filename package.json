@@ -23,6 +23,7 @@
     "build": "node scripts/copy-vendor.mjs && vite build",
     "preview": "vite preview",
     "validate:assets": "node scripts/validate-assets.mjs",
+    "test": "vitest run --coverage --passWithNoTests",
     "predeploy": "pnpm run build",
     "deploy": "gh-pages -d dist",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",

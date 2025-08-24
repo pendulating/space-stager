@@ -283,6 +283,7 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
       const bearing = map.getBearing();
       const pitch = map.getPitch();
 
+      let timeoutId;
       const onStyleLoaded = () => {
         map.off('style.load', onStyleLoaded);
         if (timeoutId) {
@@ -296,17 +297,17 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
         if (onStyleChange) onStyleChange({ type: 'style' });
         resolve();
       };
+      // Fallback in case style.load doesn't fire (rare) — schedule BEFORE setStyle
+      timeoutId = setTimeout(() => {
+        console.warn('switchBasemap: style.load timeout, proceeding with rehydration fallback');
+        onStyleLoaded();
+      }, 2500);
       map.once('style.load', onStyleLoaded);
       try {
         map.setStyle(desiredUrl, { diff: false });
       } catch (_) {
         map.setStyle(desiredUrl);
       }
-      // Fallback in case style.load doesn't fire (rare)
-      const timeoutId = setTimeout(() => {
-        console.warn('switchBasemap: style.load timeout, proceeding with rehydration fallback');
-        onStyleLoaded();
-      }, 2500);
       return;
     }
 

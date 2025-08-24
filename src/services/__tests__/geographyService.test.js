@@ -78,6 +78,8 @@ describe('geographyService', () => {
     expect(res.features.length).toBe(1);
     expect(map.getLayer('intersections-points')).toBeTruthy();
     expect(map.getLayer('intersections-focused-points')).toBeTruthy();
+    // success path moves layers to correct order
+    expect(map.moveLayer).toHaveBeenCalled();
   });
 
   it('unloadGeographyLayers removes layers and source', () => {
@@ -106,6 +108,19 @@ describe('geographyService', () => {
     const guarded = p.catch(() => {});
     // speed through retry delays (500 + 1000 + 2000 + 4000 ms)
     // advance enough time for all scheduled backoffs
+    await vi.advanceTimersByTimeAsync(8000);
+    await expect(p).rejects.toThrow();
+    await guarded;
+    vi.useRealTimers();
+  });
+
+  it('loadPointAreas retries and throws on repeated HTTP errors', async () => {
+    vi.useFakeTimers();
+    const url = 'https://example.test/points-500.geojson';
+    server.use(http.get(url, () => new HttpResponse('boom', { status: 500 })));
+    const map = createMockMap();
+    const p = loadPointAreas(map, { idPrefix: 'errp', url });
+    const guarded = p.catch(() => {});
     await vi.advanceTimersByTimeAsync(8000);
     await expect(p).rejects.toThrow();
     await guarded;

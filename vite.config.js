@@ -8,9 +8,10 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['src/test/setupTests.js'],
+    pool: 'forks',
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'lcov'],
+      reporter: ['text-summary', 'lcov'],
       include: ['src/**/*.{js,jsx}'],
       exclude: [
         'node_modules/**',
@@ -28,7 +29,31 @@ export default defineConfig({
         branches: 65,
         statements: 70
       }
-    }
+    },
+    // Minimal output settings
+    reporters: ['basic'],
+    silent: true,
+    // Reduce worker concurrency and set sane timeouts to avoid OOM/hangs
+    maxThreads: 2,
+    poolOptions: {
+      threads: {
+        singleThread: false,
+        maxThreads: 2,
+        minThreads: 1,
+      }
+    },
+    testTimeout: 2000,
+    hookTimeout: 2000,
+    teardownTimeout: 2000,
+    slowTestThreshold: 300,
+    fakeTimers: {
+      toFake: ['setTimeout','clearTimeout','setInterval','clearInterval','requestAnimationFrame','cancelAnimationFrame','performance'],
+      loopLimit: 1000,
+    },
+    onConsoleLog: (log, type) => {
+      // Suppress stdout from tests to minimize noise; keep errors
+      if (type === 'stdout') return false
+    },
   },
   server: {
     port: 3001,

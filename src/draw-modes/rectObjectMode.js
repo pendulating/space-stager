@@ -64,6 +64,7 @@ RectObjectMode.onSetup = function(opts) {
   const state = {
     objectTypeId: opts?.objectTypeId,
     start: null,
+    last: null,
     rotationDeg: 0,
     tempRect: this.newFeature({
       type: 'Feature',
@@ -107,6 +108,7 @@ RectObjectMode.onClick = function(state, e) {
 RectObjectMode.onMouseMove = function(state, e) {
   if (!state.start) return;
   const cur = [e.lngLat.lng, e.lngLat.lat];
+  state.last = cur;
   const axisCorners = computeAxisAlignedCorners(state.start, cur);
   const corners = computeRotatedCorners(axisCorners, state.rotationDeg);
   const closed = corners.concat([corners[0]]);
@@ -124,7 +126,18 @@ RectObjectMode.onKeyDown = function(state, e) {
   } else if (k === 'Escape') {
     try { this.deleteFeature(state.tempRect.id); } catch (_) {}
     this.changeMode('simple_select');
+    return;
   }
+  // If we're mid-placement, update the preview immediately using the last mouse position
+  try {
+    if (state.start && state.last) {
+      const axisCorners = computeAxisAlignedCorners(state.start, state.last);
+      const corners = computeRotatedCorners(axisCorners, state.rotationDeg);
+      const closed = corners.concat([corners[0]]);
+      state.tempRect.setCoordinates([closed]);
+      state.tempRect.changed();
+    }
+  } catch (_) {}
 };
 
 RectObjectMode.onStop = function(state) {
