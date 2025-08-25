@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 
-const DroppedRectangles = ({ objects = [], placeableObjects = [], map, objectUpdateTrigger }) => {
+const DroppedRectangles = ({ objects = [], placeableObjects = [], map, objectUpdateTrigger, selectedId }) => {
   const rects = useMemo(() => {
     const out = [];
     if (!map || typeof map.project !== 'function') return out;
@@ -30,6 +30,18 @@ const DroppedRectangles = ({ objects = [], placeableObjects = [], map, objectUpd
               patternUnits="userSpaceOnUse"
               width={r.type?.texture?.size || 32}
               height={r.type?.texture?.size || 32}
+              // Rotate the pattern around the rectangle center to respect object rotation
+              patternTransform={(() => {
+                try {
+                  const rot = Number(r?.obj?.properties?.rotationDeg || 0);
+                  if (!rot) return undefined;
+                  const cx = (r.points[0].x + r.points[2].x) / 2;
+                  const cy = (r.points[0].y + r.points[2].y) / 2;
+                  return `rotate(${rot} ${cx} ${cy})`;
+                } catch (_) {
+                  return undefined;
+                }
+              })()}
             >
               {r.type?.texture?.url ? (
                 <image
@@ -64,9 +76,10 @@ const DroppedRectangles = ({ objects = [], placeableObjects = [], map, objectUpd
           const cx = (points[0].x + points[2].x) / 2;
           const cy = (points[0].y + points[2].y) / 2;
           const fillId = `url(#pat-${id})`;
+          const isSelected = selectedId && id === selectedId;
           return (
             <g key={id}>
-              <path d={d} fill={type?.texture?.url ? fillId : 'rgba(16,185,129,0.15)'} stroke="#111827" strokeWidth={2} opacity={0.95} />
+              <path d={d} fill={type?.texture?.url ? fillId : 'rgba(16,185,129,0.15)'} stroke={isSelected ? '#2563eb' : '#111827'} strokeWidth={isSelected ? 3 : 2} opacity={0.95} />
               <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle" fontSize="12" fill="#111827" stroke="#ffffff" strokeWidth="2" paintOrder="stroke">
                 {label}
               </text>

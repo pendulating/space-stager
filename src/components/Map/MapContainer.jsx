@@ -53,6 +53,7 @@ const MapContainer = forwardRef(({
   const subFocusArmedRef = useRef(false);
   const derivedSourceId = 'annotations-derived';
   const arrowIconId = 'annotation-arrowhead';
+  const [selectedDroppedRectId, setSelectedDroppedRectId] = useState(null);
 
   // Compass / camera state
   const [bearing, setBearing] = useState(0);
@@ -386,6 +387,126 @@ const MapContainer = forwardRef(({
     droppedObjectsCount: droppedObjects?.length || 0
   });
 
+  // Utility: point-in-polygon for selection (lon/lat ring)
+  const pointInPolygon = (point, ring) => {
+    try {
+      let inside = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const xi = ring[i][0], yi = ring[i][1];
+        const xj = ring[j][0], yj = ring[j][1];
+        const intersect = ((yi > point[1]) !== (yj > point[1])) &&
+          (point[0] < (xj - xi) * (point[1] - yi) / ((yj - yi) || 1e-12) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    } catch (_) { return false; }
+  };
+
+  // Handle click for selecting/deselecting dropped rectangles
+  const handleRectSelectionClick = (e) => {
+    try {
+      if (!map || !placeableObjects || !clickToPlace || clickToPlace.placementMode) return;
+      const mapContainer = map.getContainer();
+      const rect = mapContainer.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const lngLat = map.unproject([x, y]);
+      const pt = [lngLat.lng, lngLat.lat];
+      const rectObjs = (clickToPlace.droppedObjects || []).filter((o) => {
+        const t = placeableObjects.find(p => p.id === o.type);
+        return t && t.geometryType === 'rect' && o?.geometry?.type === 'Polygon';
+      });
+      let hitId = null;
+      for (let i = 0; i < rectObjs.length; i++) {
+        const ring = Array.isArray(rectObjs[i]?.geometry?.coordinates?.[0]) ? rectObjs[i].geometry.coordinates[0] : [];
+        if (ring.length >= 4 && pointInPolygon(pt, ring)) { hitId = rectObjs[i].id; break; }
+      }
+      setSelectedDroppedRectId(hitId);
+    } catch (_) {}
+  };
+
+  // Rotate selected rectangle continuously while key is held (free rotation)
+  useEffect(() => {
+    let rafId = null;
+    let activeDir = 0; // -1 for CCW, +1 for CW
+    let lastTs = 0;
+    const degreesPerSecond = 90; // speed
+
+    const step = (ts) => {
+      if (!selectedDroppedRectId || activeDir === 0) { rafId = null; return; }
+      const dt = lastTs ? Math.max(0, (ts - lastTs) / 1000) : 0;
+      lastTs = ts;
+      const delta = activeDir * degreesPerSecond * dt; // fractional degrees
+      try {
+        clickToPlace.updateDroppedObject(selectedDroppedRectId, (prev) => {
+          if (!prev || prev?.geometry?.type !== 'Polygon') return prev;
+          const ring = Array.isArray(prev.geometry.coordinates?.[0]) ? prev.geometry.coordinates[0] : [];
+          if (ring.length < 4) return prev;
+          const corners = ring.slice(0, 4).map(([lng, lat]) => [lng, lat]);
+          const cx = (corners[0][0] + corners[2][0]) / 2;
+          const cy = (corners[0][1] + corners[2][1]) / 2;
+          const rad = (delta * Math.PI) / 180;
+          const cos = Math.cos(rad), sin = Math.sin(rad);
+          const rotatePt = ([x, y]) => {
+            const dx = x - cx; const dy = y - cy;
+            return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos];
+          };
+          const newCorners = corners.map(rotatePt);
+          const newRing = [...newCorners, newCorners[0]];
+          const curRot = Number(prev?.properties?.rotationDeg || 0);
+          let nextRot = curRot + delta; nextRot %= 360; if (nextRot < 0) nextRot += 360;
+          return {
+            ...prev,
+            geometry: { type: 'Polygon', coordinates: [newRing] },
+            properties: Object.assign({}, prev.properties || {}, { rotationDeg: nextRot })
+          };
+        });
+      } catch (_) {}
+      rafId = requestAnimationFrame(step);
+    };
+
+    const onKeyDown = (e) => {
+      if (!selectedDroppedRectId) return;
+      const t = e.target;
+      const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+      if (typing) return;
+      const isComma = e.code === 'Comma' || e.key === ',' || e.key === '<';
+      const isPeriod = e.code === 'Period' || e.key === '.' || e.key === '>';
+      const isLeftBracket = e.code === 'BracketLeft' || e.key === '[';
+      const isRightBracket = e.code === 'BracketRight' || e.key === ']';
+      const isEsc = e.key === 'Escape';
+      if (isEsc) { setSelectedDroppedRectId(null); return; }
+      if (!(isComma || isPeriod || isLeftBracket || isRightBracket)) return;
+      e.preventDefault();
+      const dir = (isPeriod || isRightBracket) ? 1 : -1;
+      if (activeDir !== dir) {
+        activeDir = dir;
+        lastTs = 0;
+        if (rafId == null) rafId = requestAnimationFrame(step);
+      }
+    };
+    const onKeyUp = (e) => {
+      if (!selectedDroppedRectId) return;
+      const isComma = e.code === 'Comma' || e.key === ',' || e.key === '<';
+      const isPeriod = e.code === 'Period' || e.key === '.' || e.key === '>';
+      const isLeftBracket = e.code === 'BracketLeft' || e.key === '[';
+      const isRightBracket = e.code === 'BracketRight' || e.key === ']';
+      if (!(isComma || isPeriod || isLeftBracket || isRightBracket)) return;
+      e.preventDefault();
+      activeDir = 0;
+      lastTs = 0;
+      if (rafId != null) { cancelAnimationFrame(rafId); rafId = null; }
+    };
+
+    window.addEventListener('keydown', onKeyDown, { passive: false, capture: true });
+    window.addEventListener('keyup', onKeyUp, { passive: false, capture: true });
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('keyup', onKeyUp, true);
+      if (rafId != null) cancelAnimationFrame(rafId);
+    };
+  }, [selectedDroppedRectId]);
+
   return (
     <div className="flex-1 relative">
       {/* Compass + Projection Toggle Overlay */}
@@ -427,7 +548,7 @@ const MapContainer = forwardRef(({
         className={`absolute inset-0 ${placementMode ? 'cursor-crosshair' : ''}`}
         style={{ width: '100%', height: '100%' }}
         onMouseMove={handleMapMouseMove}
-        onClick={handleMapClick}
+        onClick={(e) => { try { handleMapClick(e); } catch (_) {}; handleRectSelectionClick(e); }}
       />
       
       <DroppedObjects
@@ -526,6 +647,7 @@ const MapContainer = forwardRef(({
         placeableObjects={placeableObjects}
         map={map}
         objectUpdateTrigger={clickToPlace.objectUpdateTrigger}
+        selectedId={selectedDroppedRectId}
       />
     </div>
   );

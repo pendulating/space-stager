@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useEffect, useState } from 'react';
-import { padAngle } from '../../utils/enhancedRenderingUtils';
+import { padAngle, quantizeAngleTo45 } from '../../utils/enhancedRenderingUtils';
 import { X } from 'lucide-react';
 import { getContrastingBackgroundForIcon } from '../../utils/colorUtils';
 
@@ -192,7 +192,8 @@ const DroppedObjects = ({
         const base = objectType.enhancedRendering?.spriteBase;
         const dir = objectType.enhancedRendering?.publicDir || '/data/icons/isometric-bw';
         const angle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
-        iconSrc = isEnhanced && base ? `${dir}/${base}_${padAngle(angle)}.png` : objectType.imageUrl;
+        const q = isEnhanced ? quantizeAngleTo45(angle) : angle;
+        iconSrc = isEnhanced && base ? `${dir}/${base}_${padAngle(q)}.png` : objectType.imageUrl;
         const bg = iconBgBySrc[iconSrc];
         if (bg) style.backgroundColor = bg;
       }

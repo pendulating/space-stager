@@ -244,6 +244,8 @@ export const exportPermitAreaSiteplanV2 = async (
 
     // Projection: default top-down unless explicitly set to current
     const projectionMode = exportOptions?.mapProjectionMode || 'topDown';
+    const currentBearing = (() => { try { return typeof map.getBearing === 'function' ? map.getBearing() : 0; } catch (_) { return 0; } })();
+    const bearingAdjustDeg = projectionMode === 'topDown' ? (((currentBearing % 360) + 360) % 360) : 0;
     if (projectionMode === 'current') {
       try {
         const curPitch = typeof map.getPitch === 'function' ? map.getPitch() : 0;
@@ -354,7 +356,7 @@ export const exportPermitAreaSiteplanV2 = async (
     const pngIcons = await loadVisibleLayerIconsAsPngDataUrls(layers);
     // Preload per-feature enhanced variant icons (e.g., linknyc 0..315) when available
     const enhancedVariantPngs = await collectEnhancedVariantPngs(layers, infrastructureData);
-    const droppedObjectPngs = await loadDroppedObjectIconPngs(droppedObjects);
+    const droppedObjectPngs = await loadDroppedObjectIconPngs(droppedObjects, bearingAdjustDeg);
     // Ensure we have infra data for meters, signs, and bus stops even if not preloaded
     let ensuredInfra = infrastructureData || {};
     try {
@@ -417,7 +419,7 @@ export const exportPermitAreaSiteplanV2 = async (
 
       // Draw order for clarity: shapes -> dropped objects -> infrastructure overlays -> labels
       drawCustomShapesOnCanvas(ctx, { x: 0, y: 0, width: mapPx.width, height: mapPx.height }, offscreen, customShapes);
-      await drawDroppedObjectsOnCanvas(ctx, { x: 0, y: 0, width: mapPx.width, height: mapPx.height }, offscreen, droppedObjects);
+      await drawDroppedObjectsOnCanvas(ctx, { x: 0, y: 0, width: mapPx.width, height: mapPx.height }, offscreen, droppedObjects, bearingAdjustDeg);
       await drawOverlaysOnCanvas(ctx, offscreen, mapPx, { x: 0, y: 0 }, layers, customShapes, droppedObjects, infrastructureData, focusedArea, pngIcons, enhancedVariantPngs);
       // Labels last so they sit on top of everything
       if (regsVisible.length > 0) {
@@ -496,7 +498,7 @@ export const exportPermitAreaSiteplanV2 = async (
     if (includeObjectDimensions) {
       try { drawObjectDimensionsOnPdf(pdf, droppedObjects, project, toMm, dimensionUnits); } catch (_) {}
     }
-    drawDroppedObjectsOnPdf(pdf, droppedObjects, project, toMm, droppedObjectPngs);
+    drawDroppedObjectsOnPdf(pdf, droppedObjects, project, toMm, droppedObjectPngs, bearingAdjustDeg);
     drawDroppedObjectNotesOnPdf(pdf, droppedObjects, project, toMm);
     drawCustomShapesOnPdf(pdf, numberedShapes, project, toMm);
     drawInfrastructureOnPdf(pdf, layers, infrastructureData, project, toMm, mmFromPx, pngIcons, enhancedVariantPngs);
@@ -1349,7 +1351,7 @@ const drawInfrastructureOnPdf = (pdf, layers, infrastructureData, project, toMm,
   });
 };
 
-const drawDroppedObjectsOnPdf = (pdf, droppedObjects, project, toMm, droppedObjectPngs) => {
+const drawDroppedObjectsOnPdf = (pdf, droppedObjects, project, toMm, droppedObjectPngs, bearingAdjustDeg = 0) => {
   if (!droppedObjects || droppedObjects.length === 0) return;
   droppedObjects.forEach((obj) => {
     const objType = PLACEABLE_OBJECTS.find(p => p.id === obj.type);
@@ -1404,7 +1406,8 @@ const drawDroppedObjectsOnPdf = (pdf, droppedObjects, project, toMm, droppedObje
     }
     const p = toMm(project(obj.position.lng, obj.position.lat));
     const isEnhanced = !!objType?.enhancedRendering?.enabled;
-    const angleStr = String((((obj?.properties?.rotationDeg ?? 0) % 360) + 360) % 360).padStart(3, '0');
+    const adjusted = (((obj?.properties?.rotationDeg ?? 0) + bearingAdjustDeg) % 360 + 360) % 360;
+    const angleStr = String(adjusted).padStart(3, '0');
     const key = isEnhanced ? `${obj.type}::${angleStr}` : `${obj.type}`;
     const imgPng = droppedObjectPngs?.[key];
     if (imgPng) {
@@ -1860,7 +1863,7 @@ export const loadVisibleLayerIconsAsPngDataUrls = async (layers) => {
 
 // Preload dropped object images to ensure consistency in canvas and PDF
 // Prepare dropped object icons as PNG data URLs for jsPDF
-export const loadDroppedObjectIconPngs = async (droppedObjects) => {
+export const loadDroppedObjectIconPngs = async (droppedObjects, bearingAdjustDeg = 0) => {
   const map = {};
   if (!droppedObjects || droppedObjects.length === 0) return map;
   // Build unique keys for base or per-angle variants
@@ -1872,7 +1875,7 @@ export const loadDroppedObjectIconPngs = async (droppedObjects) => {
     if (isEnhanced) {
       const base = objType.enhancedRendering.spriteBase;
       const dir = objType.enhancedRendering.publicDir || '/data/icons/isometric-bw';
-      const ang = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
+      const ang = typeof obj?.properties?.rotationDeg === 'number' ? (((obj.properties.rotationDeg + bearingAdjustDeg) % 360) + 360) % 360 : bearingAdjustDeg;
       const angleStr = String(((ang % 360) + 360) % 360).padStart(3, '0');
       const key = `${obj.type}::${angleStr}`;
       if (!uniqueKeys.has(key)) {
@@ -2214,7 +2217,7 @@ const drawCustomShapesOnCanvas = (ctx, mapArea, map, customShapes) => {
 };
 
 // Draw dropped objects on the export canvas
-const drawDroppedObjectsOnCanvas = async (ctx, mapArea, map, droppedObjects) => {
+const drawDroppedObjectsOnCanvas = async (ctx, mapArea, map, droppedObjects, bearingAdjustDeg = 0) => {
   if (!droppedObjects || droppedObjects.length === 0) return;
   
   console.log('Drawing', droppedObjects.length, 'dropped objects on export canvas');
@@ -2248,10 +2251,48 @@ const drawDroppedObjectsOnCanvas = async (ctx, mapArea, map, droppedObjects) => 
               const img = await loadImage(objectType.texture.url);
               const pat = ctx.createPattern(img, 'repeat');
               if (pat) {
-                ctx.fillStyle = pat;
-                ctx.globalAlpha = 0.9;
-                ctx.fill();
-                ctx.globalAlpha = 1;
+                let didFillWithFallback = false;
+                // Rotate pattern by object rotation around polygon center if provided
+                try {
+                  const rot = Number(obj?.properties?.rotationDeg || obj?.properties?.user_rotationDeg || 0);
+                  if (rot) {
+                    // Compute center of rectangle in export canvas space using opposite corners (0 and 2)
+                    const a = map.project([ring[0][0], ring[0][1]]);
+                    const c = map.project([ring[2][0], ring[2][1]]);
+                    const cx = mapArea.x + (a.x + c.x) / 2;
+                    const cy = mapArea.y + (a.y + c.y) / 2;
+                    if (typeof pat.setTransform === 'function' && (typeof window !== 'undefined') && (window.DOMMatrix || window.WebKitCSSMatrix)) {
+                      const Matrix = window.DOMMatrix || window.WebKitCSSMatrix;
+                      const rad = (rot * Math.PI) / 180;
+                      const cos = Math.cos(rad), sin = Math.sin(rad);
+                      const m = new Matrix([
+                        cos, sin,
+                        -sin, cos,
+                        cx * (1 - cos) + cy * sin,
+                        cy * (1 - cos) - cx * sin
+                      ]);
+                      pat.setTransform(m);
+                    } else {
+                      // Fallback: rotate canvas context for fill only
+                      ctx.save();
+                      ctx.translate(cx, cy);
+                      ctx.rotate((rot * Math.PI) / 180);
+                      ctx.translate(-cx, -cy);
+                      ctx.fillStyle = pat;
+                      ctx.globalAlpha = 0.9;
+                      ctx.fill();
+                      ctx.globalAlpha = 1;
+                      ctx.restore();
+                      didFillWithFallback = true;
+                    }
+                  }
+                } catch (_) {}
+                if (!didFillWithFallback) {
+                  ctx.fillStyle = pat;
+                  ctx.globalAlpha = 0.9;
+                  ctx.fill();
+                  ctx.globalAlpha = 1;
+                }
               }
             } else {
               ctx.fillStyle = 'rgba(0,0,0,0.08)';
@@ -2327,7 +2368,8 @@ const drawDroppedObjectsOnCanvas = async (ctx, mapArea, map, droppedObjects) => 
         const isEnhanced = !!objectType?.enhancedRendering?.enabled;
         const base = objectType.enhancedRendering?.spriteBase;
         const dir = objectType.enhancedRendering?.publicDir || '/data/icons/isometric-bw';
-        const angleStr = String((((obj?.properties?.rotationDeg ?? 0) % 360) + 360) % 360).padStart(3, '0');
+        const adjusted = (((obj?.properties?.rotationDeg ?? 0) + bearingAdjustDeg) % 360 + 360) % 360;
+        const angleStr = String(adjusted).padStart(3, '0');
         const src = isEnhanced && base ? `${dir}/${base}_${angleStr}.png` : objectType.imageUrl;
         const img = await loadImage(src);
         // Draw a contrasting background circle for visibility
