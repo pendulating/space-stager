@@ -2364,13 +2364,14 @@ const drawDroppedObjectsOnCanvas = async (ctx, mapArea, map, droppedObjects, bea
       
       // Draw the object icon (prefer PNG image if available)
       const objSize = Math.max(objectType.size.width, objectType.size.height, 28) * 3;
-      if (objectType.imageUrl) {
+      try {
         const isEnhanced = !!objectType?.enhancedRendering?.enabled;
         const base = objectType.enhancedRendering?.spriteBase;
-        const dir = objectType.enhancedRendering?.publicDir || '/data/icons/isometric-bw';
         const adjusted = (((obj?.properties?.rotationDeg ?? 0) + bearingAdjustDeg) % 360 + 360) % 360;
-        const angleStr = String(adjusted).padStart(3, '0');
-        const src = isEnhanced && base ? `${dir}/${base}_${angleStr}.png` : objectType.imageUrl;
+        // For export, assume current map view to drive variant; if not available, default to isometric
+        let viewType = 'isometric';
+        try { if (map && typeof map.getPitch === 'function') viewType = (map.getPitch() > 15) ? 'isometric' : 'top-down'; } catch (_) {}
+        const src = isEnhanced && base ? `/static/${base}/${viewType}/renders/${viewType === 'top-down' ? `${base}_TOP_${String(adjusted).padStart(3,'0')}` : `${base}_${String(adjusted).padStart(3,'0')}`}.png` : objectType.imageUrl;
         const img = await loadImage(src);
         // Draw a contrasting background circle for visibility
         try {
@@ -2415,8 +2416,8 @@ const drawDroppedObjectsOnCanvas = async (ctx, mapArea, map, droppedObjects, bea
         } else {
           ctx.drawImage(img, mapPixelX - objSize / 2, mapPixelY - objSize / 2, objSize, objSize);
         }
-      } else {
-        // Fallback simple marker
+      } catch (_) {
+        // Fallback simple marker if image fails
         ctx.fillStyle = objectType.color;
         ctx.beginPath();
         ctx.arc(mapPixelX, mapPixelY, objSize / 2, 0, 2 * Math.PI);

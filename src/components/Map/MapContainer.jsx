@@ -688,6 +688,7 @@ const MapContainer = forwardRef(({
         placementMode={placementMode}
         cursorPosition={cursorPosition}
         placeableObjects={placeableObjects}
+        map={map}
       />
 
       {/* Floating per-instance nudge markers */}

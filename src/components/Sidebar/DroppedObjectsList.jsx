@@ -1,5 +1,6 @@
 import React from 'react';
 import { X } from 'lucide-react';
+import { buildSpriteFallbacks } from '../../utils/enhancedRenderingUtils';
 
 const DroppedObjectsList = ({ 
   objects = [], // Changed from droppedObjects and added default
@@ -22,21 +23,31 @@ const DroppedObjectsList = ({
               className="flex items-center justify-between px-3 py-2 text-sm bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
             >
               <div className="flex items-center space-x-2">
-                {objectType?.imageUrl ? (
-                  <img
-                    src={objectType.imageUrl}
-                    alt={objectType?.name}
-                    className="w-4 h-4 rounded object-contain"
-                    draggable={false}
-                  />
-                ) : (
-                  <div 
-                    className="w-4 h-4 rounded flex items-center justify-center text-white text-xs"
-                    style={{ backgroundColor: objectType?.color || '#gray' }}
-                  >
-                    {objectType?.icon}
-                  </div>
-                )}
+                {(() => {
+                  const isEnhanced = !!objectType?.enhancedRendering?.enabled;
+                  let src = null;
+                  if (isEnhanced && objectType?.enhancedRendering?.spriteBase) {
+                    const fallbacks = buildSpriteFallbacks(objectType.enhancedRendering.spriteBase, 135, 'isometric');
+                    src = fallbacks[0] || null;
+                  }
+                  if (!src && objectType?.imageUrl) src = objectType.imageUrl;
+                  return src ? (
+                    <img
+                      src={src}
+                      alt={objectType?.name}
+                      className="w-4 h-4 rounded object-contain"
+                      draggable={false}
+                      onError={(e) => { try { e.currentTarget.style.display = 'none'; } catch (_) {} }}
+                    />
+                  ) : (
+                    <div 
+                      className="w-4 h-4 rounded flex items-center justify-center text-white text-xs"
+                      style={{ backgroundColor: objectType?.color || '#gray' }}
+                    >
+                      {objectType?.icon}
+                    </div>
+                  );
+                })()}
                 <span className="text-gray-700 dark:text-gray-200">{obj.name}</span>
               </div>
               <button

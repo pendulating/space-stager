@@ -4,7 +4,6 @@ import os
 import glob
 from mathutils import Vector
 from bpy_extras.object_utils import world_to_camera_view
-import sys 
 
 # Configuration
 output_dir = "/Users/mattfranchi/Repos/space-stager/processing/outputs"
@@ -13,18 +12,20 @@ models_dir = "/Users/mattfranchi/Repos/space-stager/processing/models"
 # Eight isometric yaws at 45° increments (including 0°)
 angles = [0, 45, 90, 135, 180, 225, 270, 315]  # in degrees around Z (yaw)
 
-# Output configuration
+# Output configuration (constants)
 # options: 'PNG', 'SVG', 'BOTH'
-output_format = os.environ.get("SS_OUTPUT_FORMAT", "PNG").upper()
-output_resolution = int(os.environ.get("SS_OUTPUT_RES", "512"))
-isometric_elevation_deg = float(os.environ.get("SS_ISO_ELEV_DEG", "35.264"))
-base_yaw_offset_deg = float(os.environ.get("SS_BASE_YAW_DEG", "0"))
-engine_choice = os.environ.get("SS_ENGINE", "EEVEE").upper()  # EEVEE|CYCLES
-film_transparent = os.environ.get("SS_FILM_TRANSPARENT", "1") not in ("0", "false", "False")
-debug_overlay = os.environ.get("SS_DEBUG_OVERLAY", "0") in ("1", "true", "True")
-env_hdri_path = os.environ.get("SS_ENV_HDRI", "")
+output_format = "PNG"
+output_resolution = 512
+isometric_elevation_deg = 35.264
+base_yaw_offset_deg = 0.0
+engine_choice = "EEVEE"  # EEVEE|CYCLES
+film_transparent = True
+debug_overlay = False
+env_hdri_path = ""
 # Add top-down view export option
-export_top_down = os.environ.get("SS_EXPORT_TOP_DOWN", "1") in ("1", "true", "True")
+export_top_down = True
+# Border padding (in pixels) added when fitting camera to bounds
+border_px = 6
 
 # Ensure output folder exists
 os.makedirs(output_dir, exist_ok=True)
@@ -258,7 +259,7 @@ def main():
         scene.render.resolution_y = output_resolution
         scene.render.resolution_percentage = 100
         # Transparent background so non-model pixels are fully transparent
-        scene.render.film_transparent = True
+        scene.render.film_transparent = film_transparent
         try:
             # Punchier highlights and sun: Filmic with high contrast
             scene.view_settings.view_transform = 'Filmic'
@@ -471,7 +472,6 @@ def main():
             width_needed = max(2.0 * half_w, 2.0 * half_h * aspect)
             width_needed *= margin
             # Ensure at least a few pixels of border to avoid visible edge cropping
-            border_px = int(os.environ.get("SS_BORDER_PX", "4"))
             if border_px > 0 and scn.render.resolution_x > 0:
                 world_per_px = width_needed / scn.render.resolution_x
                 width_needed += 2.0 * world_per_px * border_px
@@ -538,6 +538,94 @@ def main():
                 factor = span * margin
                 cam_obj.data.ortho_scale = max(0.1, cam_obj.data.ortho_scale * factor)
 
+        def compute_needed_ortho_scale_ndc_for_current_pose(scn, cam_obj, world_points, margin: float = 1.05, border_px_local: int = 4):
+            """Non-mutating: compute required ortho_scale based on NDC span at current pose.
+            Uses world_to_camera_view which already accounts for aspect and camera framing.
+            """
+            if not world_points:
+                return cam_obj.data.ortho_scale
+            min_x = 1.0
+            min_y = 1.0
+            max_x = 0.0
+            max_y = 0.0
+            for p in world_points:
+                uvw = world_to_camera_view(scn, cam_obj, p)
+                x, y = uvw.x, uvw.y
+                if x < min_x:
+                    min_x = x
+                if x > max_x:
+                    max_x = x
+                if y < min_y:
+                    min_y = y
+                if y > max_y:
+                    max_y = y
+            span_x = max(1e-6, max_x - min_x)
+            span_y = max(1e-6, max_y - min_y)
+            span = max(span_x, span_y)
+            if not math.isfinite(span):
+                return cam_obj.data.ortho_scale
+            # If span*margin <= 1.0 we fit already; otherwise scale up proportionally
+            factor = max(1.0, span * margin)
+            width_needed = cam_obj.data.ortho_scale * factor
+            # Add border in pixels converted to world units; approximate via resolution_x
+            res_x = max(1, scn.render.resolution_x)
+            # Solve width_needed_final = width_needed + 2*border_px*(width_needed_final/res_x)
+            denom = max(1e-6, 1.0 - (2.0 * border_px_local / res_x))
+            width_needed_final = width_needed / denom
+            return max(0.1, width_needed_final)
+
+        def compute_ndc_span(scn, cam_obj, world_points):
+            """Return diagonal of projected X/Y spans in NDC [0..1] at current pose/scale.
+            Using the diagonal makes the size measure rotation-invariant (less bias at 45°).
+            """
+            if not world_points:
+                return 0.0
+            min_x = 1.0
+            min_y = 1.0
+            max_x = 0.0
+            max_y = 0.0
+            for p in world_points:
+                uvw = world_to_camera_view(scn, cam_obj, p)
+                x, y = uvw.x, uvw.y
+                if x < min_x:
+                    min_x = x
+                if x > max_x:
+                    max_x = x
+                if y < min_y:
+                    min_y = y
+                if y > max_y:
+                    max_y = y
+            span_x = max(0.0, max_x - min_x)
+            span_y = max(0.0, max_y - min_y)
+            return (span_x * span_x + span_y * span_y) ** 0.5
+
+        def margin_for_angle(angle_deg):
+            angle_mod = int(angle_deg) % 360
+            is_diag = angle_mod in (45, 135, 225, 315)
+            base = 1.25 if is_diag else 1.18
+            if angle_mod in (0, 360, 45):
+                base = max(base, 1.30)
+            return base
+
+        def set_ortho_scale_to_target_span(scn, cam_obj, world_points, target_span: float, border_px_local: int = 4):
+            """Adjust cam_obj.data.ortho_scale so that projected max span equals target_span.
+            Keeps a safety margin from the frame edges via border_px_local.
+            """
+            if not world_points:
+                return
+            res_x = max(1, scn.render.resolution_x)
+            # For diagonal span, safe limit scales by sqrt(2) times edge-safe extent
+            edge_safe = max(1e-3, 1.0 - (2.0 * border_px_local / res_x) - 1e-3)
+            safe_limit = (2.0 ** 0.5) * edge_safe
+            desired = min(max(1e-3, target_span), safe_limit)
+            span = compute_ndc_span(scn, cam_obj, world_points)
+            if span <= 0.0:
+                return
+            factor = span / desired
+            if not math.isfinite(factor) or factor <= 0.0:
+                return
+            cam_obj.data.ortho_scale = max(0.1, cam_obj.data.ortho_scale * factor)
+
         def render_top_down_view(cam_obj, angle_deg, model_stem, model_output_dir):
             """Render a top-down view from the given angle around the Z-axis."""
             yaw_rad = math.radians(angle_deg) + base_yaw_rad
@@ -546,11 +634,9 @@ def main():
             cam_obj.location = Vector((center.x, center.y, center.z + radius))
             
             # Rotate camera to look down at the target
-            # Start with camera pointing down (-Z)
+            # Camera looks along its -Z; with location above and zero X-tilt, this is top-down.
+            # Apply yaw as a roll around world Z to rotate the view.
             cam_obj.rotation_euler = (0, 0, yaw_rad)
-            
-            # Then rotate around X to look down
-            cam_obj.rotation_euler = (math.radians(90), 0, yaw_rad)
             
             bpy.context.view_layer.update()
             
@@ -592,16 +678,19 @@ def main():
             set_camera_look_at(cam, cam_loc, center, world_up=Vector((0, 0, 1)))
             angle_mod = int(angle) % 360
             is_diag = angle_mod in (45, 135, 225, 315)
-            base_margin = 1.22 if is_diag else 1.18
+            base_margin = 1.25 if is_diag else 1.18
             if angle_mod in (0, 360, 45):
                 base_margin = max(base_margin, 1.30)
-            req = compute_needed_ortho_scale_for_current_pose(cam, get_world_corners(mesh_objects), scene, margin=base_margin, border_px=int(os.environ.get("SS_BORDER_PX", "6")))
+            world_pts = get_world_corners(mesh_objects)
+            req_geom = compute_needed_ortho_scale_for_current_pose(cam, world_pts, scene, margin=base_margin, border_px=border_px)
+            req_ndc = compute_needed_ortho_scale_ndc_for_current_pose(scene, cam, world_pts, margin=max(1.06, base_margin), border_px_local=border_px)
+            req = max(req_geom, req_ndc)
             if req > max_required_scale:
                 max_required_scale = req
 
         cam.data.ortho_scale = max_required_scale
 
-        # Pass 2: render isometric views with unified scale
+        # Pass 2: render isometric views with constant perceived size
         for angle in angles:
             yaw_rad = math.radians(angle) + base_yaw_rad
             cos_yaw = math.cos(yaw_rad)
@@ -613,6 +702,11 @@ def main():
             set_camera_look_at(cam, cam_loc, center, world_up=Vector((0, 0, 1)))
             bpy.context.view_layer.update()
 
+            # Enforce uniform perceived size: set target NDC span
+            world_pts = get_world_corners(mesh_objects)
+            # Aim for ~92% of safe frame span to avoid edge touch; tweak as desired
+            set_ortho_scale_to_target_span(scene, cam, world_pts, target_span=0.92, border_px_local=border_px)
+
             if output_format in ("PNG", "BOTH"):
                 scene.render.image_settings.file_format = 'PNG'
                 scene.render.image_settings.color_mode = 'RGBA'
@@ -621,32 +715,14 @@ def main():
 
         # Render top-down views if enabled
         if export_top_down:
-            # For top-down views, we need to adjust the ortho scale to fit the model from above
-            # Reset camera to top-down position for scale calculation
-            cam.location = Vector((center.x, center.y, center.z + radius))
-            cam.rotation_euler = (math.radians(90), 0, 0)
-            
-            # Calculate appropriate ortho scale for top-down view
-            world_corners = get_world_corners(mesh_objects)
-            if world_corners:
-                # Project corners to 2D (X,Y) plane for top-down view
-                min_x = min_y = float('inf')
-                max_x = max_y = float('-inf')
-                for corner in world_corners:
-                    min_x = min(min_x, corner.x)
-                    max_x = max(max_x, corner.x)
-                    min_y = min(min_y, corner.y)
-                    max_y = max(max_y, corner.y)
-                
-                size_x = max_x - min_x
-                size_y = max_y - min_y
-                max_size_2d = max(size_x, size_y)
-                
-                # Set ortho scale with margin
-                cam.data.ortho_scale = max_size_2d * 1.25
-            
-            # Render all 8 top-down rotated views
+            # Render all 8 top-down rotated views with constant perceived size (rotation-invariant measure)
             for angle in angles:
+                yaw_rad = math.radians(angle) + base_yaw_rad
+                cam.location = Vector((center.x, center.y, center.z + radius))
+                cam.rotation_euler = (0, 0, yaw_rad)
+                bpy.context.view_layer.update()
+                world_pts = get_world_corners(mesh_objects)
+                set_ortho_scale_to_target_span(scene, cam, world_pts, target_span=0.92, border_px_local=border_px)
                 render_top_down_view(cam, angle, model_stem, model_output_dir)
 
 

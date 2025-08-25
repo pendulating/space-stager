@@ -17,13 +17,13 @@ export const PLACEABLE_OBJECTS = [
     name: 'Grill',
     category: 'Equipment',
     icon: '🔥', // Fallback for export or if image fails
-    imageUrl: '/data/icons/isometric-bw/charcoal-grill_000.png',
+    imageUrl: '/static/charcoal-grill/isometric/renders/charcoal-grill_000.png',
     color: '#dc2626',
     size: { width: 36, height: 36 },
     enhancedRendering: {
       enabled: true,
       spriteBase: 'charcoal-grill',
-      publicDir: '/data/icons/isometric-bw',
+      publicDir: '/static/charcoal-grill/isometric/renders',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
   },
@@ -48,7 +48,7 @@ export const PLACEABLE_OBJECTS = [
     enhancedRendering: {
       enabled: true,
       spriteBase: 'camping-chair',
-      publicDir: '/data/icons/isometric-bw',
+      publicDir: '/static/camping-chair/isometric/renders',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
   },
@@ -58,13 +58,13 @@ export const PLACEABLE_OBJECTS = [
     category: 'Equipment',
     icon: '🧊', // Fallback
     // Base image is not used for enhanced variants but kept for compatibility
-    imageUrl: '/data/icons/isometric-bw/cooler_000.png',
+    imageUrl: '/static/cooler/isometric/renders/cooler_000.png',
     color: '#0ea5e9',
     size: { width: 34, height: 34 },
     enhancedRendering: {
       enabled: true,
       spriteBase: 'cooler',
-      publicDir: '/data/icons/isometric-bw',
+      publicDir: '/static/cooler/isometric/renders',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
   },

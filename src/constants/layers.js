@@ -67,7 +67,7 @@ export const INITIAL_LAYERS = {
     enhancedRendering: {
       enabled: true,
       spriteBase: 'bike-rack',
-      publicDir: '/data/icons/isometric-bw',
+      publicDir: '/static/bike-rack/isometric/renders',
       desiredParallelTo: 'cscl',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
@@ -122,7 +122,7 @@ export const INITIAL_LAYERS = {
     enhancedRendering: {
       enabled: true,
       spriteBase: 'parking-meter',
-      publicDir: '/data/icons/isometric-bw',
+      publicDir: '/static/parking-meter/isometric/renders',
       desiredParallelTo: 'cscl',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
@@ -146,7 +146,7 @@ export const INITIAL_LAYERS = {
     enhancedRendering: {
       enabled: true,
       spriteBase: 'linknyc', // expects {base}_{000|045|...}.png
-      publicDir: '/data/icons/isometric-bw',
+      publicDir: '/static/linknyc/isometric/renders',
       desiredParallelTo: 'cscl',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
@@ -217,7 +217,7 @@ export const INITIAL_LAYERS = {
     enhancedRendering: {
       enabled: true,
       spriteBase: 'tree_maple',
-      publicDir: '/data/icons/isometric-bw',
+      publicDir: '/static/tree_maple/isometric/renders',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
   },
@@ -231,7 +231,7 @@ export const INITIAL_LAYERS = {
     enhancedRendering: {
       enabled: true,
       spriteBase: 'fire-hydrant',
-      publicDir: '/data/icons/isometric-bw',
+      publicDir: '/static/fire-hydrant/isometric/renders',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
   },
@@ -254,7 +254,7 @@ export const INITIAL_LAYERS = {
     enhancedRendering: {
       enabled: true,
       spriteBase: 'bench',
-      publicDir: '/data/icons/isometric-bw',
+      publicDir: '/static/bench/isometric/renders',
       desiredParallelTo: 'cscl',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }

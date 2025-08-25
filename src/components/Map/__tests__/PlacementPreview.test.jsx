@@ -6,7 +6,7 @@ import PlacementPreview from '../PlacementPreview.jsx';
 const objects = [
   { id: 'bench', name: 'Bench', size: { width: 40, height: 20 }, color: '#123', icon: 'B' },
   { id: 'banner', name: 'Banner', size: { width: 30, height: 30 }, imageUrl: '/img/banner.png', enhancedRendering: { enabled: false } },
-  { id: 'isometric', name: 'Iso', size: { width: 60, height: 40 }, imageUrl: '/img/iso.png', enhancedRendering: { enabled: true, spriteBase: 'banner', publicDir: '/data/icons/isometric-bw' } }
+  { id: 'isometric', name: 'Iso', size: { width: 60, height: 40 }, imageUrl: '/img/iso.png', enhancedRendering: { enabled: true, spriteBase: 'banner', publicDir: '/static/banner/isometric/renders' } }
 ];
 
 describe('PlacementPreview', () => {
@@ -49,7 +49,8 @@ describe('PlacementPreview', () => {
       />
     );
     const img2 = document.querySelector('img');
-    expect(img2.getAttribute('src')).toContain('/data/icons/isometric-bw/banner_090.png');
+    // No map passed, preview defaults to isometric path
+    expect(img2.getAttribute('src')).toContain('/static/banner/isometric/renders/banner_090.png');
   });
 });
 

@@ -120,7 +120,7 @@ export const computeNearestLineBearing = (pointFeature, lineFeatures) => {
  * Each sprite will be registered under an ID derived from baseName (e.g., "linknyc_090").
  */
 export const addEnhancedSpritesToMap = async (map, options) => {
-  const { baseName, publicDir, angles = [0,45,90,135,180,225,270,315] } = options || {};
+  const { baseName, publicDir, angles = [0,45,90,135,180,225,270,315], viewType, urlBuilder } = options || {};
   if (!map || !baseName || !publicDir) return;
 
   // Load each angle variant via DOM Image
@@ -132,7 +132,17 @@ export const addEnhancedSpritesToMap = async (map, options) => {
         return;
       }
     } catch (_) {}
-    const url = `${publicDir}/${baseName}_${padAngle(angle)}.png`;
+    const urls = [];
+    if (typeof urlBuilder === 'function') {
+      urls.push(urlBuilder(baseName, angle, viewType));
+      // Fallback to isometric if top-down missing
+      if (viewType === VIEW_TYPES.TOP_DOWN) urls.push(urlBuilder(baseName, angle, VIEW_TYPES.ISOMETRIC));
+    } else if (publicDir) {
+      urls.push(`${publicDir}/${baseName}_${padAngle(angle)}.png`);
+    }
+    // Legacy fallback
+    urls.push(`/data/icons/isometric-bw/${baseName}_${padAngle(angle)}.png`);
+
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
@@ -145,8 +155,16 @@ export const addEnhancedSpritesToMap = async (map, options) => {
       } catch (_) {}
       resolve(true);
     };
-    img.onerror = () => resolve(false);
-    img.src = url;
+    let i = 0;
+    img.onerror = () => {
+      i += 1;
+      if (i < urls.length) {
+        img.src = urls[i];
+      } else {
+        resolve(false);
+      }
+    };
+    img.src = urls[i];
   })));
 };
 
@@ -154,5 +172,58 @@ export const addEnhancedSpritesToMap = async (map, options) => {
  * Build the image ID for a given quantized angle using the configured baseName.
  */
 export const buildSpriteImageId = (baseName, angle) => `${baseName}_${padAngle(angle)}`;
+
+// View type helpers
+export const VIEW_TYPES = { ISOMETRIC: 'isometric', TOP_DOWN: 'top-down' };
+
+export const getMapViewType = (mapOrPitch) => {
+  if (mapOrPitch == null) return VIEW_TYPES.ISOMETRIC; // default when unknown
+  let pitch = 0;
+  try {
+    if (typeof mapOrPitch === 'number') {
+      pitch = mapOrPitch;
+    } else if (mapOrPitch && typeof mapOrPitch.getPitch === 'function') {
+      pitch = mapOrPitch.getPitch() || 0;
+    }
+  } catch (_) {}
+  return (pitch > 15) ? VIEW_TYPES.ISOMETRIC : VIEW_TYPES.TOP_DOWN;
+};
+
+export const buildSpriteUrl = (baseName, angle, viewType = VIEW_TYPES.ISOMETRIC) => {
+  const vt = (viewType === VIEW_TYPES.TOP_DOWN) ? VIEW_TYPES.TOP_DOWN : VIEW_TYPES.ISOMETRIC;
+  const dir = `/static/${baseName}/${vt}/renders`;
+  const file = vt === VIEW_TYPES.TOP_DOWN
+    ? `${baseName}_TOP_${padAngle(angle)}.png`
+    : `${baseName}_${padAngle(angle)}.png`;
+  return `${dir}/${file}`;
+};
+
+export const buildLegacyIsometricUrl = (baseName, angle) => `/data/icons/isometric-bw/${baseName}_${padAngle(angle)}.png`;
+
+// Flat public/static structure helper: /static/{base}/{base|base_TOP}_NNN.png
+export const buildFlatSpriteUrl = (baseName, angle, viewType = VIEW_TYPES.ISOMETRIC) => {
+  const vt = (viewType === VIEW_TYPES.TOP_DOWN) ? VIEW_TYPES.TOP_DOWN : VIEW_TYPES.ISOMETRIC;
+  const file = vt === VIEW_TYPES.TOP_DOWN
+    ? `${baseName}_TOP_${padAngle(angle)}.png`
+    : `${baseName}_${padAngle(angle)}.png`;
+  return `/static/${baseName}/${file}`;
+};
+
+export const buildSpriteFallbacks = (baseName, angle, viewType = VIEW_TYPES.ISOMETRIC) => {
+  const primary = buildSpriteUrl(baseName, angle, viewType); // nested view dir
+  const iso = buildSpriteUrl(baseName, angle, VIEW_TYPES.ISOMETRIC); // nested iso
+  const flat = buildFlatSpriteUrl(baseName, angle, viewType); // flat current view
+  const flatIso = buildFlatSpriteUrl(baseName, angle, VIEW_TYPES.ISOMETRIC); // flat iso
+  const legacy = buildLegacyIsometricUrl(baseName, angle);
+  const chain = [];
+  // Keep nested as the primary for components/tests that assert it
+  if (!chain.includes(primary)) chain.push(primary);
+  if (!chain.includes(iso)) chain.push(iso);
+  // Then include flat structure which matches current public assets
+  if (!chain.includes(flat)) chain.push(flat);
+  if (!chain.includes(flatIso)) chain.push(flatIso);
+  if (!chain.includes(legacy)) chain.push(legacy);
+  return chain;
+};
 
 

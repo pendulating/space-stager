@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useEffect, useState } from 'react';
-import { padAngle, quantizeAngleTo45 } from '../../utils/enhancedRenderingUtils';
+import { padAngle, quantizeAngleTo45, getMapViewType, VIEW_TYPES, buildSpriteUrl, buildLegacyIsometricUrl, buildSpriteFallbacks } from '../../utils/enhancedRenderingUtils';
 import { X } from 'lucide-react';
 import { getContrastingBackgroundForIcon } from '../../utils/colorUtils';
 
@@ -31,7 +31,11 @@ const DroppedObjects = ({
     if (!placeableObjects || !placeableObjects.length) return;
     const needed = {};
     placeableObjects.forEach((po) => {
-      if (po?.imageUrl && !iconBgBySrc[po.imageUrl]) {
+      const isEnhanced = !!po?.enhancedRendering?.enabled;
+      if (isEnhanced && po.enhancedRendering?.spriteBase) {
+        const src = buildSpriteUrl(po.enhancedRendering.spriteBase, 135, VIEW_TYPES.ISOMETRIC);
+        if (!iconBgBySrc[src]) needed[src] = po.color || '#64748b';
+      } else if (po?.imageUrl && !iconBgBySrc[po.imageUrl]) {
         needed[po.imageUrl] = po.color || '#64748b';
       }
     });
@@ -58,12 +62,12 @@ const DroppedObjects = ({
     const needed = {};
     objects.forEach((obj) => {
       const objectType = placeableObjects.find(p => p.id === obj.type);
-      if (!objectType || !objectType.imageUrl) return;
+      if (!objectType) return;
       const isEnhanced = !!objectType?.enhancedRendering?.enabled;
       const base = objectType.enhancedRendering?.spriteBase;
-      const dir = objectType.enhancedRendering?.publicDir || '/data/icons/isometric-bw';
+      const vt = getMapViewType(map);
       const angle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
-      const src = isEnhanced && base ? `${dir}/${base}_${padAngle(angle)}.png` : objectType.imageUrl;
+      const src = isEnhanced && base ? buildSpriteUrl(base, angle, vt) : objectType.imageUrl;
       if (src && !iconBgBySrc[src]) {
         needed[src] = objectType.color || '#64748b';
       }
@@ -188,17 +192,20 @@ const DroppedObjects = ({
       const fontSize = Math.max(iconSize * 0.6, 14);
 
       // Determine icon src and override background for contrast if we have it
-      let iconSrc = null;
-      if (objectType.imageUrl) {
-        const isEnhanced = !!objectType?.enhancedRendering?.enabled;
-        const base = objectType.enhancedRendering?.spriteBase;
-        const dir = objectType.enhancedRendering?.publicDir || '/data/icons/isometric-bw';
-        const angle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
-        const q = isEnhanced ? quantizeAngleTo45(angle) : angle;
-        iconSrc = isEnhanced && base ? `${dir}/${base}_${padAngle(q)}.png` : objectType.imageUrl;
-        const bg = iconBgBySrc[iconSrc];
-        if (bg) style.backgroundColor = bg;
+      const isEnhanced = !!objectType?.enhancedRendering?.enabled;
+      const base = objectType.enhancedRendering?.spriteBase;
+      const vt = getMapViewType(map);
+      const angle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
+      const q = isEnhanced ? quantizeAngleTo45(angle) : angle;
+      const fallbacks = isEnhanced && base ? buildSpriteFallbacks(base, q, vt) : (objectType.imageUrl ? [objectType.imageUrl] : []);
+      const iconSrc = fallbacks[0] || null;
+      // Pre-register bg fallbacks to avoid flash
+      if (isEnhanced && base) {
+        const fallbacks = buildSpriteFallbacks(base, q, vt);
+        fallbacks.forEach((f) => { if (!iconBgBySrc[f]) iconBgBySrc[f] = style.backgroundColor; });
       }
+      const bg = iconBgBySrc[iconSrc];
+      if (bg) style.backgroundColor = bg;
       
       const isSelected = selectedId && obj.id === selectedId;
       if (isSelected) {
@@ -214,10 +221,23 @@ const DroppedObjects = ({
           className="group relative placed-object"
           onClick={(e) => { e.stopPropagation(); if (typeof onSelectObject === 'function') onSelectObject(obj); }}
         >
-          {objectType.imageUrl ? (
+          {iconSrc ? (
             <img
               src={iconSrc}
               alt={objectType.name}
+              onError={(e) => {
+                try {
+                  const current = e.currentTarget.getAttribute('src');
+                  const idx = fallbacks.indexOf(current);
+                  const next = fallbacks[idx + 1];
+                  if (next) {
+                    e.currentTarget.src = next;
+                  } else {
+                    // hide broken image; text fallback will remain hidden but still usable via title
+                    e.currentTarget.style.visibility = 'hidden';
+                  }
+                } catch (_) {}
+              }}
               style={{ width: iconSize, height: iconSize, objectFit: 'contain', transform: obj?.properties?.flipped ? 'scaleX(-1)' : undefined }}
               draggable={false}
             />
@@ -258,7 +278,7 @@ const DroppedObjects = ({
         </div>
       );
     }).filter(Boolean);
-  }, [objects, placeableObjects, objectUpdateTrigger, getObjectStyle, onRemoveObject, map, iconBgBySrc, selectedId, onSelectObject]);
+  }, [objects, placeableObjects, objectUpdateTrigger, getObjectStyle, onRemoveObject, map, iconBgBySrc, selectedId, onSelectObject, (map && map.getPitch ? map.getPitch() : 0)]);
 
   // After all hooks are called, we can return early
   return <>{renderedObjects}</>;

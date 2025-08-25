@@ -9,7 +9,7 @@ import { calculateGeometryBounds, expandBounds } from '../utils/geometryUtils';
 import { createInfrastructureTooltipContent } from '../utils/tooltipUtils';
 import { addIconsToMap, retryLoadIcons } from '../utils/iconUtils';
 import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
-import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, buildSpriteImageId } from '../utils/enhancedRenderingUtils';
+import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, buildSpriteImageId, getMapViewType, buildSpriteUrl } from '../utils/enhancedRenderingUtils';
 
 export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
   console.log('[DEBUG] useInfrastructure hook called with map:', !!map);
@@ -413,10 +413,13 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
         if (cfg?.enhancedRendering?.enabled) {
           // Ensure sprites are loaded for variants
           try {
+            const viewType = getMapViewType(map);
             await addEnhancedSpritesToMap(map, {
               baseName: cfg.enhancedRendering.spriteBase,
-              publicDir: cfg.enhancedRendering.publicDir,
-              angles: cfg.enhancedRendering.angles
+              publicDir: `/static/${cfg.enhancedRendering.spriteBase}/${viewType}/renders`,
+              angles: cfg.enhancedRendering.angles,
+              viewType,
+              urlBuilder: buildSpriteUrl
             });
           } catch (_) {}
 

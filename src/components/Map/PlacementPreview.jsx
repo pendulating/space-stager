@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
-import { padAngle } from '../../utils/enhancedRenderingUtils';
+import { padAngle, getMapViewType, buildSpriteUrl } from '../../utils/enhancedRenderingUtils';
 
-const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects }) => {
+const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects, map }) => {
   const previewStyle = useMemo(() => {
     if (!placementMode || !cursorPosition || !placeableObjects) {
       return { display: 'none' };
@@ -79,16 +79,16 @@ const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects }) =
 
   return (
     <div style={previewStyle}>
-      {objectType.imageUrl ? (
+      {(objectType.imageUrl || objectType?.enhancedRendering?.enabled) ? (
         (() => {
           // If enhanced, preview the variant image for the current placement rotation
           const isEnhanced = !!objectType?.enhancedRendering?.enabled;
           let src = objectType.imageUrl;
-          if (isEnhanced) {
+          if (isEnhanced && objectType.enhancedRendering?.spriteBase) {
             const base = objectType.enhancedRendering.spriteBase;
-            const dir = objectType.enhancedRendering.publicDir || '/data/icons/isometric-bw';
             const angle = typeof placementMode?.rotationDeg === 'number' ? placementMode.rotationDeg : 0;
-            src = `${dir}/${base}_${padAngle(angle)}.png`;
+            const vt = getMapViewType(map);
+            src = buildSpriteUrl(base, angle, vt);
           }
           return <img src={src} alt={objectType.name} style={iconStyle} draggable={false} />;
         })()

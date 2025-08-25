@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { getContrastingBackgroundForIcon } from '../../utils/colorUtils';
+import { buildSpriteFallbacks } from '../../utils/enhancedRenderingUtils';
 
 const PlaceableObjectsPanel = ({ 
   objects, 
@@ -26,14 +27,14 @@ const PlaceableObjectsPanel = ({
     if (!objects || !objects.length) return;
     const needed = {};
     objects.forEach((obj) => {
-      if (!obj?.imageUrl) return;
       const isEnhanced = !!obj?.enhancedRendering?.enabled;
-      let src = obj.imageUrl;
-      if (isEnhanced) {
-        const base = obj.enhancedRendering.spriteBase;
-        const dir = obj.enhancedRendering.publicDir || '/data/icons/isometric-bw';
-        src = `${dir}/${base}_135.png`;
+      let src = null;
+      if (isEnhanced && obj.enhancedRendering?.spriteBase) {
+        // Prefer flat /static/{base}/{file}.png first
+        const fallbacks = buildSpriteFallbacks(obj.enhancedRendering.spriteBase, 135, 'isometric');
+        src = fallbacks[0] || null;
       }
+      if (!src && obj.imageUrl) src = obj.imageUrl;
       if (src && !bgBySrc[src]) {
         needed[src] = obj.color || '#64748b';
       }
@@ -78,39 +79,50 @@ const PlaceableObjectsPanel = ({
               }`}
               title={`Click to place ${obj.name}${isActive ? ' (click again to cancel)' : ''}`}
             >
-              {obj.imageUrl ? (
-                (() => {
-                  const isEnhanced = !!obj?.enhancedRendering?.enabled;
-                  let src = obj.imageUrl;
-                  if (isEnhanced) {
-                    const base = obj.enhancedRendering.spriteBase;
-                    const dir = obj.enhancedRendering.publicDir || '/data/icons/isometric-bw';
-                    src = `${dir}/${base}_135.png`;
-                  }
-                  const bg = bgBySrc[src] || (obj.color ? `${obj.color}E6` : undefined); // fallback alpha if not computed yet
-                  return (
-                    <div
-                      className="w-12 h-12 mb-2 rounded-full flex items-center justify-center"
-                      style={{ backgroundColor: bg || 'rgba(255,255,255,0.9)' }}
-                    >
+              {(() => {
+                const isEnhanced = !!obj?.enhancedRendering?.enabled;
+                const base = obj.enhancedRendering?.spriteBase;
+                const fallbacks = isEnhanced && base
+                  ? buildSpriteFallbacks(base, 135, 'isometric')
+                  : (obj.imageUrl ? [obj.imageUrl] : []);
+                const src = fallbacks[0] || null;
+                const bg = (src && bgBySrc[src]) || (obj.color ? `${obj.color}E6` : undefined);
+                return (
+                  <div
+                    className="w-12 h-12 mb-2 rounded-full flex items-center justify-center"
+                    style={{ backgroundColor: bg || 'rgba(255,255,255,0.9)' }}
+                  >
+                    {src ? (
                       <img
                         src={src}
                         alt={obj.name}
                         className="w-10 h-10"
                         style={{ objectFit: 'contain' }}
                         draggable={false}
+                        onError={(e) => {
+                          try {
+                            const current = e.currentTarget.getAttribute('src');
+                            const idx = fallbacks.indexOf(current);
+                            const next = fallbacks[idx + 1];
+                            if (next) {
+                              e.currentTarget.src = next;
+                            } else {
+                              e.currentTarget.style.visibility = 'hidden';
+                            }
+                          } catch (_) {}
+                        }}
                       />
-                    </div>
-                  );
-                })()
-              ) : (
-                <div 
-                  className="w-12 h-12 mb-2 rounded-full flex items-center justify-center text-white text-sm font-medium"
-                  style={{ backgroundColor: obj.color }}
-                >
-                  {obj.icon}
-                </div>
-              )}
+                    ) : (
+                      <div 
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-medium"
+                        style={{ backgroundColor: obj.color }}
+                      >
+                        {obj.icon}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               <span className="text-xs text-gray-700 dark:text-gray-200 text-center font-medium">
                 {obj.name}
               </span>
