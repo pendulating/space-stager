@@ -12,7 +12,9 @@ const DroppedObjects = ({
   objectUpdateTrigger, 
   onRemoveObject,
   onEditNote,
-  isNoteEditing
+  isNoteEditing,
+  selectedId,
+  onSelectObject
 }) => {
   if (DEBUG) console.log('DroppedObjects: Component render', {
     objectCount: objects.length,
@@ -198,12 +200,19 @@ const DroppedObjects = ({
         if (bg) style.backgroundColor = bg;
       }
       
+      const isSelected = selectedId && obj.id === selectedId;
+      if (isSelected) {
+        style.border = '2px solid #2563eb';
+        style.boxShadow = '0 0 0 2px rgba(37,99,235,0.35)';
+      }
+
       return (
         <div
           key={`${obj.id}-${objectUpdateTrigger}`}
           style={style}
           title={obj.name}
           className="group relative placed-object"
+          onClick={(e) => { e.stopPropagation(); if (typeof onSelectObject === 'function') onSelectObject(obj); }}
         >
           {objectType.imageUrl ? (
             <img
@@ -249,7 +258,7 @@ const DroppedObjects = ({
         </div>
       );
     }).filter(Boolean);
-  }, [objects, placeableObjects, objectUpdateTrigger, getObjectStyle, onRemoveObject, map, iconBgBySrc]);
+  }, [objects, placeableObjects, objectUpdateTrigger, getObjectStyle, onRemoveObject, map, iconBgBySrc, selectedId, onSelectObject]);
 
   // After all hooks are called, we can return early
   return <>{renderedObjects}</>;

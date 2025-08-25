@@ -54,6 +54,7 @@ const MapContainer = forwardRef(({
   const derivedSourceId = 'annotations-derived';
   const arrowIconId = 'annotation-arrowhead';
   const [selectedDroppedRectId, setSelectedDroppedRectId] = useState(null);
+  const [selectedDroppedPointId, setSelectedDroppedPointId] = useState(null);
 
   // Compass / camera state
   const [bearing, setBearing] = useState(0);
@@ -422,10 +423,51 @@ const MapContainer = forwardRef(({
         if (ring.length >= 4 && pointInPolygon(pt, ring)) { hitId = rectObjs[i].id; break; }
       }
       setSelectedDroppedRectId(hitId);
+      // Clear point selection if we selected a rectangle
+      if (hitId) setSelectedDroppedPointId(null);
     } catch (_) {}
   };
 
-  // Rotate selected rectangle continuously while key is held (free rotation)
+  // Enhanced object point selection by click proximity
+  const handlePointSelectionClick = (e) => {
+    try {
+      if (!map || !placeableObjects || !clickToPlace || clickToPlace.placementMode) return;
+      const mapContainer = map.getContainer();
+      const rect = mapContainer.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      // Only consider enhanced point objects (non-rect)
+      const candidates = (clickToPlace.droppedObjects || []).filter((o) => {
+        const t = placeableObjects.find(p => p.id === o.type);
+        return t && t.geometryType !== 'rect' && !!t?.enhancedRendering?.enabled;
+      });
+      if (!candidates.length) { setSelectedDroppedPointId(null); return; }
+      const zoom = typeof map.getZoom === 'function' ? map.getZoom() : 16;
+      const zoomScale = Math.min(1.6, Math.max(0.6, 0.6 + (zoom - 12) * 0.1));
+      let best = { id: null, distSq: Infinity };
+      for (const obj of candidates) {
+        try {
+          const t = placeableObjects.find(p => p.id === obj.type);
+          if (!t) continue;
+          const pixel = map.project([obj.position.lng, obj.position.lat]);
+          const baseSize = Math.max(t.size.width, t.size.height, 24);
+          const iconSize = baseSize * zoomScale;
+          const radius = iconSize / 2;
+          const dx = (pixel.x) - x;
+          const dy = (pixel.y) - y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 <= radius * radius && d2 < best.distSq) {
+            best = { id: obj.id, distSq: d2 };
+          }
+        } catch (_) {}
+      }
+      setSelectedDroppedPointId(best.id || null);
+      // Clear rect selection if we selected a point
+      if (best.id) setSelectedDroppedRectId(null);
+    } catch (_) {}
+  };
+
+  // Rotate: rectangles (free rotation with hold), enhanced points (45° steps on key down)
   useEffect(() => {
     let rafId = null;
     let activeDir = 0; // -1 for CCW, +1 for CW
@@ -438,35 +480,37 @@ const MapContainer = forwardRef(({
       lastTs = ts;
       const delta = activeDir * degreesPerSecond * dt; // fractional degrees
       try {
-        clickToPlace.updateDroppedObject(selectedDroppedRectId, (prev) => {
-          if (!prev || prev?.geometry?.type !== 'Polygon') return prev;
-          const ring = Array.isArray(prev.geometry.coordinates?.[0]) ? prev.geometry.coordinates[0] : [];
-          if (ring.length < 4) return prev;
-          const corners = ring.slice(0, 4).map(([lng, lat]) => [lng, lat]);
-          const cx = (corners[0][0] + corners[2][0]) / 2;
-          const cy = (corners[0][1] + corners[2][1]) / 2;
-          const rad = (delta * Math.PI) / 180;
-          const cos = Math.cos(rad), sin = Math.sin(rad);
-          const rotatePt = ([x, y]) => {
-            const dx = x - cx; const dy = y - cy;
-            return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos];
-          };
-          const newCorners = corners.map(rotatePt);
-          const newRing = [...newCorners, newCorners[0]];
-          const curRot = Number(prev?.properties?.rotationDeg || 0);
-          let nextRot = curRot + delta; nextRot %= 360; if (nextRot < 0) nextRot += 360;
-          return {
-            ...prev,
-            geometry: { type: 'Polygon', coordinates: [newRing] },
-            properties: Object.assign({}, prev.properties || {}, { rotationDeg: nextRot })
-          };
-        });
+        if (selectedDroppedRectId) {
+          clickToPlace.updateDroppedObject(selectedDroppedRectId, (prev) => {
+            if (!prev || prev?.geometry?.type !== 'Polygon') return prev;
+            const ring = Array.isArray(prev.geometry.coordinates?.[0]) ? prev.geometry.coordinates[0] : [];
+            if (ring.length < 4) return prev;
+            const corners = ring.slice(0, 4).map(([lng, lat]) => [lng, lat]);
+            const cx = (corners[0][0] + corners[2][0]) / 2;
+            const cy = (corners[0][1] + corners[2][1]) / 2;
+            const rad = (delta * Math.PI) / 180;
+            const cos = Math.cos(rad), sin = Math.sin(rad);
+            const rotatePt = ([x, y]) => {
+              const dx = x - cx; const dy = y - cy;
+              return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos];
+            };
+            const newCorners = corners.map(rotatePt);
+            const newRing = [...newCorners, newCorners[0]];
+            const curRot = Number(prev?.properties?.rotationDeg || 0);
+            let nextRot = curRot + delta; nextRot %= 360; if (nextRot < 0) nextRot += 360;
+            return {
+              ...prev,
+              geometry: { type: 'Polygon', coordinates: [newRing] },
+              properties: Object.assign({}, prev.properties || {}, { rotationDeg: nextRot })
+            };
+          });
+        }
       } catch (_) {}
       rafId = requestAnimationFrame(step);
     };
 
     const onKeyDown = (e) => {
-      if (!selectedDroppedRectId) return;
+      if (!selectedDroppedRectId && !selectedDroppedPointId) return;
       const t = e.target;
       const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
       if (typing) return;
@@ -475,27 +519,48 @@ const MapContainer = forwardRef(({
       const isLeftBracket = e.code === 'BracketLeft' || e.key === '[';
       const isRightBracket = e.code === 'BracketRight' || e.key === ']';
       const isEsc = e.key === 'Escape';
-      if (isEsc) { setSelectedDroppedRectId(null); return; }
+      if (isEsc) { setSelectedDroppedRectId(null); setSelectedDroppedPointId(null); return; }
       if (!(isComma || isPeriod || isLeftBracket || isRightBracket)) return;
       e.preventDefault();
       const dir = (isPeriod || isRightBracket) ? 1 : -1;
-      if (activeDir !== dir) {
-        activeDir = dir;
-        lastTs = 0;
-        if (rafId == null) rafId = requestAnimationFrame(step);
+      if (selectedDroppedRectId) {
+        // Free rotation (hold)
+        if (activeDir !== dir) {
+          activeDir = dir;
+          lastTs = 0;
+          if (rafId == null) rafId = requestAnimationFrame(step);
+        }
+      } else if (selectedDroppedPointId) {
+        // Enhanced points: 45° step per keydown (no RAF)
+        try {
+          const obj = (clickToPlace?.droppedObjects || []).find(o => o.id === selectedDroppedPointId);
+          const tpo = obj ? placeableObjects.find(p => p.id === obj.type) : null;
+          if (!tpo?.enhancedRendering?.enabled) return;
+          const delta = dir * 45;
+          clickToPlace.updateDroppedObject(selectedDroppedPointId, (prev) => {
+            if (!prev) return prev;
+            const cur = Number(prev?.properties?.rotationDeg || 0);
+            let next = cur + delta; next %= 360; if (next < 0) next += 360;
+            // snap to nearest 45 to ensure sprite variant exists
+            const snapped = Math.round(next / 45) * 45 % 360;
+            return { ...prev, properties: Object.assign({}, prev.properties || {}, { rotationDeg: snapped }) };
+          });
+        } catch (_) {}
       }
     };
     const onKeyUp = (e) => {
-      if (!selectedDroppedRectId) return;
+      if (!selectedDroppedRectId && !selectedDroppedPointId) return;
       const isComma = e.code === 'Comma' || e.key === ',' || e.key === '<';
       const isPeriod = e.code === 'Period' || e.key === '.' || e.key === '>';
       const isLeftBracket = e.code === 'BracketLeft' || e.key === '[';
       const isRightBracket = e.code === 'BracketRight' || e.key === ']';
       if (!(isComma || isPeriod || isLeftBracket || isRightBracket)) return;
       e.preventDefault();
-      activeDir = 0;
-      lastTs = 0;
-      if (rafId != null) { cancelAnimationFrame(rafId); rafId = null; }
+      if (selectedDroppedRectId) {
+        activeDir = 0;
+        lastTs = 0;
+        if (rafId != null) { cancelAnimationFrame(rafId); rafId = null; }
+      }
     };
 
     window.addEventListener('keydown', onKeyDown, { passive: false, capture: true });
@@ -505,7 +570,7 @@ const MapContainer = forwardRef(({
       window.removeEventListener('keyup', onKeyUp, true);
       if (rafId != null) cancelAnimationFrame(rafId);
     };
-  }, [selectedDroppedRectId]);
+  }, [selectedDroppedRectId, selectedDroppedPointId, placeableObjects]);
 
   return (
     <div className="flex-1 relative">
@@ -548,7 +613,14 @@ const MapContainer = forwardRef(({
         className={`absolute inset-0 ${placementMode ? 'cursor-crosshair' : ''}`}
         style={{ width: '100%', height: '100%' }}
         onMouseMove={handleMapMouseMove}
-        onClick={(e) => { try { handleMapClick(e); } catch (_) {}; handleRectSelectionClick(e); }}
+        onClick={(e) => {
+          try { handleMapClick(e); } catch (_) {}
+          // Only run selection logic when not in placement mode
+          if (!placementMode) {
+            handleRectSelectionClick(e);
+            handlePointSelectionClick(e);
+          }
+        }}
       />
       
       <DroppedObjects
@@ -559,6 +631,21 @@ const MapContainer = forwardRef(({
         objectUpdateTrigger={clickToPlace.objectUpdateTrigger}
         onEditNote={(obj) => setNoteEditingObject(obj)}
         isNoteEditing={!!noteEditingObject}
+        selectedId={selectedDroppedPointId}
+        onSelectObject={(obj) => {
+          try {
+            const t = placeableObjects.find(p => p.id === obj.type);
+            if (t?.geometryType === 'rect') {
+              setSelectedDroppedRectId(obj.id);
+              setSelectedDroppedPointId(null);
+            } else if (t?.enhancedRendering?.enabled) {
+              setSelectedDroppedPointId(obj.id);
+              setSelectedDroppedRectId(null);
+            } else {
+              setSelectedDroppedPointId(null);
+            }
+          } catch (_) {}
+        }}
       />
 
 
