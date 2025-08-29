@@ -207,6 +207,13 @@ const DroppedObjects = ({
           let ready = false;
           try { ready = map && typeof map.hasImage === 'function' ? map.hasImage(imgId) : false; } catch (_) { ready = false; }
           props.icon_ready = ready ? 1 : 0;
+        } else if (t?.imageUrl) {
+          // Simple (non-enhanced) static icon path: use type id as image id
+          const imgId = String(t.id);
+          props.icon_image = imgId;
+          let ready = false;
+          try { ready = map && typeof map.hasImage === 'function' ? map.hasImage(imgId) : false; } catch (_) { ready = false; }
+          props.icon_ready = ready ? 1 : 0;
         }
         feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [obj.position.lng, obj.position.lat] }, properties: props });
       }
@@ -225,6 +232,28 @@ const DroppedObjects = ({
         if (!map.getSource(DROPPED_SOURCE_ID)) {
           map.addSource(DROPPED_SOURCE_ID, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         }
+        // Ensure a default placeholder icon exists to avoid flicker while images load
+        try {
+          const phId = 'default-placeholder';
+          let has = false;
+          try { has = map.hasImage && map.hasImage(phId); } catch (_) { has = false; }
+          if (!has) {
+            const size = 32;
+            const c = document.createElement('canvas');
+            c.width = size; c.height = size;
+            const ctx = c.getContext('2d');
+            ctx.clearRect(0,0,size,size);
+            const r = Math.floor(size * 0.35);
+            ctx.beginPath();
+            ctx.arc(size/2, size/2, r, 0, Math.PI*2);
+            ctx.fillStyle = 'rgba(255,255,255,0.9)';
+            ctx.fill();
+            ctx.lineWidth = Math.max(1, Math.floor(size * 0.06));
+            ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+            ctx.stroke();
+            map.addImage(phId, c, { pixelRatio: 2 });
+          }
+        } catch (_) {}
         if (!map.getLayer(DROPPED_SYMBOL_LAYER_ID)) {
           map.addLayer({
             id: DROPPED_SYMBOL_LAYER_ID,
@@ -232,7 +261,8 @@ const DroppedObjects = ({
             source: DROPPED_SOURCE_ID,
             filter: ['has', 'icon_image'],
             layout: {
-              'icon-image': ['get', 'icon_image'],
+              // Use placeholder while real image registers
+              'icon-image': ['coalesce', ['get', 'icon_image'], 'default-placeholder'],
               'icon-allow-overlap': true,
               'icon-ignore-placement': true,
               'icon-anchor': 'center',
@@ -255,14 +285,15 @@ const DroppedObjects = ({
             id: DROPPED_CIRCLE_LAYER_ID,
             type: 'circle',
             source: DROPPED_SOURCE_ID,
-            filter: ['any', ['!', ['has', 'icon_image']], ['!=', ['get', 'icon_ready'], 1]],
+            // Only show when no icon_image property is set
+            filter: ['!', ['has', 'icon_image']],
             paint: {
               'circle-color': 'rgba(0,0,0,0)',
               'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, ['*', ['coalesce', ['get','baseSize'], 24], 0.3], 18, ['*', ['coalesce', ['get','baseSize'], 24], 0.8]],
               'circle-stroke-color': 'rgba(0,0,0,0.15)',
               'circle-stroke-width': 1,
               // Hide circle when icon is present
-              'circle-opacity': ['case', ['all', ['has', 'icon_image'], ['==', ['get', 'icon_ready'], 1]], 0, 1]
+              'circle-opacity': 1
             }
           });
         }
@@ -274,15 +305,17 @@ const DroppedObjects = ({
             filter: ['==', ['get', 'id'], ''],
             paint: {
               'circle-color': 'rgba(0,0,0,0)',
+              // Fixed, highly visible ring across zooms
               'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 18, 18, 28],
               'circle-stroke-color': '#2563eb',
-              'circle-stroke-width': 2
+              'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 12, 2, 18, 3],
+              'circle-stroke-opacity': 1
             }
           });
         }
         // Enforce filters even if layers already existed
         try { map.setFilter(DROPPED_SYMBOL_LAYER_ID, ['has', 'icon_image']); } catch (_) {}
-        try { map.setFilter(DROPPED_CIRCLE_LAYER_ID, ['any', ['!', ['has', 'icon_image']], ['!=', ['get', 'icon_ready'], 1]]); } catch (_) {}
+        try { map.setFilter(DROPPED_CIRCLE_LAYER_ID, ['!', ['has', 'icon_image']]); } catch (_) {}
         if (!map.getLayer(DROPPED_SELECTED_LAYER_ID)) {
           map.addLayer({
             id: DROPPED_SELECTED_LAYER_ID,
@@ -328,18 +361,36 @@ const DroppedObjects = ({
         const id = e && e.id;
         if (!id || typeof id !== 'string') return;
         const parts = id.split('_');
-        if (parts.length < 2) return;
-        const base = parts[0];
-        const angles = [0,45,90,135,180,225,270,315];
         const vt = view?.viewType || getMapViewType(map);
-        await addEnhancedSpritesToMap(map, {
-          baseName: base,
-          publicDir: `/static/${base}`,
-          angles,
-          viewType: vt,
-          urlBuilder: buildFlatSpriteUrl,
-          replaceExisting: true
-        });
+        if (parts.length >= 2) {
+          // Enhanced family: register only the requested angle to minimize churn
+          const base = parts[0];
+          let angle = 0;
+          try { angle = parseInt(parts[1], 10); if (!isFinite(angle)) angle = 0; } catch (_) { angle = 0; }
+          await addEnhancedSpritesToMap(map, {
+            baseName: base,
+            publicDir: `/static/${base}`,
+            angles: [angle],
+            viewType: vt,
+            urlBuilder: buildFlatSpriteUrl,
+            replaceExisting: false
+          });
+        } else {
+          // Non-enhanced: id is type id; add its imageUrl
+          try {
+            const t = (placeableObjects || []).find(p => String(p.id) === id);
+            const url = t?.imageUrl;
+            if (url) {
+              const img = new Image();
+              img.crossOrigin = 'anonymous';
+              await new Promise((resolve) => {
+                img.onload = () => { try { map.addImage(id, img); } catch (_) {} resolve(true); };
+                img.onerror = () => resolve(false);
+                img.src = url;
+              });
+            }
+          } catch (_) {}
+        }
         // Rebuild source to update icon_ready flags
         setTimeout(() => { try { rebuildDroppedData(); } catch (_) {} }, 0);
       } catch (_) {}
@@ -364,6 +415,12 @@ const DroppedObjects = ({
   useEffect(() => { onMoveRef.current = onMoveObject; }, [onMoveObject]);
   const handleLayerClick = React.useCallback((e) => {
     try {
+      // Prevent other click handlers from clearing selection
+      try {
+        if (e && e.preventDefault) e.preventDefault();
+        const oe = e && (e.originalEvent || e.srcEvent || e.point && e.point.originalEvent);
+        if (oe) { if (typeof oe.stopPropagation === 'function') oe.stopPropagation(); oe.cancelBubble = true; }
+      } catch (_) {}
       const f = e?.features?.[0];
       const id = f?.properties?.id;
       if (!id) return;
@@ -371,6 +428,12 @@ const DroppedObjects = ({
       if (!obj) return;
       // Select via callback
       if (typeof onSelectRef.current === 'function') onSelectRef.current(obj);
+      // Ensure keyboard handlers receive events (for rotation , and .)
+      try {
+        const canvas = map && map.getCanvas ? map.getCanvas() : null;
+        if (canvas && typeof canvas.setAttribute === 'function') canvas.setAttribute('tabindex', '0');
+        if (canvas && typeof canvas.focus === 'function') canvas.focus();
+      } catch (_) {}
       // Arm dragging for this id for a short time window
       dragArmedIdRef.current = id;
       try { setTimeout(() => { if (dragArmedIdRef.current === id) dragArmedIdRef.current = null; }, 1500); } catch (_) {}
