@@ -5,31 +5,35 @@ import RectObjectMode from '../draw-modes/rectObjectMode';
 // - draw_text_annotation: a point placement that prompts for label
 // For now, register a placeholder mode that behaves like draw_point
 const TextAnnotationMode = {
-  onSetup() { return {}; },
+  onSetup() { try { console.debug('DRAW: enter TextAnnotationMode'); } catch (_) {} return {}; },
   onClick(state, e) {
+    try { console.debug('DRAW: TextAnnotationMode onClick', { lng: e?.lngLat?.lng, lat: e?.lngLat?.lat }); } catch (_) {}
     // Delegate to built-in point placement for now
     const pt = this.newFeature({ type: 'Feature', properties: { type: 'text', label: '' }, geometry: { type: 'Point', coordinates: [e.lngLat.lng, e.lngLat.lat] } });
     this.addFeature(pt);
+    try { console.debug('DRAW: firing draw.create for text'); } catch (_) {}
     this.map.fire('draw.create', { features: [pt.toGeoJSON()] });
+    try { console.debug('DRAW: changing mode to simple_select for text'); } catch (_) {}
     this.changeMode('simple_select', { featureIds: [pt.id] });
   },
   toDisplayFeatures(state, geojson, display) { display(geojson); },
-  onStop() {}
+  onStop() { try { console.debug('DRAW: exit TextAnnotationMode'); } catch (_) {} }
 };
 
 // Custom two-click arrow mode independent of base; creates a 2-point line and finalizes on second click
 const ArrowTwoPointMode = {
   onSetup() {
+    try { console.debug('DRAW: enter ArrowTwoPointMode'); } catch (_) {}
     try { this.setActionableState({ trash: true }); } catch (_) {}
     return { start: null, line: null };
   },
   onClick(state, e) {
+    try { console.debug('DRAW: ArrowTwoPointMode onClick', { lng: e?.lngLat?.lng, lat: e?.lngLat?.lat, hasStart: !!state.start }); } catch (_) {}
     const lng = e.lngLat && e.lngLat.lng;
     const lat = e.lngLat && e.lngLat.lat;
     if (typeof lng !== 'number' || typeof lat !== 'number') return;
     const clicked = [lng, lat];
 
-    // First click: create preview line with duplicated coordinate
     if (!state.start) {
       state.start = clicked;
       try {
@@ -40,24 +44,24 @@ const ArrowTwoPointMode = {
         });
         this.addFeature(line);
         state.line = line;
+        try { console.debug('DRAW: ArrowTwoPointMode created preview line', { id: line.id }); } catch (_) {}
       } catch (_) {}
       return;
     }
 
-    // Second click: finalize and commit
     try {
       if (state.line && state.line.updateCoordinate) {
         state.line.updateCoordinate(1, clicked[0], clicked[1]);
       }
-      // Fire create event so external listeners can tag as arrow
+      try { console.debug('DRAW: firing draw.create for arrow'); } catch (_) {}
       try { this.map.fire('draw.create', { features: [state.line.toGeoJSON()] }); } catch (_) {}
-      // Exit to selection mode
+      try { console.debug('DRAW: changing mode to simple_select for arrow'); } catch (_) {}
       this.changeMode('simple_select', { featureIds: [state.line.id] });
     } catch (_) {}
   },
   onMouseMove(state, e) {
+    try { if (!state.start || !state.line) return; console.debug('DRAW: ArrowTwoPointMode onMouseMove'); } catch (_) {}
     try {
-      if (!state.start || !state.line) return;
       const lng = e.lngLat && e.lngLat.lng;
       const lat = e.lngLat && e.lngLat.lat;
       if (typeof lng !== 'number' || typeof lat !== 'number') return;
@@ -66,8 +70,8 @@ const ArrowTwoPointMode = {
   },
   toDisplayFeatures(state, geojson, display) { display(geojson); },
   onStop(state) {
+    try { console.debug('DRAW: exit ArrowTwoPointMode'); } catch (_) {}
     try {
-      // Clean up if not fully created
       const gj = state.line && state.line.toGeoJSON ? state.line.toGeoJSON() : null;
       const coords = gj && gj.geometry && Array.isArray(gj.geometry.coordinates) ? gj.geometry.coordinates : [];
       if (!coords || coords.length < 2) {
@@ -76,6 +80,7 @@ const ArrowTwoPointMode = {
     } catch (_) {}
   },
   onTrash(state) {
+    try { console.debug('DRAW: ArrowTwoPointMode onTrash'); } catch (_) {}
     try { if (state.line) this.deleteFeature([state.line.id]); } catch (_) {}
     this.changeMode('simple_select');
   }
@@ -99,43 +104,62 @@ export const useDrawTools = (map, focusedArea = null) => {
   // Store event handlers in refs to avoid dependency issues
   const eventHandlers = useRef({
     handleDrawCreate: (e) => {
+      try { console.debug('DRAW: handleDrawCreate', { count: e?.features?.length, id: e?.features?.[0]?.id, geom: e?.features?.[0]?.geometry?.type, activeTool: activeToolRef.current }); } catch (_) {}
       const feature = e.features[0];
       // If active tool is arrow, tag the feature for rendering/export
       try {
         const currentTool = activeToolRef.current;
+        const currentMode = (draw.current && draw.current.getMode) ? draw.current.getMode() : null;
         if (currentTool === 'arrow' && feature && feature.geometry && feature.geometry.type === 'LineString') {
+          // Tag as arrow and normalize to two points
           feature.properties = Object.assign({}, feature.properties, { type: 'arrow' });
-          if (draw.current) draw.current.add(feature);
-          // Ensure only two points (first, last)
-          try {
-            const coords = Array.isArray(feature.geometry.coordinates) ? feature.geometry.coordinates : [];
-            if (coords.length > 2) {
-              const trimmed = [coords[0], coords[coords.length - 1]];
-              feature.geometry.coordinates = trimmed;
-              draw.current.add(feature);
-            }
-            // Exit drawing
-            draw.current.changeMode('simple_select', { featureIds: [feature.id] });
-          } catch (_) {}
+          const coords = Array.isArray(feature.geometry.coordinates) ? feature.geometry.coordinates : [];
+          if (coords.length > 2) {
+            feature.geometry.coordinates = [coords[0], coords[coords.length - 1]];
+          }
+          try { draw.current && draw.current.add(feature); } catch (_) {}
+          // If custom mode already switched to simple_select, don't toggle again here
+          if (currentMode !== 'simple_select') {
+            try { draw.current && draw.current.changeMode('simple_select', { featureIds: [feature.id] }); } catch (_) {}
+            setActiveTool(null);
+          }
         } else if (currentTool === 'text' && feature && feature.geometry && feature.geometry.type === 'Point') {
           feature.properties = Object.assign({}, feature.properties, { type: 'text', label: feature.properties?.label || '' });
           if (draw.current) draw.current.add(feature);
           // Open the inline text editor immediately for convenience
           try { window.dispatchEvent(new CustomEvent('annotations:changed')); } catch (_) {}
           try { if (map && typeof map.fire === 'function') map.fire('ui:open-text-editor', { featureId: feature.id }); } catch (_) {}
+          // Toggle off tool after placement
+          try { draw.current.changeMode('simple_select', { featureIds: [feature.id] }); } catch (_) {}
+          setActiveTool(null);
+        } else if (currentTool === 'point' || currentTool === 'line' || currentTool === 'polygon') {
+          // For built-in modes, place a single feature then toggle off
+          try { draw.current && draw.current.changeMode('simple_select', { featureIds: [feature.id] }); } catch (_) {}
+          setActiveTool(null);
         }
       } catch (_) {}
       setSelectedShape(feature.id);
     },
     handleDrawUpdate: (e) => {
       console.log('Shape updated:', e.features);
+      try { console.debug('DRAW: handleDrawUpdate', { id: e?.features?.[0]?.id, geom: e?.features?.[0]?.geometry?.type, activeTool: activeToolRef.current }); } catch (_) {}
       try {
         const f = e.features && e.features[0];
         if (!f || !f.geometry) return;
 
         const coords = Array.isArray(f.geometry.coordinates) ? f.geometry.coordinates : [];
 
-        // If user is currently in arrow tool, finalize after two clicks even before type is set
+        const addIfChanged = (feat) => {
+          try {
+            const existing = draw.current && draw.current.get ? draw.current.get(feat.id) : null;
+            const sameGeom = existing && JSON.stringify(existing.geometry) === JSON.stringify(feat.geometry);
+            const sameProps = existing && JSON.stringify(existing.properties) === JSON.stringify(feat.properties);
+            if (!sameGeom || !sameProps) {
+              draw.current.add(feat);
+            }
+          } catch (_) {}
+        };
+
         const currentTool = activeToolRef.current;
         if (currentTool === 'arrow' && f.geometry.type === 'LineString') {
           if (coords.length >= 2) {
@@ -144,19 +168,17 @@ export const useDrawTools = (map, focusedArea = null) => {
               const b = coords[coords.length - 1];
               const dx = b[0] - a[0];
               const dy = b[1] - a[1];
-              // Convert to clockwise degrees to match icon-rotate semantics
               const bearingDeg = -(Math.atan2(dy, dx) * 180 / Math.PI);
               f.properties = Object.assign({}, f.properties, { type: 'arrow', bearing: bearingDeg });
-              // Trim to two points explicitly
               f.geometry.coordinates = [coords[0], coords[coords.length - 1]];
-              if (draw.current) draw.current.add(f);
+              addIfChanged(f);
+              try { console.debug('DRAW: update -> changeMode simple_select (arrow creation)'); } catch (_) {}
               try { draw.current.changeMode('simple_select', { featureIds: [f.id] }); } catch (_) {}
             } catch (_) {}
           }
           return;
         }
 
-        // Post-create updates for existing arrow features
         if (f.properties && f.properties.type === 'arrow' && f.geometry.type === 'LineString') {
           if (coords.length >= 2) {
             const a = coords[coords.length - 2];
@@ -165,22 +187,24 @@ export const useDrawTools = (map, focusedArea = null) => {
             const dy = b[1] - a[1];
             const bearingDeg = -(Math.atan2(dy, dx) * 180 / Math.PI);
             f.properties.bearing = bearingDeg;
-            if (draw.current) draw.current.add(f);
+            addIfChanged(f);
           }
-          // Enforce two-point arrow (first and last only)
           if (coords.length > 2) {
             const trimmed = [coords[0], coords[coords.length - 1]];
             f.geometry.coordinates = trimmed;
-            if (draw.current) draw.current.add(f);
+            addIfChanged(f);
+            try { console.debug('DRAW: trimmed arrow to 2 points, changeMode simple_select'); } catch (_) {}
             try { draw.current.changeMode('simple_select', { featureIds: [f.id] }); } catch (_) {}
           }
         }
       } catch (_) {}
     },
     handleDrawDelete: (e) => {
+      try { console.debug('DRAW: handleDrawDelete', { ids: e?.features?.map(f => f.id) }); } catch (_) {}
       setSelectedShape(null);
     },
     handleSelectionChange: (e) => {
+      try { console.debug('DRAW: handleSelectionChange', { count: e?.features?.length, id: e?.features?.[0]?.id }); } catch (_) {}
       if (e.features.length > 0) {
         setSelectedShape(e.features[0].id);
         const feature = e.features[0];
@@ -505,9 +529,14 @@ export const useDrawTools = (map, focusedArea = null) => {
   useEffect(() => {
     if (!map) return;
     const onModeChange = (e) => {
+      try { console.debug('DRAW: draw.modechange', { mode: e?.mode }); } catch (_) {}
       try {
         if (e?.mode !== 'draw_rect_object') {
           setActiveRectObjectTypeId(null);
+        }
+        // If returning to selection, clear active tool highlight
+        if (e?.mode === 'simple_select') {
+          setActiveTool(null);
         }
       } catch (_) {}
     };

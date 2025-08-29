@@ -116,10 +116,37 @@ const MapContainer = forwardRef(({
       (features || []).forEach((f) => {
         if (!f || !f.geometry) return;
         const props = f.properties || {};
+        // 1) Explicit text annotations
         if (props.type === 'text' && f.geometry.type === 'Point' && props.label) {
-          texts.push({ type: 'Feature', geometry: f.geometry, properties: { type: 'text', label: props.label, textSize: props.textSize || 14, textColor: props.textColor || '#111827', halo: props.halo !== false } });
-        } else if (props && typeof props.label === 'string' && props.label.trim()) {
-          // Derive a point for labeling non-text shapes using simple centroid/midpoint
+          texts.push({ type: 'Feature', geometry: f.geometry, properties: { sourceId: f.id, type: 'text', label: props.label, textSize: props.textSize || 14, textColor: props.textColor || '#111827', halo: props.halo !== false } });
+          return;
+        }
+        // 2) Arrow annotations: always derive line + arrowhead (even when labeled)
+        if (props.type === 'arrow' && f.geometry.type === 'LineString') {
+          const coords = f.geometry.coordinates || [];
+          if (coords.length >= 2) {
+            const a = coords[coords.length - 2];
+            const b = coords[coords.length - 1];
+            arrows.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: [a, b] }, properties: { sourceId: f.id } });
+            // Compute map-aligned bearing (degrees clockwise from north)
+            const dx = b[0] - a[0];
+            const dy = b[1] - a[1];
+            const degFromEastCCW = (Math.atan2(dy, dx) * 180) / Math.PI;
+            const bearingMapCWFromNorth = ((450 - degFromEastCCW) % 360 + 360) % 360;
+            arrowheads.push({ type: 'Feature', geometry: { type: 'Point', coordinates: b }, properties: { sourceId: f.id, bearing: bearingMapCWFromNorth, size: f.properties?.arrowSize || 1 } });
+            // Optional label for arrow: midpoint text if label present
+            if (typeof props.label === 'string' && props.label.trim()) {
+              const mid = [ (a[0] + b[0]) / 2, (a[1] + b[1]) / 2 ];
+              // Normalize label rotation to stay upright (avoid upside-down text)
+              let textRotate = bearingMapCWFromNorth;
+              if (textRotate > 90 && textRotate < 270) textRotate = (textRotate + 180) % 360;
+              shapeLabels.push({ type: 'Feature', geometry: { type: 'Point', coordinates: mid }, properties: { sourceId: f.id, label: props.label, textSize: props.textSize || 14, textColor: props.textColor || '#111827', halo: props.halo !== false, textRotate } });
+            }
+          }
+          return;
+        }
+        // 3) Generic non-text shapes with a label: derive a label point (centroid/midpoint)
+        if (typeof props.label === 'string' && props.label.trim()) {
           const g = f.geometry;
           let center = null;
           if (g.type === 'Point') {
@@ -147,23 +174,7 @@ const MapContainer = forwardRef(({
             }
           }
           if (center) {
-            shapeLabels.push({ type: 'Feature', geometry: { type: 'Point', coordinates: center }, properties: { label: props.label, textSize: props.textSize || 14, textColor: props.textColor || '#111827', halo: props.halo !== false } });
-          }
-        } else if (props.type === 'arrow' && f.geometry.type === 'LineString') {
-          const coords = f.geometry.coordinates || [];
-          if (coords.length >= 2) {
-            const a = coords[coords.length - 2];
-            const b = coords[coords.length - 1];
-            // Add arrow shaft as a simple two-point line
-            arrows.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: [a, b] }, properties: {} });
-            // Compute angle using screen-space delta so rotation matches viewport
-            const pa = map.project(a);
-            const pb = map.project(b);
-            const dx = pb.x - pa.x;
-            const dy = pb.y - pa.y;
-            const degFromEastCCW = (Math.atan2(dy, dx) * 180) / Math.PI; // CCW from East in screen space
-            const bearing = ((degFromEastCCW % 360) + 360) % 360;
-            arrowheads.push({ type: 'Feature', geometry: { type: 'Point', coordinates: b }, properties: { bearing, size: f.properties?.arrowSize || 1 } });
+            shapeLabels.push({ type: 'Feature', geometry: { type: 'Point', coordinates: center }, properties: { sourceId: f.id, label: props.label, textSize: props.textSize || 14, textColor: props.textColor || '#111827', halo: props.halo !== false } });
           }
         }
       });
@@ -255,7 +266,11 @@ const MapContainer = forwardRef(({
               'text-font': ['literal', ['Open Sans Bold','Arial Unicode MS Bold']],
               // Center text for standalone text annotations; keep shape labels above
               'text-offset': ['case', ['==', ['get', 'type'], 'text'], ['literal', [0, 0]], ['literal', [0, -1.0]]],
-              'text-anchor': ['case', ['==', ['get', 'type'], 'text'], 'center', 'bottom']
+              'text-anchor': ['case', ['==', ['get', 'type'], 'text'], 'center', 'bottom'],
+              'text-rotate': ['coalesce', ['get', 'textRotate'], 0],
+              'text-rotation-alignment': 'map',
+              'text-pitch-alignment': 'map',
+              'text-keep-upright': true
             },
             paint: {
               'text-color': ['coalesce', ['get', 'textColor'], '#111827'],
@@ -263,6 +278,12 @@ const MapContainer = forwardRef(({
               'text-halo-width': 1.0
             }
           });
+        } else {
+          // Ensure rotation properties are applied if the layer already exists
+          try { map.setLayoutProperty('annotation-text', 'text-rotate', ['coalesce', ['get', 'textRotate'], 0]); } catch (_) {}
+          try { map.setLayoutProperty('annotation-text', 'text-rotation-alignment', 'map'); } catch (_) {}
+          try { map.setLayoutProperty('annotation-text', 'text-pitch-alignment', 'map'); } catch (_) {}
+          try { map.setLayoutProperty('annotation-text', 'text-keep-upright', true); } catch (_) {}
         }
         // Arrow lines layer (black)
         if (!map.getLayer('annotation-arrows')) {
@@ -293,9 +314,15 @@ const MapContainer = forwardRef(({
               'icon-rotate': ['get', 'bearing'],
               'icon-size': ['interpolate', ['linear'], ['zoom'], 12, 0.4, 18, 0.9],
               'icon-allow-overlap': true,
-              'icon-ignore-placement': true
+              'icon-ignore-placement': true,
+              'icon-rotation-alignment': 'map',
+              'icon-pitch-alignment': 'map'
             }
           }, insertBeforeId);
+        } else {
+          try { map.setLayoutProperty('annotation-arrowheads', 'icon-rotate', ['get', 'bearing']); } catch (_) {}
+          try { map.setLayoutProperty('annotation-arrowheads', 'icon-rotation-alignment', 'map'); } catch (_) {}
+          try { map.setLayoutProperty('annotation-arrowheads', 'icon-pitch-alignment', 'map'); } catch (_) {}
         }
       } catch (e) {
         // noop
@@ -311,7 +338,7 @@ const MapContainer = forwardRef(({
     const bringToTop = (id) => {
       try { if (map.getLayer(id)) map.moveLayer(id); } catch (_) {}
     };
-    // Hide Draw's default point styling for text annotations
+    // Hide Draw's default point styling for text annotations and line styling for arrows
     const hideDrawTextPoints = () => {
       try {
         const style = map.getStyle && map.getStyle();
@@ -320,27 +347,25 @@ const MapContainer = forwardRef(({
           try {
             if (!l || !l.id || !l.source) return;
             const isDrawSource = l.source === 'mapbox-gl-draw-cold' || l.source === 'mapbox-gl-draw-hot';
-            const looksLikePointLayer = typeof l.id === 'string' && (l.id.includes('point') || l.id.includes('point-stroke'));
-            if (isDrawSource && looksLikePointLayer) {
-              const existing = map.getFilter && map.getFilter(l.id);
-              // Ensure the geometry filter includes Point when no existing filter is present
+            if (!isDrawSource) return;
+            const existing = map.getFilter && map.getFilter(l.id);
+            if (l.type === 'circle' || (typeof l.id === 'string' && (l.id.includes('point') || l.id.includes('point-stroke')))) {
               const base = existing || ['==', ['geometry-type'], 'Point'];
               const next = ['all', base, ['!=', ['get', 'type'], 'text']];
               map.setFilter(l.id, next);
-              // Additionally ensure opacity is zero for any residual text points (defensive)
               if (l.type === 'circle') {
                 try { map.setPaintProperty(l.id, 'circle-opacity', ['case', ['==', ['get', 'type'], 'text'], 0, 1]); } catch (_) {}
                 try { map.setPaintProperty(l.id, 'circle-stroke-opacity', ['case', ['==', ['get', 'type'], 'text'], 0, 1]); } catch (_) {}
-              } else if (l.type === 'symbol') {
-                try { map.setLayoutProperty(l.id, 'icon-allow-overlap', true); } catch (_) {}
-                try { map.setPaintProperty(l.id, 'icon-opacity', ['case', ['==', ['get', 'type'], 'text'], 0, 1]); } catch (_) {}
               }
+            } else if (l.type === 'line') {
+              const base = existing || ['==', ['geometry-type'], 'LineString'];
+              const next = ['all', base, ['!=', ['get', 'type'], 'arrow']];
+              map.setFilter(l.id, next);
             }
           } catch (_) {}
         });
       } catch (_) {}
     };
-    // Slight delay to allow Draw to (re)insert its layers
     const t = setTimeout(() => {
       bringToTop('annotation-text');
       bringToTop('annotation-arrows');
@@ -349,6 +374,199 @@ const MapContainer = forwardRef(({
     }, 50);
     return () => clearTimeout(t);
   }, [map, drawTools?.draw, derivedAnnotations]);
+
+  // Add click-to-edit popup for annotation layers
+  useEffect(() => {
+    if (!map) return;
+    let popup = null;
+    let suppressSequence = false;
+    const Ctor = (typeof window !== 'undefined' && (window.maplibregl || window.mapboxgl) && (window.maplibregl.Popup || window.mapboxgl.Popup)) || null;
+    const ensurePopup = () => {
+      if (popup) return popup;
+      if (!Ctor) return null;
+      try { popup = new Ctor({ closeButton: false, closeOnClick: false, offset: [0, -12] }); } catch (_) { popup = null; }
+      return popup;
+    };
+    const openAt = (lngLat, el) => {
+      const p = ensurePopup();
+      if (!p || !el) return;
+      p.setDOMContent(el);
+      p.setLngLat(lngLat);
+      p.addTo(map);
+      try { console.debug('ANNOT: popup opened', { lngLat }); } catch (_) {}
+      try {
+        const root = p.getElement && p.getElement();
+        if (root) {
+          root.style.background = 'transparent';
+          root.style.border = 'none';
+          root.style.boxShadow = 'none';
+          const contentEl = root.querySelector('.maplibregl-popup-content, .mapboxgl-popup-content');
+          if (contentEl) {
+            contentEl.style.background = 'transparent';
+            contentEl.style.border = 'none';
+            contentEl.style.boxShadow = 'none';
+            contentEl.style.padding = '0';
+          }
+          const tipEl = root.querySelector('.maplibregl-popup-tip, .mapboxgl-popup-tip');
+          if (tipEl) tipEl.style.display = 'none';
+        }
+      } catch (_) {}
+    };
+    const buildPill = (buttons = []) => {
+      const wrap = document.createElement('div');
+      const box = document.createElement('div');
+      box.className = 'rounded-full px-2 py-1 text-[11px] shadow-sm flex gap-1 bg-white/90 dark:bg-gray-900/80 border border-gray-200/60 dark:border-gray-700/60';
+      box.style.transform = 'translateY(4px) scale(0.97)';
+      box.style.opacity = '0';
+      box.style.transition = 'opacity 140ms ease, transform 160ms cubic-bezier(.2,.7,.3,1)';
+      buttons.forEach(({ label, onClick, className }) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = label;
+        b.className = className || 'px-2 py-0.5 rounded-full border border-gray-300/70 dark:border-gray-700 text-gray-700 dark:text-gray-200 bg-white/70 dark:bg-gray-800/50 hover:bg-white/90';
+        b.onclick = (e) => { e.stopPropagation(); onClick && onClick(e); try { popup && popup.remove(); } catch (_) {} };
+        box.appendChild(b);
+      });
+      wrap.appendChild(box);
+      requestAnimationFrame(() => { box.style.transform = 'translateY(0) scale(1)'; box.style.opacity = '1'; });
+      return wrap;
+    };
+
+    const openForFeature = (feature, lngLat) => {
+      try {
+        try { console.debug('ANNOT: openForFeature', { id: feature?.properties?.sourceId, geomType: feature?.geometry?.type }); } catch (_) {}
+        const srcId = feature?.properties?.sourceId;
+        if (!srcId) return;
+        const isArrow = feature && feature.geometry && feature.geometry.type !== 'Point';
+        const getDraw = () => (drawTools && drawTools.draw && drawTools.draw.current) ? drawTools.draw.current : (map && map.getControl ? map.getControl('MapboxDraw') : null);
+        const drawCtrl = getDraw();
+        if (isArrow) {
+          const el = buildPill([
+            { label: 'Label…', onClick: () => {
+                const val = typeof window !== 'undefined' ? window.prompt('Arrow label') : null;
+                if (val != null) { try { drawCtrl && drawCtrl.setFeatureProperty && drawCtrl.setFeatureProperty(srcId, 'label', String(val)); console.debug('ANNOT: set arrow label via draw.setFeatureProperty'); } catch (_) {} setAnnotationsTrigger(v => v + 1); }
+              } },
+            { label: 'Remove', className: 'text-white rounded-full px-2 py-0.5 bg-red-500 hover:bg-red-600', onClick: () => { try { console.debug('ANNOT: remove clicked for arrow', { srcId, hasDraw: !!drawCtrl }); drawCtrl && drawCtrl.delete && drawCtrl.delete(srcId); } catch (_) {} setAnnotationsTrigger(v => v + 1); } }
+          ]);
+          openAt(lngLat, el);
+        } else {
+          const el = buildPill([
+            { label: 'Edit', onClick: () => setTextEditorFeatureId(srcId) },
+            { label: 'Remove', className: 'text-white rounded-full px-2 py-0.5 bg-red-500 hover:bg-red-600', onClick: () => { try { console.debug('ANNOT: remove clicked for text', { srcId, hasDraw: !!drawCtrl }); drawCtrl && drawCtrl.delete && drawCtrl.delete(srcId); } catch (_) {} setAnnotationsTrigger(v => v + 1); } }
+          ]);
+          openAt(lngLat, el);
+        }
+      } catch (_) {}
+    };
+
+    const canvas = map && map.getCanvas ? map.getCanvas() : null;
+    if (!canvas) return;
+    const layers = ['annotation-text', 'annotation-arrows', 'annotation-arrowheads'];
+
+    const onMouseDownCapture = (ev) => {
+      try {
+        const rect = canvas.getBoundingClientRect();
+        const x = ev.clientX - rect.left;
+        const y = ev.clientY - rect.top;
+        const feats = map.queryRenderedFeatures && map.queryRenderedFeatures([x, y], { layers });
+        if (feats && feats.length > 0) {
+          try { console.debug('ANNOT: mousedown hit', { x, y, hits: feats.length }); } catch (_) {}
+          // Prevent Draw/map handlers and open pill
+          ev.preventDefault();
+          if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
+          if (typeof ev.stopPropagation === 'function') ev.stopPropagation();
+          ev.cancelBubble = true;
+          suppressSequence = true;
+          try { console.debug('ANNOT: preventing downstream handlers (mousedown)'); } catch (_) {}
+          const lngLat = map.unproject([x, y]);
+          openForFeature(feats[0], lngLat);
+        } else if (popup) {
+          try { console.debug('ANNOT: outside click on canvas; closing popup'); } catch (_) {}
+          try { popup.remove(); } catch (_) {}
+          // Allow event to propagate normally
+        }
+      } catch (_) {}
+    };
+
+    const onMouseUpCapture = (ev) => {
+      try {
+        if (suppressSequence) {
+          try { console.debug('ANNOT: mouseup capture suppressed (open sequence)'); } catch (_) {}
+          ev.preventDefault();
+          if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
+          if (typeof ev.stopPropagation === 'function') ev.stopPropagation();
+          ev.cancelBubble = true;
+        }
+      } catch (_) {}
+    };
+
+    const onClickCapture = (ev) => {
+      try {
+        if (suppressSequence) {
+          try { console.debug('ANNOT: click capture suppressed (open sequence)'); } catch (_) {}
+          ev.preventDefault();
+          if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
+          if (typeof ev.stopPropagation === 'function') ev.stopPropagation();
+          ev.cancelBubble = true;
+          suppressSequence = false;
+        }
+      } catch (_) {}
+    };
+
+    const onDblClickCapture = (ev) => {
+      try {
+        if (suppressSequence) {
+          try { console.debug('ANNOT: dblclick capture suppressed (open sequence)'); } catch (_) {}
+          ev.preventDefault();
+          if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
+          if (typeof ev.stopPropagation === 'function') ev.stopPropagation();
+          ev.cancelBubble = true;
+          suppressSequence = false;
+        }
+      } catch (_) {}
+    };
+
+    const onDocPointerDownCapture = (ev) => {
+      try {
+        if (!popup) return;
+        const root = popup.getElement && popup.getElement();
+        if (!root) return;
+        if (!root.contains(ev.target)) {
+          try { console.debug('ANNOT: document outside pointerdown; closing popup'); } catch (_) {}
+          try { popup.remove(); } catch (_) {}
+        }
+      } catch (_) {}
+    };
+
+    const onDrawUpdateClose = () => {
+      try {
+        if (popup) {
+          try { console.debug('ANNOT: draw.update -> closing popup'); } catch (_) {}
+          popup.remove();
+        }
+      } catch (_) {}
+    };
+
+    // Capture-phase listeners on the canvas
+    try { canvas.addEventListener('mousedown', onMouseDownCapture, true); } catch (_) {}
+    try { canvas.addEventListener('mouseup', onMouseUpCapture, true); } catch (_) {}
+    try { canvas.addEventListener('click', onClickCapture, true); } catch (_) {}
+    try { canvas.addEventListener('dblclick', onDblClickCapture, true); } catch (_) {}
+    // Global outside-click handler (capture)
+    try { document.addEventListener('pointerdown', onDocPointerDownCapture, true); } catch (_) {}
+    // Close on Draw updates (moving annotations)
+    try { map.on('draw.update', onDrawUpdateClose); } catch (_) {}
+
+    return () => {
+      try { canvas.removeEventListener('mousedown', onMouseDownCapture, true); } catch (_) {}
+      try { canvas.removeEventListener('mouseup', onMouseUpCapture, true); } catch (_) {}
+      try { canvas.removeEventListener('click', onClickCapture, true); } catch (_) {}
+      try { canvas.removeEventListener('dblclick', onDblClickCapture, true); } catch (_) {}
+      try { document.removeEventListener('pointerdown', onDocPointerDownCapture, true); } catch (_) {}
+      try { map.off('draw.update', onDrawUpdateClose); } catch (_) {}
+      try { if (popup) { console.debug('ANNOT: cleanup removing popup'); popup.remove(); } } catch (_) {}
+    };
+  }, [map]);
 
   // Re-apply hiding of Draw points for text on style changes and mode changes
   useEffect(() => {
@@ -632,7 +850,16 @@ const MapContainer = forwardRef(({
         style={{ width: '100%', height: '100%' }}
         onMouseMove={handleMapMouseMove}
         onClick={(e) => {
+          try {
+            // If an upstream handler already handled this event (e.g., annotation mousedown/click), skip
+            if (e && (e.defaultPrevented || (e.nativeEvent && e.nativeEvent.defaultPrevented))) return;
+            if (e && e.cancelBubble) return;
+          } catch (_) {}
           try { handleMapClick(e); } catch (_) {}
+          try {
+            if (e && (e.defaultPrevented || (e.nativeEvent && e.nativeEvent.defaultPrevented))) return;
+            if (e && e.cancelBubble) return;
+          } catch (_) {}
           // Only run selection logic when not in placement mode
           if (!placementMode) {
             handleSelectionClick(e);

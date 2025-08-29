@@ -29,6 +29,8 @@ export const useSelectionController = ({ map, placeableObjects, droppedObjects, 
 
   const handleClick = useCallback((e) => {
     try {
+      // Skip if already handled by upstream (annotation popup etc.)
+      try { if (e && (e.defaultPrevented || (e.nativeEvent && e.nativeEvent.defaultPrevented) || e.cancelBubble)) return; } catch (_) {}
       if (!map || !placeableObjects || !Array.isArray(droppedObjects) || isPlacementActive) return;
       const mapContainer = map.getContainer();
       const rect = mapContainer.getBoundingClientRect();

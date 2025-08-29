@@ -80,6 +80,11 @@ const DroppedObjects = ({
   // Single popup instance for click-to-open action menu
   const popupRef = React.useRef(null);
   const dragArmedIdRef = React.useRef(null);
+  // Maintain the last FeatureCollection we set on the source for fast in-place coordinate updates during drag
+  const dataRef = React.useRef({ fc: null, idToIndex: new Map() });
+  // RAF-driven drag updater to avoid spamming setData beyond screen refresh rate
+  const rafIdRef = React.useRef(null);
+  const pendingDragRef = React.useRef(null); // { id, lng, lat }
   const ensurePopup = () => {
     if (popupRef.current) return popupRef.current;
     try {
@@ -216,6 +221,7 @@ const DroppedObjects = ({
       const bearing = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
       const feats = [];
       const byId = new Map();
+      const idToIndex = new Map();
       for (let i = 0; i < (objects || []).length; i++) {
         const obj = objects[i];
         if (!obj) continue;
@@ -246,12 +252,17 @@ const DroppedObjects = ({
           try { ready = map && typeof map.hasImage === 'function' ? map.hasImage(imgId) : false; } catch (_) { ready = false; }
           props.icon_ready = ready ? 1 : 0;
         }
-        feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [obj.position.lng, obj.position.lat] }, properties: props });
+        const feature = { type: 'Feature', geometry: { type: 'Point', coordinates: [obj.position.lng, obj.position.lat] }, properties: props };
+        idToIndex.set(obj.id, feats.length);
+        feats.push(feature);
       }
-      src.setData({ type: 'FeatureCollection', features: feats });
+      const fc = { type: 'FeatureCollection', features: feats };
+      src.setData(fc);
       (map.__droppedObjectsIndex = map.__droppedObjectsIndex || new Map());
       map.__droppedObjectsIndex.clear();
       byId.forEach((v, k) => map.__droppedObjectsIndex.set(k, v));
+      // Cache the FC and indices for fast drag updates without triggering React state
+      dataRef.current = { fc, idToIndex };
     } catch (_) {}
   }, [map, objects, placeableObjects, view?.viewType, view?.bearing]);
 
@@ -510,11 +521,36 @@ const DroppedObjects = ({
       if (!canDrag) return;
       // Clear arming now that dragging begins
       dragArmedIdRef.current = null;
+      // Close any open action popup on drag start
+      try { if (popupRef.current) popupRef.current.remove(); } catch (_) {}
       e.preventDefault && e.preventDefault();
       try { map && map.dragPan && map.dragPan.disable && map.dragPan.disable(); } catch (_) {}
       let moving = true;
       const container = map && map.getContainer ? map.getContainer() : null;
       const rect = container && container.getBoundingClientRect ? container.getBoundingClientRect() : { left: 0, top: 0 };
+
+      // Per-frame updater to apply latest pending coords to the source only once per RAF tick
+      const tick = () => {
+        try {
+          const pending = pendingDragRef.current;
+          if (!moving || !pending || !pending.id || pending.id !== id) { rafIdRef.current = null; return; }
+          const src = map && map.getSource ? map.getSource(DROPPED_SOURCE_ID) : null;
+          const cache = dataRef.current;
+          if (src && cache && cache.fc && cache.idToIndex && cache.idToIndex.has(id)) {
+            const idx = cache.idToIndex.get(id);
+            const feat = cache.fc.features[idx];
+            if (feat && feat.geometry && Array.isArray(feat.geometry.coordinates)) {
+              feat.geometry.coordinates = [pending.lng, pending.lat];
+              try { src.setData(cache.fc); } catch (_) {}
+            }
+          }
+          rafIdRef.current = requestAnimationFrame(tick);
+        } catch (_) { rafIdRef.current = null; }
+      };
+      const ensureTick = () => {
+        if (!rafIdRef.current) rafIdRef.current = requestAnimationFrame(tick);
+      };
+
       const onMoveWin = (ev) => {
         if (!moving) return;
         try {
@@ -522,7 +558,8 @@ const DroppedObjects = ({
           const y = ev.clientY - rect.top;
           if (map && typeof map.unproject === 'function') {
             const ll = map.unproject([x, y]);
-            onMoveRef.current && onMoveRef.current(id, ll.lng, ll.lat);
+            pendingDragRef.current = { id, lng: ll.lng, lat: ll.lat };
+            ensureTick();
           }
         } catch (_) {}
       };
@@ -531,6 +568,15 @@ const DroppedObjects = ({
         moving = false;
         window.removeEventListener('mousemove', onMoveWin);
         window.removeEventListener('mouseup', onUpWin);
+        try { if (rafIdRef.current) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null; } } catch (_) {}
+        // Commit final position to React state once
+        try {
+          const last = pendingDragRef.current;
+          pendingDragRef.current = null;
+          if (last && last.id === id && onMoveRef.current) {
+            onMoveRef.current(id, last.lng, last.lat);
+          }
+        } catch (_) {}
         try { map && map.dragPan && map.dragPan.enable && map.dragPan.enable(); } catch (_) {}
       };
       window.addEventListener('mousemove', onMoveWin);

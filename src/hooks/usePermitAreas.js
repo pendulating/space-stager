@@ -826,14 +826,24 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
 
   const handleClickPermitFill = useCallback((e) => {
     if (!map) return;
+    try { console.debug('PERMIT: handleClickPermitFill start', { prevented: !!e?.defaultPrevented, feats: e?.features?.length, x: e?.point?.x, y: e?.point?.y }); } catch (_) {}
+    if (e?.defaultPrevented) { try { console.debug('PERMIT: bail defaultPrevented'); } catch (_) {} return; }
     if (e.features.length === 0) return;
+    // Ignore clicks that intersect annotation layers to avoid clashing with annotation popup
+    try {
+      const pt = [e.point.x, e.point.y];
+      const layers = ['annotation-text', 'annotation-arrows', 'annotation-arrowheads'];
+      const annHits = map.queryRenderedFeatures && map.queryRenderedFeatures(pt, { layers });
+      if (annHits && annHits.length) { try { console.debug('PERMIT: bail annotation hit', { hits: annHits.length }); } catch (_) {} return; }
+    } catch (_) {}
     const activeMode = options.mode || mode;
     if (activeMode === 'intersections') return;
     const drawControl = map.getControl && map.getControl('MapboxDraw');
-    if (drawControl && drawControl.getMode && drawControl.getMode() !== 'simple_select') return;
+    if (drawControl && drawControl.getMode && drawControl.getMode() !== 'simple_select') { try { console.debug('PERMIT: bail drawing active'); } catch (_) {} return; }
     e.preventDefault && e.preventDefault();
     const point = [e.point.x, e.point.y];
     const allFeatures = map.queryRenderedFeatures(point, { layers: [hoverLayerIdClick] });
+    try { console.debug('PERMIT: resolved features', { count: allFeatures.length }); } catch (_) {}
     if (allFeatures.length > 1) {
       const sortedFeatures = mode === 'intersections' ? allFeatures : allFeatures.map(feature => ({ ...feature, calculatedArea: calculateGeometryArea(feature.geometry) })).sort((a, b) => a.calculatedArea - b.calculatedArea);
       setOverlappingAreas(sortedFeatures); setSelectedOverlapIndex(0); setShowOverlapSelector(true); setClickPosition({ x: e.point.x, y: e.point.y });
@@ -856,11 +866,20 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
 
   const handleDblClickPermitFill = useCallback((e) => {
     if (!map) return;
+    try { console.debug('PERMIT: handleDblClickPermitFill start', { prevented: !!e?.defaultPrevented, feats: e?.features?.length, x: e?.point?.x, y: e?.point?.y }); } catch (_) {}
+    if (e?.defaultPrevented) { try { console.debug('PERMIT: bail defaultPrevented dblclick'); } catch (_) {} return; }
     if (e.features.length === 0) return;
+    // Ignore dblclicks that intersect annotation layers to avoid clashing with annotation popup
+    try {
+      const pt = [e.point.x, e.point.y];
+      const layers = ['annotation-text', 'annotation-arrows', 'annotation-arrowheads'];
+      const annHits = map.queryRenderedFeatures && map.queryRenderedFeatures(pt, { layers });
+      if (annHits && annHits.length) { try { console.debug('PERMIT: bail annotation hit dblclick', { hits: annHits.length }); } catch (_) {} return; }
+    } catch (_) {}
     const activeMode = options.mode || mode;
     if (activeMode === 'intersections') return;
     const drawControl = map.getControl && map.getControl('MapboxDraw');
-    if (drawControl && drawControl.getMode && drawControl.getMode() !== 'simple_select') return;
+    if (drawControl && drawControl.getMode && drawControl.getMode() !== 'simple_select') { try { console.debug('PERMIT: bail drawing active dblclick'); } catch (_) {} return; }
     e.preventDefault && e.preventDefault();
     const feature = e.features[0];
     focusOnPermitArea(feature);
@@ -871,9 +890,18 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
 
   const handleClickGeneral = useCallback((e) => {
     if (!map) return;
+    try { console.debug('PERMIT: handleClickGeneral start', { prevented: !!e?.defaultPrevented, x: e?.point?.x, y: e?.point?.y }); } catch (_) {}
+    if (e?.defaultPrevented) { try { console.debug('PERMIT: bail defaultPrevented general'); } catch (_) {} return; }
     if (focusedAreaRef.current) return;
+    // Ignore clicks on annotation layers to avoid closing their popup
+    try {
+      const pt = [e.point.x, e.point.y];
+      const layers = ['annotation-text', 'annotation-arrows', 'annotation-arrowheads'];
+      const annHits = map.queryRenderedFeatures && map.queryRenderedFeatures(pt, { layers });
+      if (annHits && annHits.length) { try { console.debug('PERMIT: bail annotation hit general', { hits: annHits.length }); } catch (_) {} return; }
+    } catch (_) {}
     const drawControl = map.getControl && map.getControl('MapboxDraw');
-    if (drawControl && drawControl.getMode && drawControl.getMode() !== 'simple_select') return;
+    if (drawControl && drawControl.getMode && drawControl.getMode() !== 'simple_select') { try { console.debug('PERMIT: bail drawing active general'); } catch (_) {} return; }
     const features = map.queryRenderedFeatures(e.point, { layers: [hoverLayerIdClick] });
     if (features.length === 0) {
       setShowOverlapSelector(false);

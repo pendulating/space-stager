@@ -1330,9 +1330,17 @@ const drawInfrastructureOnPdf = (pdf, layers, infrastructureData, project, toMm,
         ring = normalizeRingPoints(ring);
         if (ring.length < 3) return;
         const segs = toRelativeSegments(ring);
-        // Fill at full opacity
+        // Fill with semi-transparency to match on-map look
+        try { if (pdf.saveGraphicsState) pdf.saveGraphicsState(); } catch (_) {}
+        try {
+          if (pdf.setGState) {
+            const gs = new pdf.GState({ opacity: 0.25 });
+            pdf.setGState(gs);
+          }
+        } catch (_) {}
         pdf.setFillColor(color.r, color.g, color.b);
         pdf.lines(segs, ring[0].x, ring[0].y, [1, 1], 'F', true);
+        try { if (pdf.restoreGraphicsState) pdf.restoreGraphicsState(); } catch (_) {}
         // Stroke
         pdf.setDrawColor(color.r, color.g, color.b);
         pdf.setLineWidth(0.4);
@@ -1343,9 +1351,17 @@ const drawInfrastructureOnPdf = (pdf, layers, infrastructureData, project, toMm,
           ring = normalizeRingPoints(ring);
           if (ring.length < 3) return;
           const segs = toRelativeSegments(ring);
-          // Fill at full opacity
+          // Fill with semi-transparency to match on-map look
+          try { if (pdf.saveGraphicsState) pdf.saveGraphicsState(); } catch (_) {}
+          try {
+            if (pdf.setGState) {
+              const gs = new pdf.GState({ opacity: 0.25 });
+              pdf.setGState(gs);
+            }
+          } catch (_) {}
           pdf.setFillColor(color.r, color.g, color.b);
           pdf.lines(segs, ring[0].x, ring[0].y, [1, 1], 'F', true);
+          try { if (pdf.restoreGraphicsState) pdf.restoreGraphicsState(); } catch (_) {}
           pdf.setDrawColor(color.r, color.g, color.b);
           pdf.setLineWidth(0.4);
           pdf.lines(segs, ring[0].x, ring[0].y, [1, 1], 'S', true);
