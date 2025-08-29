@@ -28,7 +28,8 @@ describe('infrastructureService various layers smoke (URL paths and normalizatio
     await loadInfrastructureData('parkingLots', BOUNDS);
     await loadInfrastructureData('sprayShowers', BOUNDS);
     await loadInfrastructureData('drinkingFountains', BOUNDS);
-    await loadInfrastructureData('pedestrianRamps', BOUNDS);
+    // pedestrianRamps disabled in app; keep code but skip loading in test
+    // await loadInfrastructureData('pedestrianRamps', BOUNDS);
     await loadInfrastructureData('iceLadders', BOUNDS);
     await loadInfrastructureData('publicRestrooms', BOUNDS);
     expect(true).toBe(true);

@@ -1,10 +1,11 @@
-import React, { useCallback, useMemo, useEffect } from 'react';
+import React, { useCallback, useMemo, useEffect, useState } from 'react';
 import { Popup as MapLibrePopup } from 'maplibre-gl';
 import { quantizeAngleTo45, addEnhancedSpritesToMap, buildSpriteImageId, getMapViewType, buildFlatSpriteUrl } from '../../utils/enhancedRenderingUtils';
 import { useMapViewState } from '../../hooks/useMapViewState';
 import { useStableImageSrc } from '../../hooks/useStableImageSrc';
 import { getCandidateSrcs, prefetchView } from '../../utils/spriteResolver';
 import { useMapEvents } from '../../hooks/useMapEvents';
+import { X } from 'lucide-react';
 
 const DEBUG = false; // Set to true to enable DroppedObjects debug logs
 // Dev-only, namespaced logger with dynamic switches (env/localStorage/window flag)

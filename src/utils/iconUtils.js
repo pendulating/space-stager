@@ -57,12 +57,12 @@ export const INFRASTRUCTURE_ICONS = {
     src: '/data/icons/layers/parking.svg', // placeholder
     areaScale: 1
   },
-  pedestrianRamps: {
-    id: 'pedestrian-ramp-icon',
-    type: 'png',
-    src: '/data/icons/layers/ped-ramp.svg',
-    areaScale: 0.25
-  },
+  // pedestrianRamps: {
+  //   id: 'pedestrian-ramp-icon',
+  //   type: 'png',
+  //   src: '/data/icons/layers/ped-ramp.svg',
+  //   areaScale: 0.25
+  // },
   parkingMeters: {
     id: 'parking-meter-icon',
     type: 'png',

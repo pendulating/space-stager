@@ -29,7 +29,7 @@ const InfoPanel = ({ onClose, showInfo = true }) => {
   if (!showInfo) return null;
 
   return (
-    <div className="fixed inset-0 z-[1000]">
+    <div className="fixed inset-0 z-[10000]">
       <div
         className="absolute inset-0 bg-black/40"
         onClick={onClose}

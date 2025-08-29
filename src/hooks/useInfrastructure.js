@@ -11,13 +11,15 @@ import { addIconsToMap, retryLoadIcons, INFRASTRUCTURE_ICONS } from '../utils/ic
 import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
 import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, buildSpriteImageId, getMapViewType, buildSpriteUrl, buildFlatSpriteUrl } from '../utils/enhancedRenderingUtils';
 import { useMapViewState } from './useMapViewState';
+import { DISABLED_INFRASTRUCTURE_LAYERS } from '../constants/layers';
+const DEBUG_INFRA = false;
 import { prefetchView } from '../utils/spriteResolver';
 
 // NOTE: Enhanced infra sprites: use flat /static/{base}/{base|base_TOP} paths for both views
 // because our public assets are deployed in flat layout. The spriteResolver handles nested fallbacks.
 export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
   const view = useMapViewState(map);
-  console.log('[DEBUG] useInfrastructure hook called with map:', !!map);
+  if (DEBUG_INFRA) console.log('[DEBUG] useInfrastructure hook called with map:', !!map);
   const DEFAULT_ZERO_OFFSET_BY_VIEW = { 'isometric': -90, 'top-down': 0 };
   
   const [infrastructureData, setInfrastructureData] = useState({
@@ -52,7 +54,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
 
   // Debug: Track map changes
   useEffect(() => {
-    console.log('[DEBUG] Map changed:', !!map, 'map.isStyleLoaded():', map?.isStyleLoaded());
+    if (DEBUG_INFRA) console.log('[DEBUG] Map changed:', !!map, 'map.isStyleLoaded():', map?.isStyleLoaded());
   }, [map]);
 
   // Clear infrastructure when focus changes
@@ -68,7 +70,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     if (focusedAreaId) {
       // Load infrastructure data for layers that are visible
       Object.entries(layers).forEach(([layerId, config]) => {
-        if (layerId !== 'permitAreas' && config.visible && !loadingLayersRef.current.has(layerId)) {
+        if (layerId !== 'permitAreas' && !config?.disabled && !DISABLED_INFRASTRUCTURE_LAYERS.has(layerId) && config.visible && !loadingLayersRef.current.has(layerId)) {
           loadInfrastructureLayer(layerId);
         }
       });
@@ -285,7 +287,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
   // Add infrastructure layer to map - move this before loadInfrastructureLayer
   const addInfrastructureLayerToMap = useCallback((layerId, data) => {
     if (!map) return;
-    console.log(`[DEBUG] Adding ${layerId} layer to map with ${data.features.length} features`);
+    if (DEBUG_INFRA) console.log(`[DEBUG] Adding ${layerId} layer to map with ${data.features.length} features`);
     
     removeInfrastructureLayer(layerId);
     const sourceId = `source-${layerId}`;
@@ -299,7 +301,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     });
     
     const layerStyle = getLayerStyle(layerId, layers[layerId], map);
-    console.log(`[DEBUG] Layer style for ${layerId}:`, layerStyle);
+    if (DEBUG_INFRA) console.log(`[DEBUG] Layer style for ${layerId}:`, layerStyle);
     
     // Try to place infra layers below draw controls if present; otherwise they end up on top
     let beforeId;
@@ -325,8 +327,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     const hasPoint = validFeatures.some(f => f.geometry && f.geometry.type === 'Point');
     const hasPolygon = validFeatures.some(f => f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon'));
     
-    console.log(`[DEBUG] ${layerId} has LineString: ${hasLineString}, has Point: ${hasPoint}, has Polygon: ${hasPolygon}`);
-    console.log(`[DEBUG] ${layerId} sample features:`, data.features.slice(0, 2).map(f => ({
+    if (DEBUG_INFRA) console.log(`[DEBUG] ${layerId} has LineString: ${hasLineString}, has Point: ${hasPoint}, has Polygon: ${hasPolygon}`);
+    if (DEBUG_INFRA) console.log(`[DEBUG] ${layerId} sample features:`, data.features.slice(0, 2).map(f => ({
       hasGeometry: !!f.geometry,
       geometryType: f.geometry?.type,
       hasCoordinates: !!f.geometry?.coordinates
@@ -341,7 +343,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
           minLon: Math.min(...lons), maxLon: Math.max(...lons),
           minLat: Math.min(...lats), maxLat: Math.max(...lats)
         } : { count: 0 };
-        console.log('[DEBUG] streetParkingSigns plotted coords extent:', stats, 'samples:', pts.slice(0, 10));
+        if (DEBUG_INFRA) console.log('[DEBUG] streetParkingSigns plotted coords extent:', stats, 'samples:', pts.slice(0, 10));
       } catch (_) {}
     }
     
@@ -353,12 +355,27 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
         source: sourceId,
         paint: layerStyle.paint
       }, beforeId);
-      console.log(`[DEBUG] Added line layer: ${lineLayerId}`);
+      if (DEBUG_INFRA) console.log(`[DEBUG] Added line layer: ${lineLayerId}`);
       // Optionally add hover/click events for lines here
     }
     
     if (hasPolygon && (layerStyle.type === 'fill' || layerId === 'stationEnvelopes')) {
       const polygonLayerId = `layer-${layerId}-polygon`;
+      // Prefer placing polygons below active zone geometry if present
+      let zoneBeforeId;
+      try {
+        const zoneCandidates = [
+          'sub-focus-fill','sub-focus-outline',
+          'permit-areas-focused-fill','permit-areas-focused-outline',
+          'plaza-areas-focused-fill','plaza-areas-focused-outline',
+          'permit-areas-fill','permit-areas-outline',
+          'plaza-areas-fill','plaza-areas-outline'
+        ];
+        for (const id of zoneCandidates) {
+          if (map.getLayer && map.getLayer(id)) { zoneBeforeId = id; break; }
+        }
+      } catch (_) {}
+      const finalBeforeId = zoneBeforeId || beforeId;
       map.addLayer({
         id: polygonLayerId,
         type: 'fill',
@@ -368,8 +385,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
           'fill-opacity': 0.18,
           'fill-outline-color': '#14b8a6'
         } : layerStyle.paint
-      }, beforeId);
-      console.log(`[DEBUG] Added polygon layer: ${polygonLayerId}`);
+      }, finalBeforeId);
+      if (DEBUG_INFRA) console.log(`[DEBUG] Added polygon layer: ${polygonLayerId}`);
       
       // Add hover and click events for polygons
       map.on('mouseenter', polygonLayerId, () => {
@@ -382,7 +399,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
         if (e.features.length === 0) return;
         const feature = e.features[0];
         const content = createInfrastructureTooltipContent(feature.properties, layerId);
-        console.log('Infrastructure feature clicked:', content);
+        if (DEBUG_INFRA) console.log('Infrastructure feature clicked:', content);
       });
     }
     
@@ -400,7 +417,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
         layerConfig.layout = layerStyle.layout;
       }
       
-      console.log(`[DEBUG] Adding point layer: ${pointLayerId} with config:`, layerConfig);
+      if (DEBUG_INFRA) console.log(`[DEBUG] Adding point layer: ${pointLayerId} with config:`, layerConfig);
       
       map.addLayer(layerConfig, beforeId);
       
@@ -414,10 +431,10 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
         if (e.features.length === 0) return;
         const feature = e.features[0];
         const content = createInfrastructureTooltipContent(feature.properties, layerId);
-        console.log('Infrastructure feature clicked:', content);
+        if (DEBUG_INFRA) console.log('Infrastructure feature clicked:', content);
       });
       
-      console.log(`[DEBUG] Successfully added point layer: ${pointLayerId}`);
+      if (DEBUG_INFRA) console.log(`[DEBUG] Successfully added point layer: ${pointLayerId}`);
     }
   }, [map, layers]);
 
@@ -428,11 +445,11 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     // Check if map has a style loaded before trying to access layers
     try {
       if (!map.getStyle()) {
-        console.log(`Infrastructure: Map style not loaded, skipping remove for ${layerId}`);
+        if (DEBUG_INFRA) console.log(`Infrastructure: Map style not loaded, skipping remove for ${layerId}`);
         return;
       }
     } catch (error) {
-      console.log(`Infrastructure: Error checking map style, skipping remove for ${layerId}:`, error);
+      if (DEBUG_INFRA) console.log(`Infrastructure: Error checking map style, skipping remove for ${layerId}:`, error);
       return;
     }
     
@@ -476,8 +493,10 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
   // Load infrastructure layer - now addInfrastructureLayerToMap is defined
   const loadInfrastructureLayer = useCallback(async (layerId) => {
     if (!map || !focusedArea || loadingLayersRef.current.has(layerId)) return;
+    const cfg = layers?.[layerId];
+    if (cfg?.disabled || DISABLED_INFRASTRUCTURE_LAYERS.has(layerId)) return;
     
-    console.log(`Loading ${layerId} for area:`, focusedArea.properties?.name || focusedArea.id);
+    if (DEBUG_INFRA) console.log(`Loading ${layerId} for area:`, focusedArea.properties?.name || focusedArea.id);
     
     // Mark as loading
     loadingLayersRef.current.add(layerId);
@@ -594,11 +613,9 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
         console.warn('[enhancedRendering] failed to annotate features:', e);
       }
       
-      console.log(`Loaded ${layerId}: ${filteredData.features.length} features found for area ${focusedArea.properties?.name || focusedArea.id}`);
+      if (DEBUG_INFRA) console.log(`Loaded ${layerId}: ${filteredData.features.length} features found for area ${focusedArea.properties?.name || focusedArea.id}`);
       if (layerId === 'dcwpParkingGarages') {
-        try {
-          console.log('[dcwp] sample feature geoms:', filteredData.features.slice(0, 2).map(f => f.geometry?.type));
-        } catch(_) {}
+        if (DEBUG_INFRA) console.log('[dcwp] sample feature geoms:', filteredData.features.slice(0, 2).map(f => f.geometry?.type));
       }
       
       // Save the data
@@ -646,11 +663,11 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     // Check if map has a style loaded before trying to access layers
     try {
       if (!map.getStyle()) {
-        console.log(`Infrastructure: Map style not loaded, skipping clear for ${layerId}`);
+        if (DEBUG_INFRA) console.log(`Infrastructure: Map style not loaded, skipping clear for ${layerId}`);
         return;
       }
     } catch (error) {
-      console.log(`Infrastructure: Error checking map style, skipping clear for ${layerId}:`, error);
+      if (DEBUG_INFRA) console.log(`Infrastructure: Error checking map style, skipping clear for ${layerId}:`, error);
       return;
     }
     
@@ -688,9 +705,9 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
       if (map.getSource(`source-${layerId}`)) {
         map.removeSource(`source-${layerId}`);
       }
-      console.log(`Infrastructure: Cleared layer ${layerId}`);
+      if (DEBUG_INFRA) console.log(`Infrastructure: Cleared layer ${layerId}`);
     } catch (error) {
-      console.log(`Infrastructure: Error clearing layer ${layerId}:`, error);
+      if (DEBUG_INFRA) console.log(`Infrastructure: Error clearing layer ${layerId}:`, error);
     }
   }, [map, layers]);
 
@@ -760,7 +777,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
         }
       }));
 
-      console.log(`Infrastructure: Loaded layer ${layerId} for area ${focusedArea.id}`);
+      if (DEBUG_INFRA) console.log(`Infrastructure: Loaded layer ${layerId} for area ${focusedArea.id}`);
 
     } catch (error) {
       console.error(`Error loading ${layerId}:`, error);
@@ -817,13 +834,19 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
   const toggleLayer = useCallback((layerId) => {
     // Only handle infrastructure layers, not permit areas
     if (layerId === 'permitAreas') {
-      console.warn('Permit areas should be handled by EventStager, not infrastructure hook');
+      if (DEBUG_INFRA) console.warn('Permit areas should be handled by EventStager, not infrastructure hook');
+      return;
+    }
+    // Respect disabled layers
+    const cfg = layers?.[layerId];
+    if (cfg?.disabled || DISABLED_INFRASTRUCTURE_LAYERS.has(layerId)) {
+      if (DEBUG_INFRA) console.log(`[infrastructure] Layer ${layerId} is disabled; ignoring toggle.`);
       return;
     }
 
     // Only allow toggling infrastructure layers if an area is focused
     if (!focusedArea) {
-      console.log('Please focus on a permit area first to enable infrastructure layers');
+      if (DEBUG_INFRA) console.log('Please focus on a permit area first to enable infrastructure layers');
       return;
     }
     
@@ -856,7 +879,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
   const reloadVisibleLayers = useCallback(() => {
     if (!map || !focusedArea) return;
     Object.entries(layers).forEach(([layerId, config]) => {
-      if (layerId !== 'permitAreas' && config.visible && !loadingLayersRef.current.has(layerId)) {
+      if (layerId !== 'permitAreas' && !config?.disabled && !DISABLED_INFRASTRUCTURE_LAYERS.has(layerId) && config.visible && !loadingLayersRef.current.has(layerId)) {
         loadInfrastructureLayer(layerId);
       }
     });

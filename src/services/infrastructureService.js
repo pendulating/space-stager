@@ -1,11 +1,15 @@
 // services/infrastructureService.js
 import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
+import { DISABLED_INFRASTRUCTURE_LAYERS } from '../constants/layers';
 import proj4 from 'proj4';
 import { expandBounds } from '../utils/geometryUtils';
 import { INFRASTRUCTURE_ICONS, getZoomIndependentIconSize, layerUsesPngIcon } from '../utils/iconUtils';
 import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, buildSpriteImageId } from '../utils/enhancedRenderingUtils';
 
 export const loadInfrastructureData = async (layerId, bounds) => {
+  if (DISABLED_INFRASTRUCTURE_LAYERS.has(layerId)) {
+    return { type: 'FeatureCollection', features: [] };
+  }
   const endpoint = INFRASTRUCTURE_ENDPOINTS[layerId];
   if (!endpoint) throw new Error(`Unknown layer: ${layerId}`);
   

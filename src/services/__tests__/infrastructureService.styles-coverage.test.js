@@ -11,7 +11,7 @@ import { getLayerStyle } from '../infrastructureService.js';
 describe('getLayerStyle wide coverage', () => {
   const layers = [
     'hydrants','trees','busStops','benches','bikeParking','citibikeStations','subwayEntrances',
-    'pedestrianRamps','drinkingFountains','publicRestrooms','sprayShowers','iceLadders','parksSigns'
+    'drinkingFountains','publicRestrooms','sprayShowers','iceLadders','parksSigns'
   ];
 
   it('falls back to circle when icon defs missing', () => {

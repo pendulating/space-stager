@@ -39,7 +39,9 @@ export const NUDGE_RULES = [
     severity: 'info',
     message: 'You cannot place anything within 3 ft of a pedestrian ramp, as equipment can not block wheelchair access on sidewalks.',
     subject: { source: 'droppedObjects', where: { type: 'anything' } },
-    target: { source: 'infrastructure', layerId: 'pedestrian_ramps' },
+    // Disabled while pedestrian ramps layer is hidden from the app
+    // target: { source: 'infrastructure', layerId: 'pedestrian_ramps' },
+    target: { source: 'infrastructure', layerId: '__disabled_pedestrian_ramps' },
     thresholdFt: 3,
     citation: 'https://www.nyc.gov/site/parks/rules/parks-rules.page',
   },

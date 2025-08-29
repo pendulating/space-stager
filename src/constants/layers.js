@@ -40,6 +40,13 @@ export const LAYER_GROUPS = {
 };
 
 
+// Central toggle for disabling infrastructure layers without removing code
+// Any layer id in this set will be hidden from UI and prevented from fetching.
+export const DISABLED_INFRASTRUCTURE_LAYERS = new Set([
+  'pedestrianRamps'
+]);
+
+
 export const INITIAL_LAYERS = {
   permitAreas: { 
     visible: true, 
@@ -110,7 +117,9 @@ export const INITIAL_LAYERS = {
     color: '#8b5cf6',
     loading: false,
     loaded: false,
-    endpoint: '/api/pedestrian-ramps'
+    endpoint: '/api/pedestrian-ramps',
+    // Mark as disabled to hide in UI and skip data loading, without removing code
+    disabled: true
   },
   parkingMeters: {
     visible: false,

@@ -1275,7 +1275,7 @@ const drawSidewalkWidthLabelsOnPdf = (pdf, sidewalksGeojson, project, toMm, unit
 
 const drawInfrastructureOnPdf = (pdf, layers, infrastructureData, project, toMm, mmFromPx, pngIcons, enhancedVariantPngs) => {
   if (!layers) return;
-  const entries = Object.entries(layers).filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible);
+  const entries = Object.entries(layers).filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible && !cfg?.disabled);
   entries.forEach(([layerId, cfg]) => {
     const color = hexToRgb(cfg.color || '#333333');
     const data = infrastructureData?.[layerId];
@@ -1306,66 +1306,14 @@ const drawInfrastructureOnPdf = (pdf, layers, infrastructureData, project, toMm,
           h = Math.max(h, minMm);
           pdf.addImage(iconSrc, 'PNG', p.x - w / 2, p.y - h / 2, w, h);
         } else {
-          pdf.circle(p.x, p.y, 1.2, 'F');
+          // Circle fallback
+          const r = 1.6; // mm
+          pdf.circle(p.x, p.y, r, 'FD');
         }
-      } else if (g.type === 'LineString') {
-        const coords = g.coordinates.map(([lng, lat]) => toMm(project(lng, lat)));
-        if (coords.length < 2) return;
-        // Thicker, semi-transparent bike lanes; default for others
-        const isBike = layerId === 'bikeLanes';
-        const lw = isBike ? 1.2 : 0.6;
-        pdf.setLineWidth(lw);
-        pdf.lines(toRelativeSegments(coords), coords[0].x, coords[0].y, [1, 1], 'S', false);
-      } else if (g.type === 'MultiLineString') {
-        g.coordinates.forEach(line => {
-          const coords = line.map(([lng, lat]) => toMm(project(lng, lat)));
-          if (coords.length < 2) return;
-          const isBike = layerId === 'bikeLanes';
-          const lw = isBike ? 1.2 : 0.6;
-          pdf.setLineWidth(lw);
-          pdf.lines(toRelativeSegments(coords), coords[0].x, coords[0].y, [1, 1], 'S', false);
-        });
-      } else if (g.type === 'Polygon') {
-        let ring = g.coordinates[0].map(([lng, lat]) => toMm(project(lng, lat)));
-        ring = normalizeRingPoints(ring);
-        if (ring.length < 3) return;
-        const segs = toRelativeSegments(ring);
-        // Fill with semi-transparency to match on-map look
-        try { if (pdf.saveGraphicsState) pdf.saveGraphicsState(); } catch (_) {}
-        try {
-          if (pdf.setGState) {
-            const gs = new pdf.GState({ opacity: 0.25 });
-            pdf.setGState(gs);
-          }
-        } catch (_) {}
-        pdf.setFillColor(color.r, color.g, color.b);
-        pdf.lines(segs, ring[0].x, ring[0].y, [1, 1], 'F', true);
-        try { if (pdf.restoreGraphicsState) pdf.restoreGraphicsState(); } catch (_) {}
-        // Stroke
-        pdf.setDrawColor(color.r, color.g, color.b);
-        pdf.setLineWidth(0.4);
-        pdf.lines(segs, ring[0].x, ring[0].y, [1, 1], 'S', true);
-      } else if (g.type === 'MultiPolygon') {
-        g.coordinates.forEach(poly => {
-          let ring = poly[0].map(([lng, lat]) => toMm(project(lng, lat)));
-          ring = normalizeRingPoints(ring);
-          if (ring.length < 3) return;
-          const segs = toRelativeSegments(ring);
-          // Fill with semi-transparency to match on-map look
-          try { if (pdf.saveGraphicsState) pdf.saveGraphicsState(); } catch (_) {}
-          try {
-            if (pdf.setGState) {
-              const gs = new pdf.GState({ opacity: 0.25 });
-              pdf.setGState(gs);
-            }
-          } catch (_) {}
-          pdf.setFillColor(color.r, color.g, color.b);
-          pdf.lines(segs, ring[0].x, ring[0].y, [1, 1], 'F', true);
-          try { if (pdf.restoreGraphicsState) pdf.restoreGraphicsState(); } catch (_) {}
-          pdf.setDrawColor(color.r, color.g, color.b);
-          pdf.setLineWidth(0.4);
-          pdf.lines(segs, ring[0].x, ring[0].y, [1, 1], 'S', true);
-        });
+      } else if (g.type === 'LineString' || g.type === 'MultiLineString') {
+        drawGeojsonLineOnPdf(pdf, g, project, toMm);
+      } else if (g.type === 'Polygon' || g.type === 'MultiPolygon') {
+        drawGeojsonPolygonOnPdf(pdf, g, project, toMm);
       }
     });
   });
@@ -1696,7 +1644,7 @@ const drawLayersAndEquipmentSummaryPage = (pdf, layers, droppedObjects, pngIcons
 
   // Prepare data arrays
   const layersRows = Object.entries(layers)
-    .filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible)
+    .filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible && !cfg?.disabled)
     .map(([id, cfg]) => ({ icon: id, name: String(cfg.name || id) }));
   const equipmentCounts = (droppedObjects || []).reduce((acc, o) => { acc[o.type] = (acc[o.type] || 0) + 1; return acc; }, {});
   const equipmentRows = Object.entries(equipmentCounts)
@@ -2014,7 +1962,7 @@ const drawOverlaysOnCanvas = async (ctx, offscreen, mapPx, originPx, layers, cus
     console.log('[ExportDebug] drawing overlays with originPx', originPx, 'mapPx', mapPx);
   }
   await Promise.all(Object.entries(layers)
-    .filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible)
+    .filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible && !cfg?.disabled)
     .map(async ([id, cfg]) => {
       const data = infrastructureData?.[id];
       if (!data?.features) return;

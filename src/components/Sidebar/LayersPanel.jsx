@@ -1,7 +1,7 @@
 // components/Sidebar/LayersPanel.jsx
 import React, { useState, useMemo } from 'react';
 import { Eye, EyeOff, X, Layers, ToggleLeft, ToggleRight, ChevronDown, ChevronRight } from 'lucide-react';
-import {LAYER_GROUPS } from '../../constants/layers';
+import { LAYER_GROUPS } from '../../constants/layers';
 import { INFRASTRUCTURE_ICONS, svgToDataUrl } from '../../utils/iconUtils';
 import { getCandidateSrcs } from '../../utils/spriteResolver';
 
@@ -23,14 +23,14 @@ const LayersPanel = ({
   // Check if all layers are currently visible (recommended = all layers)
   const allLayersActive = useMemo(() => {
     return Object.entries(layers)
-      .filter(([id]) => id !== 'permitAreas')
+      .filter(([id, cfg]) => id !== 'permitAreas' && cfg && !cfg.disabled)
       .every(([id, cfg]) => cfg && cfg.visible);
   }, [layers]);
 
   // Toggle all layers on/off (recommended = all)
   const handleRecommendedToggle = () => {
     Object.entries(layers)
-      .filter(([id]) => id !== 'permitAreas')
+      .filter(([id, cfg]) => id !== 'permitAreas' && cfg && !cfg.disabled)
       .forEach(([id, cfg]) => {
         if (cfg && cfg.visible === allLayersActive) {
           onToggleLayer(id);
@@ -52,22 +52,29 @@ const LayersPanel = ({
   };
 
   // Check if all layers in a group are visible
-  const isGroupActive = (groupId) => {
+  const getEffectiveGroupLayers = (groupId) => {
     const group = LAYER_GROUPS[groupId];
-    if (!group) return false;
-    return group.layers.every(layerId => 
-      layers[layerId] && layers[layerId].visible
-    );
+    if (!group) return [];
+    return group.layers.filter((layerId) => {
+      const cfg = layers[layerId];
+      return cfg && !cfg.disabled;
+    });
+  };
+
+  const isGroupActive = (groupId) => {
+    const effective = getEffectiveGroupLayers(groupId);
+    if (effective.length === 0) return false;
+    return effective.every(layerId => layers[layerId] && layers[layerId].visible);
   };
 
   // Toggle all layers in a group
   const handleGroupToggle = (groupId) => {
-    const group = LAYER_GROUPS[groupId];
-    if (!group) return;
-    
+    const effective = getEffectiveGroupLayers(groupId);
+    if (effective.length === 0) return;
     const groupActive = isGroupActive(groupId);
-    group.layers.forEach(layerId => {
-      if (layers[layerId] && layers[layerId].visible === groupActive) {
+    effective.forEach(layerId => {
+      const cfg = layers[layerId];
+      if (cfg && cfg.visible === groupActive) {
         onToggleLayer(layerId);
       }
     });
@@ -188,6 +195,7 @@ const LayersPanel = ({
     const isExpanded = expandedGroups.has(groupId);
     const isActive = isGroupActive(groupId);
     const isEnabled = focusedArea; // Groups only enabled when focused
+    const effective = getEffectiveGroupLayers(groupId);
 
     return (
       <div key={groupId} className="mb-2">
@@ -206,7 +214,7 @@ const LayersPanel = ({
             <span className="text-sm">{group.icon}</span>
             <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{group.name}</span>
             <span className="text-xs text-gray-500 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded-full">
-              {group.layers.length}
+              {effective.length}
             </span>
           </div>
           <button
@@ -230,7 +238,7 @@ const LayersPanel = ({
         
         {isExpanded && (
           <div className="ml-4 mt-1 space-y-1">
-            {group.layers.map(layerId => {
+            {effective.map(layerId => {
               const config = layers[layerId];
               return config ? renderLayerItem(layerId, config, true) : null;
             })}
@@ -243,7 +251,7 @@ const LayersPanel = ({
   const renderLayerItem = (layerId, config, isInGroup = false) => {
     const isPermitLayer = layerId === 'permitAreas';
     // In DPR, enable permit areas or if focused area exists
-    const isEnabled = isPermitLayer || focusedArea;
+    const isEnabled = (isPermitLayer || focusedArea) && !config.disabled;
     const isLoading = config.loading || false;
     
     return (
@@ -255,7 +263,7 @@ const LayersPanel = ({
       >
         <div className="flex items-center space-x-3">
           <button
-            onClick={() => isEnabled && onToggleLayer(layerId)}
+            onClick={() => isEnabled && !config.disabled && onToggleLayer(layerId)}
             className={`p-1 rounded ${
               isEnabled ? 'cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700' : 'cursor-not-allowed'
             }`}
