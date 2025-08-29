@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
 import { ZoneCreatorProvider } from '../../../contexts/ZoneCreatorContext.jsx';
+import { DroppedObjectsProvider } from '../../../contexts/DroppedObjectsContext.jsx';
 import MapContainer from '../MapContainer.jsx';
 
 function makeMap(overrides = {}) {
@@ -77,20 +78,22 @@ describe('MapContainer additional branches', () => {
     const map = makeMap();
     const hooks = noopHooks();
     const { queryByText, getByText } = render(
-      <ZoneCreatorProvider>
-        <MapContainer
-          map={map}
-          mapLoaded={true}
-          focusedArea={null}
-          drawTools={hooks.drawTools}
-          clickToPlace={hooks.clickToPlace}
-          permitAreas={hooks.permitAreas}
-          placeableObjects={[]}
-          nudges={[]}
-          highlightedIds={[]}
-          onDismissNudge={vi.fn()}
-        />
-      </ZoneCreatorProvider>
+      <DroppedObjectsProvider>
+        <ZoneCreatorProvider>
+          <MapContainer
+            map={map}
+            mapLoaded={true}
+            focusedArea={null}
+            drawTools={hooks.drawTools}
+            clickToPlace={hooks.clickToPlace}
+            permitAreas={hooks.permitAreas}
+            placeableObjects={[]}
+            nudges={[]}
+            highlightedIds={[]}
+            onDismissNudge={vi.fn()}
+          />
+        </ZoneCreatorProvider>
+      </DroppedObjectsProvider>
     );
     // ClickPopover content visible
     expect(getByText('Name:')).toBeInTheDocument();
@@ -102,20 +105,22 @@ describe('MapContainer additional branches', () => {
     const map = makeMap({ pitch: 30, bearing: 10 });
     const hooks = noopHooks();
     const { getByTitle } = render(
-      <ZoneCreatorProvider>
-        <MapContainer
-          map={map}
-          mapLoaded={true}
-          focusedArea={null}
-          drawTools={hooks.drawTools}
-          clickToPlace={hooks.clickToPlace}
-          permitAreas={hooks.permitAreas}
-          placeableObjects={[]}
-          nudges={[]}
-          highlightedIds={[]}
-          onDismissNudge={vi.fn()}
-        />
-      </ZoneCreatorProvider>
+      <DroppedObjectsProvider>
+        <ZoneCreatorProvider>
+          <MapContainer
+            map={map}
+            mapLoaded={true}
+            focusedArea={null}
+            drawTools={hooks.drawTools}
+            clickToPlace={hooks.clickToPlace}
+            permitAreas={hooks.permitAreas}
+            placeableObjects={[]}
+            nudges={[]}
+            highlightedIds={[]}
+            onDismissNudge={vi.fn()}
+          />
+        </ZoneCreatorProvider>
+      </DroppedObjectsProvider>
     );
     fireEvent.click(getByTitle('Toggle projection (Top-down / Isometric)'));
     expect(map.easeTo).toHaveBeenCalled();

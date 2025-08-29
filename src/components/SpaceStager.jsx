@@ -7,6 +7,7 @@ import FocusInfoPanel from './Modals/FocusInfoPanel';
 import WelcomeOverlay from './Tutorial/WelcomeOverlay';
 import TutorialTooltip from './Tutorial/TutorialTooltip';
 import RightSidebar from './Sidebar/RightSidebar';
+import { DroppedObjectsProvider } from '../contexts/DroppedObjectsContext';
 import NudgeCenter from './Nudges/NudgeCenter';
 import { useMap } from '../hooks/useMap';
 import { useDrawTools } from '../hooks/useDrawTools';
@@ -656,19 +657,21 @@ const SpaceStager = () => {
           </button>
         )}
         
-        <MapContainer 
-          ref={mapContainerRef}
-          map={map}
-          mapLoaded={mapLoaded}
-          focusedArea={permitAreas.focusedArea}
-          drawTools={drawTools}
-          clickToPlace={clickToPlace}
-          permitAreas={permitAreas}
-          placeableObjects={PLACEABLE_OBJECTS}
-          nudges={nudges}
-          highlightedIds={highlightedIds}
-          onDismissNudge={dismissNudge}
-        />
+        <DroppedObjectsProvider>
+          <MapContainer 
+            ref={mapContainerRef}
+            map={map}
+            mapLoaded={mapLoaded}
+            focusedArea={permitAreas.focusedArea}
+            drawTools={drawTools}
+            clickToPlace={clickToPlace}
+            permitAreas={permitAreas}
+            placeableObjects={PLACEABLE_OBJECTS}
+            nudges={nudges}
+            highlightedIds={highlightedIds}
+            onDismissNudge={dismissNudge}
+          />
+        </DroppedObjectsProvider>
 
         {/* Center-bottom contextual nudges */}
         <NudgeCenter

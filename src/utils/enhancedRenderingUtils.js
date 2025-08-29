@@ -120,7 +120,7 @@ export const computeNearestLineBearing = (pointFeature, lineFeatures) => {
  * Each sprite will be registered under an ID derived from baseName (e.g., "linknyc_090").
  */
 export const addEnhancedSpritesToMap = async (map, options) => {
-  const { baseName, publicDir, angles = [0,45,90,135,180,225,270,315], viewType, urlBuilder } = options || {};
+  const { baseName, publicDir, angles = [0,45,90,135,180,225,270,315], viewType, urlBuilder, replaceExisting = false } = options || {};
   if (!map || !baseName || !publicDir) return;
 
   // Load each angle variant via DOM Image
@@ -128,8 +128,12 @@ export const addEnhancedSpritesToMap = async (map, options) => {
     const id = `${baseName}_${padAngle(angle)}`;
     try {
       if (map.hasImage && map.hasImage(id)) {
-        resolve(true);
-        return;
+        if (replaceExisting) {
+          try { map.removeImage(id); } catch (_) {}
+        } else {
+          resolve(true);
+          return;
+        }
       }
     } catch (_) {}
     const urls = [];
@@ -147,11 +151,17 @@ export const addEnhancedSpritesToMap = async (map, options) => {
     img.crossOrigin = 'anonymous';
     img.onload = () => {
       try {
-        if (map.hasImage && map.hasImage(id)) {
-          resolve(true);
-          return;
-        }
-        map.addImage(id, img);
+        const has = map.hasImage && map.hasImage(id);
+        if (replaceExisting && has) {
+          if (typeof map.updateImage === 'function') {
+            try { map.updateImage(id, img); } catch (_) { try { map.removeImage(id); map.addImage(id, img); } catch (__) {} }
+          } else {
+            try { map.removeImage(id); } catch (_) {}
+            try { map.addImage(id, img); } catch (_) {}
+          }
+        } else if (!has) {
+          map.addImage(id, img);
+        } // else has and !replaceExisting → keep existing
       } catch (_) {}
       resolve(true);
     };
@@ -210,18 +220,18 @@ export const buildFlatSpriteUrl = (baseName, angle, viewType = VIEW_TYPES.ISOMET
 };
 
 export const buildSpriteFallbacks = (baseName, angle, viewType = VIEW_TYPES.ISOMETRIC) => {
-  const primary = buildSpriteUrl(baseName, angle, viewType); // nested view dir
-  const iso = buildSpriteUrl(baseName, angle, VIEW_TYPES.ISOMETRIC); // nested iso
+  const nestedPrimary = buildSpriteUrl(baseName, angle, viewType); // nested view dir
+  const nestedIso = buildSpriteUrl(baseName, angle, VIEW_TYPES.ISOMETRIC); // nested iso
   const flat = buildFlatSpriteUrl(baseName, angle, viewType); // flat current view
   const flatIso = buildFlatSpriteUrl(baseName, angle, VIEW_TYPES.ISOMETRIC); // flat iso
   const legacy = buildLegacyIsometricUrl(baseName, angle);
   const chain = [];
-  // Keep nested as the primary for components/tests that assert it
-  if (!chain.includes(primary)) chain.push(primary);
-  if (!chain.includes(iso)) chain.push(iso);
-  // Then include flat structure which matches current public assets
+  // Prioritize flat structure which matches current public assets
   if (!chain.includes(flat)) chain.push(flat);
   if (!chain.includes(flatIso)) chain.push(flatIso);
+  // Then include nested structure as deeper fallbacks
+  if (!chain.includes(nestedPrimary)) chain.push(nestedPrimary);
+  if (!chain.includes(nestedIso)) chain.push(nestedIso);
   if (!chain.includes(legacy)) chain.push(legacy);
   return chain;
 };

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { getContrastingBackgroundForIcon } from '../../utils/colorUtils';
-import { buildSpriteFallbacks } from '../../utils/enhancedRenderingUtils';
+import { useMapViewState } from '../../hooks/useMapViewState';
+import { getCandidateSrcs, bgColorFor } from '../../utils/spriteResolver';
 
 const PlaceableObjectsPanel = ({ 
   objects, 
@@ -21,20 +21,15 @@ const PlaceableObjectsPanel = ({
   }, [onActivation, onRectActivation]);
 
   const [bgBySrc, setBgBySrc] = useState({});
+  const view = useMapViewState(null); // panel thumbnails are view-agnostic; keep iso defaults
 
-  // Precompute contrasting backgrounds for all object thumbnails (base icon or 135° variant)
+  // Precompute contrasting backgrounds for all object thumbnails (base icon or iso fallback)
   useEffect(() => {
     if (!objects || !objects.length) return;
     const needed = {};
     objects.forEach((obj) => {
-      const isEnhanced = !!obj?.enhancedRendering?.enabled;
-      let src = null;
-      if (isEnhanced && obj.enhancedRendering?.spriteBase) {
-        // Prefer flat /static/{base}/{file}.png first
-        const fallbacks = buildSpriteFallbacks(obj.enhancedRendering.spriteBase, 135, 'isometric');
-        src = fallbacks[0] || null;
-      }
-      if (!src && obj.imageUrl) src = obj.imageUrl;
+      const candidates = getCandidateSrcs(obj, 135, 'isometric');
+      const src = candidates[0] || obj.imageUrl || null;
       if (src && !bgBySrc[src]) {
         needed[src] = obj.color || '#64748b';
       }
@@ -43,7 +38,7 @@ const PlaceableObjectsPanel = ({
     if (srcs.length === 0) return;
     let active = true;
     Promise.all(srcs.map(async (src) => {
-      const bg = await getContrastingBackgroundForIcon(src, needed[src], 0.9);
+      const bg = await bgColorFor(src, needed[src], 0.9);
       return [src, bg];
     })).then((pairs) => {
       if (!active) return;
@@ -80,12 +75,8 @@ const PlaceableObjectsPanel = ({
               title={`Click to place ${obj.name}${isActive ? ' (click again to cancel)' : ''}`}
             >
               {(() => {
-                const isEnhanced = !!obj?.enhancedRendering?.enabled;
-                const base = obj.enhancedRendering?.spriteBase;
-                const fallbacks = isEnhanced && base
-                  ? buildSpriteFallbacks(base, 135, 'isometric')
-                  : (obj.imageUrl ? [obj.imageUrl] : []);
-                const src = fallbacks[0] || null;
+                const candidates = getCandidateSrcs(obj, 135, 'isometric');
+                const src = candidates[0] || obj.imageUrl || null;
                 const bg = (src && bgBySrc[src]) || (obj.color ? `${obj.color}E6` : undefined);
                 return (
                   <div

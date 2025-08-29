@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { ZoneCreatorProvider } from '../../../contexts/ZoneCreatorContext.jsx';
+import { DroppedObjectsProvider } from '../../../contexts/DroppedObjectsContext.jsx';
 import MapContainer from '../MapContainer.jsx';
 
 function makeMap(overrides = {}) {
@@ -74,20 +75,22 @@ describe('MapContainer integration', () => {
   it('renders compass and resets bearing to 0 on click', () => {
     hooks.drawTools.activeTool = null;
     render(
-      <ZoneCreatorProvider>
-        <MapContainer
-          map={map}
-          mapLoaded={true}
-          focusedArea={null}
-          drawTools={hooks.drawTools}
-          clickToPlace={hooks.clickToPlace}
-          permitAreas={hooks.permitAreas}
-          placeableObjects={[]}
-          nudges={[]}
-          highlightedIds={[]}
-          onDismissNudge={vi.fn()}
-        />
-      </ZoneCreatorProvider>
+      <DroppedObjectsProvider>
+        <ZoneCreatorProvider>
+          <MapContainer
+            map={map}
+            mapLoaded={true}
+            focusedArea={null}
+            drawTools={hooks.drawTools}
+            clickToPlace={hooks.clickToPlace}
+            permitAreas={hooks.permitAreas}
+            placeableObjects={[]}
+            nudges={[]}
+            highlightedIds={[]}
+            onDismissNudge={vi.fn()}
+          />
+        </ZoneCreatorProvider>
+      </DroppedObjectsProvider>
     );
     const resetBtn = screen.getByTitle('Reset North');
     fireEvent.click(resetBtn);
@@ -96,20 +99,22 @@ describe('MapContainer integration', () => {
 
   it('toggles projection between ISO and 2D', () => {
     render(
-      <ZoneCreatorProvider>
-        <MapContainer
-          map={map}
-          mapLoaded={true}
-          focusedArea={null}
-          drawTools={hooks.drawTools}
-          clickToPlace={hooks.clickToPlace}
-          permitAreas={hooks.permitAreas}
-          placeableObjects={[]}
-          nudges={[]}
-          highlightedIds={[]}
-          onDismissNudge={vi.fn()}
-        />
-      </ZoneCreatorProvider>
+      <DroppedObjectsProvider>
+        <ZoneCreatorProvider>
+          <MapContainer
+            map={map}
+            mapLoaded={true}
+            focusedArea={null}
+            drawTools={hooks.drawTools}
+            clickToPlace={hooks.clickToPlace}
+            permitAreas={hooks.permitAreas}
+            placeableObjects={[]}
+            nudges={[]}
+            highlightedIds={[]}
+            onDismissNudge={vi.fn()}
+          />
+        </ZoneCreatorProvider>
+      </DroppedObjectsProvider>
     );
     const toggleBtn = screen.getByTitle('Toggle projection (Top-down / Isometric)');
     // From 2D to ISO

@@ -9,72 +9,7 @@ export const useClickToPlace = (map) => {
   const [cursorPosition, setCursorPosition] = useState(null);
   const [objectUpdateTrigger, setObjectUpdateTrigger] = useState(0);
 
-  // Update objects positions when map moves
-  useEffect(() => {
-    if (!map) {
-      if (DEBUG) console.log('ClickToPlace: No map instance available');
-      return;
-    }
-    
-    if (DEBUG) console.log('ClickToPlace: Setting up event listeners', { 
-      mapExists: !!map, 
-      mapLoaded: map.loaded ? map.loaded() : 'unknown' 
-    });
-    
-    const updateObjectPositions = () => {
-      setObjectUpdateTrigger(prev => prev + 1);
-    };
-    
-    const events = [
-      'move', 'zoom', 'rotate', 'pitch', 'resize'
-    ];
-    
-    // Ensure we don't register duplicates across hot reloads/style changes
-    const addEventListeners = () => {
-      events.forEach(event => {
-        map.off(event, updateObjectPositions);
-        map.on(event, updateObjectPositions);
-        if (DEBUG) console.log(`ClickToPlace: Added listener for ${event}`);
-      });
-      if (DEBUG) console.log('ClickToPlace: All event listeners added for object positioning');
-    };
-    
-    const removeEventListeners = () => {
-      events.forEach(event => {
-        map.off(event, updateObjectPositions);
-      });
-      if (DEBUG) console.log('ClickToPlace: Event listeners removed');
-    };
-    
-    // Try multiple approaches to add event listeners
-    try {
-      if (map.loaded && typeof map.loaded === 'function' && map.loaded()) {
-        if (DEBUG) console.log('ClickToPlace: Map is already loaded, adding listeners immediately');
-        addEventListeners();
-      } else {
-        if (DEBUG) console.log('ClickToPlace: Map not loaded yet, waiting for load event');
-        const onLoad = () => {
-          if (DEBUG) console.log('ClickToPlace: Map load event fired, adding listeners');
-          addEventListeners();
-        };
-        map.once('load', onLoad);
-        
-        // Also try adding them immediately as a fallback
-        setTimeout(() => {
-          if (DEBUG) console.log('ClickToPlace: Fallback - adding listeners after timeout');
-          addEventListeners();
-        }, 1000);
-      }
-    } catch (error) {
-      if (DEBUG) console.error('ClickToPlace: Error setting up event listeners', error);
-      // Fallback: just add the listeners
-      addEventListeners();
-    }
-    
-    return () => {
-      removeEventListeners();
-    };
-  }, [map]);
+  // Deprecated: camera-driven objectUpdateTrigger is no longer required; overlays use view hook.
 
   // Handle mouse move for preview
   const handleMapMouseMove = useCallback((e) => {
@@ -123,6 +58,8 @@ export const useClickToPlace = (map) => {
     };
     
     setDroppedObjects(prev => [...prev, newObject]);
+    // Bump trigger for any listeners still relying on it
+    setObjectUpdateTrigger(v => v + 1);
     
     if (DEBUG) console.log('Placed object:', newObject);
     
@@ -155,11 +92,13 @@ export const useClickToPlace = (map) => {
   // Remove dropped object
   const removeDroppedObject = useCallback((objectId) => {
     setDroppedObjects(prev => prev.filter(obj => obj.id !== objectId));
+    setObjectUpdateTrigger(v => v + 1);
   }, []);
 
   // Update a dropped object by id
   const updateDroppedObject = useCallback((objectId, updater) => {
     setDroppedObjects(prev => prev.map(obj => obj.id === objectId ? (typeof updater === 'function' ? updater(obj) : { ...obj, ...updater }) : obj));
+    setObjectUpdateTrigger(v => v + 1);
   }, []);
 
   // Set a note on a dropped object (stored under properties.note)
@@ -208,51 +147,19 @@ export const useClickToPlace = (map) => {
     setCursorPosition(null);
   }, []);
 
-  // Keyboard controls during placement: , / . or [ / ] to rotate 45° steps
-  useEffect(() => {
-    if (!placementMode) return;
-    const onKeyDown = (e) => {
-      // Ignore when typing in inputs/textarea/contentEditable
-      const t = e.target;
-      const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+  // Centralized rotation now handled via useRotationControls in MapContainer
 
-      // Rotate during placement with ',' and '.' (and variants '<' '>')
-      const isComma = e.code === 'Comma' || e.key === ',' || e.key === '<';
-      const isPeriod = e.code === 'Period' || e.key === '.' || e.key === '>';
-      if (!typing && (isComma || isPeriod)) {
-        e.preventDefault();
-        setPlacementMode(prev => {
-          if (!prev) return prev;
-          const cur = typeof prev.rotationDeg === 'number' ? prev.rotationDeg : 0;
-          const delta = isPeriod ? 45 : -45;
-          let next = (cur + delta) % 360;
-          if (next < 0) next += 360;
-          const q = Math.round(next / 45) * 45;
-          return { ...prev, rotationDeg: ((q % 360) + 360) % 360 };
-        });
-        return;
-      }
-
-      // Rotate during placement with '[' and ']'
-      const isLeftBracket = e.code === 'BracketLeft' || e.key === '[';
-      const isRightBracket = e.code === 'BracketRight' || e.key === ']';
-      if (!typing && (isLeftBracket || isRightBracket)) {
-        e.preventDefault();
-        setPlacementMode(prev => {
-          if (!prev) return prev;
-          const cur = typeof prev.rotationDeg === 'number' ? prev.rotationDeg : 0;
-          const delta = isRightBracket ? 45 : -45;
-          let next = (cur + delta) % 360;
-          if (next < 0) next += 360;
-          // Quantize to nearest 45 bucket
-          const q = Math.round(next / 45) * 45;
-          return { ...prev, rotationDeg: ((q % 360) + 360) % 360 };
-        });
-      }
-    };
-    window.addEventListener('keydown', onKeyDown, { passive: false });
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [placementMode]);
+  // External control to rotate placement by step (±45)
+  const rotatePlacementModeBy = useCallback((delta45) => {
+    setPlacementMode(prev => {
+      if (!prev) return prev;
+      const cur = typeof prev.rotationDeg === 'number' ? prev.rotationDeg : 0;
+      let next = (cur + delta45) % 360;
+      if (next < 0) next += 360;
+      const q = Math.round(next / 45) * 45;
+      return { ...prev, rotationDeg: ((q % 360) + 360) % 360 };
+    });
+  }, []);
 
   return {
     droppedObjects,
@@ -268,6 +175,7 @@ export const useClickToPlace = (map) => {
     setDroppedObjectNote,
     getObjectStyle,
     clearDroppedObjects,
-    cancelPlacementMode
+    cancelPlacementMode,
+    rotatePlacementModeBy
   };
 }; 

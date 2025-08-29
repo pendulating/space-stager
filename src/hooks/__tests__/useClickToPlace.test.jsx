@@ -47,22 +47,43 @@ function Harness({ map }) {
 }
 
 describe('useClickToPlace', () => {
-  it('sets up listeners and increments update trigger on map move', () => {
+  it('increments update trigger on placement', () => {
     const map = makeFakeMap();
-    render(<Harness map={map} />);
+    function PlaceHarness() {
+      const hook = useClickToPlace(map);
+      return (
+        <div>
+          <div data-testid="updates">{String(hook.objectUpdateTrigger)}</div>
+          <button onClick={() => hook.activatePlacementMode({ id: 'bench', name: 'Bench' }, false)}>mode</button>
+          <button onClick={() => hook.handleMapClick({ preventDefault(){}, stopPropagation(){}, clientX: 110, clientY: 220 })}>place</button>
+        </div>
+      );
+    }
+    render(<PlaceHarness />);
     const before = screen.getByTestId('updates').textContent;
-    act(() => { map.emit('move'); });
+    act(() => { screen.getByText('mode').click(); });
+    act(() => { screen.getByText('place').click(); });
     const after = screen.getByTestId('updates').textContent;
     expect(Number(after)).toBe(Number(before) + 1);
   });
 
-  it('activates/toggles placement mode and rotates with keys', () => {
+  it('activates/toggles placement mode and rotates via API', () => {
     const map = makeFakeMap();
-    render(<Harness map={map} />);
+    function RotateHarness() {
+      const hook = useClickToPlace(map);
+      return (
+        <div>
+          <div data-testid="mode">{hook.placementMode ? hook.placementMode.objectType.id : 'none'}</div>
+          <div data-testid="rotation">{hook.placementMode ? String(hook.placementMode.rotationDeg) : 'na'}</div>
+          <button onClick={() => hook.activatePlacementMode({ id: 'bench', name: 'Bench' }, false)}>mode-bench</button>
+          <button onClick={() => hook.rotatePlacementModeBy(45)}>rotate</button>
+        </div>
+      );
+    }
+    render(<RotateHarness />);
     fireEvent.click(screen.getByText('mode-bench'));
     expect(screen.getByTestId('mode').textContent).toBe('bench');
-    // rotate right using '.' key
-    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: '.', code: 'Period' })); });
+    act(() => { screen.getByText('rotate').click(); });
     expect(screen.getByTestId('rotation').textContent).toBe('45');
     // toggling same object cancels
     fireEvent.click(screen.getByText('mode-bench'));

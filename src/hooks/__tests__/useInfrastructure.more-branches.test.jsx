@@ -20,7 +20,14 @@ vi.mock('../../utils/enhancedRenderingUtils', () => ({
   addEnhancedSpritesToMap: vi.fn(async () => {}),
   computeNearestLineBearing: vi.fn(() => 10),
   quantizeAngleTo45: vi.fn(() => 0),
-  buildSpriteImageId: vi.fn((base, q) => `${base}_${String(q).padStart(3,'0')}`)
+  buildSpriteImageId: vi.fn((base, q) => `${base}_${String(q).padStart(3,'0')}`),
+  VIEW_TYPES: { ISOMETRIC: 'isometric', TOP_DOWN: 'top-down' },
+  getMapViewType: vi.fn(() => 'isometric'),
+  buildSpriteUrl: vi.fn((base, angle, vt) => {
+    const pad = (n) => String(((n % 360) + 360) % 360).padStart(3, '0');
+    const file = vt === 'top-down' ? `${base}_TOP_${pad(angle)}.png` : `${base}_${pad(angle)}.png`;
+    return `/static/${base}/${vt}/renders/${file}`;
+  })
 }));
 
 import { loadInfrastructureData } from '../../services/infrastructureService';

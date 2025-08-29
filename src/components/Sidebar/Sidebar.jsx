@@ -90,6 +90,7 @@ const Sidebar = ({
           onClearFocus={onClearFocus}
           isSitePlanMode={isSitePlanMode}
           geographyType={geographyType}
+          map={map}
         />
       </div>
     </div>

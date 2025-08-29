@@ -3,6 +3,9 @@ import React, { useState, useMemo } from 'react';
 import { Eye, EyeOff, X, Layers, ToggleLeft, ToggleRight, ChevronDown, ChevronRight } from 'lucide-react';
 import {LAYER_GROUPS } from '../../constants/layers';
 import { INFRASTRUCTURE_ICONS, svgToDataUrl } from '../../utils/iconUtils';
+import { getCandidateSrcs } from '../../utils/spriteResolver';
+
+import { useMapViewState } from '../../hooks/useMapViewState';
 
 const LayersPanel = ({ 
   layers, 
@@ -10,8 +13,10 @@ const LayersPanel = ({
   onToggleLayer, 
   onClearFocus,
   isSitePlanMode = false,
-  geographyType
+  geographyType,
+  map
 }) => {
+  const view = useMapViewState(map);
   // State for tracking which groups are expanded
   const [expandedGroups, setExpandedGroups] = useState(new Set(['public-infrastructure', 'nyc-parks'])); // Start with some groups expanded
 
@@ -72,25 +77,43 @@ const LayersPanel = ({
   const renderLayerIcon = (layerId, config) => {
     const icon = INFRASTRUCTURE_ICONS[layerId];
     
-    // If enhanced rendering is enabled for this layer, prefer the 135° variant sprite for panel icon
+    // If enhanced rendering is enabled for this layer, use the shared spriteResolver
+    // to build a robust fallback chain (flat and nested structures, legacy as last resort)
     if (config?.enhancedRendering?.enabled) {
-      const base = config.enhancedRendering.spriteBase;
-      const dir = config.enhancedRendering.publicDir || '/data/icons/isometric-bw';
-      const src = `${dir}/${base}_135.png`;
+      const viewType = view?.viewType || 'isometric';
+      const angle = viewType === 'isometric' ? 135 : 0;
+      const candidates = getCandidateSrcs(config, angle, viewType);
+      const src = candidates[0] || null;
       return (
         <div 
           className={`w-6 h-6 flex items-center justify-center ${config.loading ? 'animate-pulse' : ''}`}
           style={{ opacity: config.visible ? 1 : 0.3 }}
         >
-          <img 
-            src={src}
-            alt={config.name}
-            className="w-8 h-8 object-contain"
-            style={{
-              filter: config.loading ? 'grayscale(100%)' : 'none',
-              opacity: config.visible ? 1 : 0.6
-            }}
-          />
+          {src ? (
+            <img 
+              src={src}
+              alt={config.name}
+              className="w-8 h-8 object-contain"
+              style={{
+                filter: config.loading ? 'grayscale(100%)' : 'none',
+                opacity: config.visible ? 1 : 0.6
+              }}
+              onError={(e) => {
+                try {
+                  const current = e.currentTarget.getAttribute('src');
+                  const idx = candidates.indexOf(current);
+                  const next = candidates[idx + 1];
+                  if (next) {
+                    e.currentTarget.src = next;
+                  } else {
+                    e.currentTarget.style.display = 'none';
+                  }
+                } catch (_) {}
+              }}
+            />
+          ) : (
+            <div className="w-6 h-6" />
+          )}
         </div>
       );
     }

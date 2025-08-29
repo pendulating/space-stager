@@ -1,7 +1,54 @@
-import React, { useMemo } from 'react';
-import { padAngle, getMapViewType, buildSpriteUrl } from '../../utils/enhancedRenderingUtils';
+import React, { useMemo, useEffect } from 'react';
+import { useMapViewState } from '../../hooks/useMapViewState';
+import { useStableImageSrc } from '../../hooks/useStableImageSrc';
+import { getCandidateSrcs, prefetchView } from '../../utils/spriteResolver';
+import { buildSpriteFallbacks, quantizeAngleTo45 } from '../../utils/enhancedRenderingUtils';
 
 const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects, map }) => {
+  const view = useMapViewState(map);
+
+  // Resolve object type once per render (used by hooks below)
+  const objectType = useMemo(() => {
+    try { return placeableObjects?.find(p => p.id === placementMode?.objectType?.id) || null; } catch (_) { return null; }
+  }, [placeableObjects, placementMode?.objectType?.id]);
+
+  // Compute angle and its quantized variant early so effects can depend on it
+  const angle = typeof placementMode?.rotationDeg === 'number' ? placementMode.rotationDeg : 0;
+  const qAngle = useMemo(() => {
+    try { return quantizeAngleTo45(angle || 0); } catch (_) { return 0; }
+  }, [angle]);
+
+  // Prefetch for the current view when enhanced; include quantized angle for immediate candidate readiness
+  useEffect(() => {
+    try {
+      if (objectType?.enhancedRendering?.enabled && objectType.enhancedRendering?.spriteBase && view?.viewType) {
+        const angles = objectType.enhancedRendering.angles || [0,45,90,135,180,225,270,315];
+        // Prefetch primary of current view for all angles and especially current qAngle
+        prefetchView(objectType.enhancedRendering.spriteBase, angles, view.viewType);
+      }
+    } catch (_) {}
+  }, [objectType?.enhancedRendering?.spriteBase, objectType?.enhancedRendering?.enabled, objectType?.enhancedRendering?.angles, view?.viewType, qAngle]);
+
+  // Compute candidate sprite sources and resolve a stable src (hooks must be unconditional)
+  const candidates = useMemo(() => {
+    if (!objectType) return [];
+    // Compensate for map bearing so the preview doesn't appear to rotate when the map rotates
+    const bearing = typeof view?.bearing === 'number' ? view.bearing : 0;
+    const zeroOffset = (objectType?.enhancedRendering?.zeroOffsetDegByView?.[view?.viewType])
+      ?? (objectType?.enhancedRendering?.zeroOffsetDeg)
+      ?? (view?.viewType === 'isometric' ? -90 : 0);
+    const angleForSprite = (((angle - bearing + zeroOffset) % 360 + 360) % 360);
+    const primary = getCandidateSrcs(objectType, angleForSprite, view?.viewType) || [];
+    if (primary.length > 0) return primary;
+    // Fallback: assume public/static/{id} structure when spriteBase missing
+    try {
+      const base = objectType?.enhancedRendering?.spriteBase || objectType.id;
+      const q = quantizeAngleTo45(angleForSprite || 0);
+      if (base) return buildSpriteFallbacks(base, q, view?.viewType);
+    } catch (_) {}
+    return [];
+  }, [objectType, angle, view?.viewType]);
+  const src = useStableImageSrc(candidates, `${view?.viewType || ''}:${qAngle}`);
   const previewStyle = useMemo(() => {
     if (!placementMode || !cursorPosition || !placeableObjects) {
       return { display: 'none' };
@@ -42,8 +89,6 @@ const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects, map
 
   const iconStyle = useMemo(() => {
     if (!placementMode || !placeableObjects) return {};
-
-    const objectType = placeableObjects.find(p => p.id === placementMode.objectType.id);
     if (!objectType) return {};
 
     const baseSize = Math.max(objectType.size.width, objectType.size.height, 24);
@@ -51,15 +96,9 @@ const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects, map
     const iconSize = baseSize * previewScale;
     const fontSize = Math.max(iconSize * 0.6, 14);
 
-    if (objectType.imageUrl) {
-      return { 
-        width: iconSize, 
-        height: iconSize,
-        transform: placementMode.isFlipped ? 'scaleX(-1)' : undefined
-      };
-    }
-
     return {
+      width: iconSize,
+      height: iconSize,
       color: objectType.color,
       fontSize: `${fontSize}px`,
       lineHeight: '1',
@@ -72,26 +111,14 @@ const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects, map
     return null;
   }
 
-  const objectType = placeableObjects?.find(p => p.id === placementMode.objectType.id);
   if (!objectType) {
     return null;
   }
 
   return (
     <div style={previewStyle}>
-      {(objectType.imageUrl || objectType?.enhancedRendering?.enabled) ? (
-        (() => {
-          // If enhanced, preview the variant image for the current placement rotation
-          const isEnhanced = !!objectType?.enhancedRendering?.enabled;
-          let src = objectType.imageUrl;
-          if (isEnhanced && objectType.enhancedRendering?.spriteBase) {
-            const base = objectType.enhancedRendering.spriteBase;
-            const angle = typeof placementMode?.rotationDeg === 'number' ? placementMode.rotationDeg : 0;
-            const vt = getMapViewType(map);
-            src = buildSpriteUrl(base, angle, vt);
-          }
-          return <img src={src} alt={objectType.name} style={iconStyle} draggable={false} />;
-        })()
+      {src ? (
+        <img src={src} alt={objectType.name} style={iconStyle} draggable={false} />
       ) : (
         <div style={iconStyle}>{objectType.icon}</div>
       )}

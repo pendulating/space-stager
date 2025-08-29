@@ -90,7 +90,8 @@
 
 /* Placed objects styling */
 .placed-object {
-  transition: all 0.15s ease-in-out;
+  /* Avoid animating transform on camera movement to prevent visible lag */
+  transition: box-shadow 0.15s ease-in-out;
 }
 
 .placed-object:hover {

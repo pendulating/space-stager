@@ -120,6 +120,9 @@ export const useDrawTools = (map, focusedArea = null) => {
         } else if (currentTool === 'text' && feature && feature.geometry && feature.geometry.type === 'Point') {
           feature.properties = Object.assign({}, feature.properties, { type: 'text', label: feature.properties?.label || '' });
           if (draw.current) draw.current.add(feature);
+          // Open the inline text editor immediately for convenience
+          try { window.dispatchEvent(new CustomEvent('annotations:changed')); } catch (_) {}
+          try { if (map && typeof map.fire === 'function') map.fire('ui:open-text-editor', { featureId: feature.id }); } catch (_) {}
         }
       } catch (_) {}
       setSelectedShape(feature.id);
@@ -350,8 +353,13 @@ export const useDrawTools = (map, focusedArea = null) => {
         draw.current.changeMode('draw_polygon');
         break;
       case 'text':
-        // Use built-in point tool; tag on create
-        draw.current.changeMode('draw_point');
+        // Use custom text annotation mode to ensure type is set before draw.create
+        try {
+          draw.current.changeMode('draw_text_annotation');
+        } catch (_) {
+          // Fallback to point; handleDrawCreate will tag, but editor may not auto-open
+          draw.current.changeMode('draw_point');
+        }
         break;
       case 'arrow':
         // Use custom two-point arrow mode

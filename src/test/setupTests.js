@@ -41,3 +41,10 @@ if (!HTMLCanvasElement.prototype.getContext) {
   });
 }
 
+// Mock URL.createObjectURL for maplibre workerUrl in tests
+if (typeof window !== 'undefined' && !window.URL.createObjectURL) {
+  try {
+    window.URL.createObjectURL = vi.fn(() => 'blob:mock');
+  } catch (_) {}
+}
+

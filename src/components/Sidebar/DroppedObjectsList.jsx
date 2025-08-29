@@ -1,6 +1,6 @@
 import React from 'react';
 import { X } from 'lucide-react';
-import { buildSpriteFallbacks } from '../../utils/enhancedRenderingUtils';
+import { getCandidateSrcs } from '../../utils/spriteResolver';
 
 const DroppedObjectsList = ({ 
   objects = [], // Changed from droppedObjects and added default
@@ -24,13 +24,8 @@ const DroppedObjectsList = ({
             >
               <div className="flex items-center space-x-2">
                 {(() => {
-                  const isEnhanced = !!objectType?.enhancedRendering?.enabled;
-                  let src = null;
-                  if (isEnhanced && objectType?.enhancedRendering?.spriteBase) {
-                    const fallbacks = buildSpriteFallbacks(objectType.enhancedRendering.spriteBase, 135, 'isometric');
-                    src = fallbacks[0] || null;
-                  }
-                  if (!src && objectType?.imageUrl) src = objectType.imageUrl;
+                  const candidates = objectType ? getCandidateSrcs(objectType, 135, 'isometric') : [];
+                  const src = candidates[0] || objectType?.imageUrl || null;
                   return src ? (
                     <img
                       src={src}

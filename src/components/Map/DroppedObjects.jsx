@@ -1,9 +1,62 @@
-import React, { useCallback, useMemo, useEffect, useState } from 'react';
-import { padAngle, quantizeAngleTo45, getMapViewType, VIEW_TYPES, buildSpriteUrl, buildLegacyIsometricUrl, buildSpriteFallbacks } from '../../utils/enhancedRenderingUtils';
-import { X } from 'lucide-react';
-import { getContrastingBackgroundForIcon } from '../../utils/colorUtils';
+import React, { useCallback, useMemo, useEffect } from 'react';
+import { Popup as MapLibrePopup } from 'maplibre-gl';
+import { quantizeAngleTo45, addEnhancedSpritesToMap, buildSpriteImageId, getMapViewType, buildFlatSpriteUrl } from '../../utils/enhancedRenderingUtils';
+import { useMapViewState } from '../../hooks/useMapViewState';
+import { useStableImageSrc } from '../../hooks/useStableImageSrc';
+import { getCandidateSrcs, prefetchView } from '../../utils/spriteResolver';
+import { useMapEvents } from '../../hooks/useMapEvents';
 
 const DEBUG = false; // Set to true to enable DroppedObjects debug logs
+// Dev-only, namespaced logger with dynamic switches (env/localStorage/window flag)
+const DEV = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.MODE !== 'production')
+  || (typeof process !== 'undefined' && process.env && process.env.NODE_ENV !== 'production');
+const shouldDebug = () => {
+  if (!DEV) return false;
+  try {
+    // Allow multiple switches:
+    // 1) Hardcoded DEBUG constant
+    if (DEBUG) return true;
+    // 2) Vite env var VITE_DEBUG_DROPPED_OBJECTS
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      const v = import.meta.env.VITE_DEBUG_DROPPED_OBJECTS;
+      if (v === '1' || v === 'true') return true;
+    }
+    // 3) Window flag (flip at runtime without reload)
+    if (typeof window !== 'undefined') {
+      if (window.__DEBUG_DROPPED_OBJECTS__ === true) return true;
+      if (window.DEBUG_DROPPED_OBJECTS === true) return true; // alias
+    }
+    // 4) localStorage flags
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const ls = window.localStorage;
+      if (ls.getItem('debug:dropped-objects') === '1') return true;
+      const debugNamespaces = (ls.getItem('debug') || '').split(',').map(s => s.trim());
+      if (debugNamespaces.includes('dropped-objects')) return true;
+    }
+  } catch (_) {}
+  return false;
+};
+const debug = {
+  log(...args) {
+    if (shouldDebug()) console.debug('[DroppedObjects]', ...args);
+  },
+  group(label, fn) {
+    if (!shouldDebug()) return;
+    console.groupCollapsed(`[DroppedObjects] ${label}`);
+    try { if (typeof fn === 'function') fn(); } finally { console.groupEnd(); }
+  },
+  error(...args) {
+    if (shouldDebug()) console.error('[DroppedObjects]', ...args);
+  }
+};
+
+// Default per-view zero-angle calibration (degrees). Adjust if assets differ.
+const DEFAULT_ZERO_OFFSET_BY_VIEW = { 'isometric': -90, 'top-down': 0 };
+const USE_DOM_OVERLAY = false;
+const DROPPED_SOURCE_ID = 'dropped-objects';
+const DROPPED_SYMBOL_LAYER_ID = 'dropped-objects-symbol';
+const DROPPED_CIRCLE_LAYER_ID = 'dropped-objects-circle';
+const DROPPED_SELECTED_LAYER_ID = 'dropped-objects-selected';
 
 const DroppedObjects = ({ 
   objects = [],
@@ -14,132 +67,503 @@ const DroppedObjects = ({
   onEditNote,
   isNoteEditing,
   selectedId,
-  onSelectObject
+  onSelectObject,
+  onMoveObject
 }) => {
-  if (DEBUG) console.log('DroppedObjects: Component render', {
-    objectCount: objects.length,
-    objectUpdateTrigger,
-    hasMap: !!map,
-    mapType: typeof map
-  });
+  if (shouldDebug()) {
+    // Light-weight render marker; disable by default
+    // debug.log('render', { count: objects.length, hasMap: !!map });
+  }
 
-  // Cache background color by icon src for performance
-  const [iconBgBySrc, setIconBgBySrc] = useState({});
+  const view = useMapViewState(map);
 
-  // Pre-compute contrasting backgrounds for base icons of all placeable objects
+  // Single popup instance for click-to-open action menu
+  const popupRef = React.useRef(null);
+  const dragArmedIdRef = React.useRef(null);
+  const ensurePopup = () => {
+    if (popupRef.current) return popupRef.current;
+    try {
+      const Ctor = MapLibrePopup || (typeof window !== 'undefined' && (window.maplibregl || window.mapboxgl)?.Popup);
+      if (!Ctor) return null;
+      popupRef.current = new Ctor({ closeButton: false, closeOnClick: true, offset: [0, -20] });
+    } catch (_) { popupRef.current = null; }
+    return popupRef.current;
+  };
+  const buildActionPopupContent = (obj) => {
+    try {
+      const wrap = document.createElement('div');
+      wrap.className = 'pointer-events-auto';
+      const container = document.createElement('div');
+      container.className = 'bg-white/95 dark:bg-gray-900/90 border border-gray-300 dark:border-gray-700 rounded-full px-2 py-1 text-[10px] shadow flex gap-1';
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.title = 'Edit note';
+      editBtn.textContent = 'Edit';
+      editBtn.className = 'px-2 py-0.5 rounded-full border border-gray-300 dark:border-gray-700';
+      editBtn.onclick = (e) => { e.stopPropagation(); if (typeof onEditNote === 'function') onEditNote(obj); try { popupRef.current && popupRef.current.remove(); } catch (_) {} };
+      const rmBtn = document.createElement('button');
+      rmBtn.type = 'button';
+      rmBtn.title = 'Remove';
+      rmBtn.textContent = '✕';
+      rmBtn.className = 'bg-red-500 text-white rounded-full px-2 py-0.5';
+      rmBtn.onclick = (e) => { e.stopPropagation(); if (typeof onRemoveObject === 'function') onRemoveObject(obj.id); try { popupRef.current && popupRef.current.remove(); } catch (_) {} };
+      container.appendChild(editBtn);
+      container.appendChild(rmBtn);
+      wrap.appendChild(container);
+      return wrap;
+    } catch (_) { return null; }
+  };
+
+  const defaultColorFor = useCallback((objectType) => objectType?.color || '#64748b', []);
+
+  // Prefetch present enhanced sprites for current view to avoid broken initial srcs
   useEffect(() => {
-    if (!placeableObjects || !placeableObjects.length) return;
-    const needed = {};
-    placeableObjects.forEach((po) => {
-      const isEnhanced = !!po?.enhancedRendering?.enabled;
-      if (isEnhanced && po.enhancedRendering?.spriteBase) {
-        const src = buildSpriteUrl(po.enhancedRendering.spriteBase, 135, VIEW_TYPES.ISOMETRIC);
-        if (!iconBgBySrc[src]) needed[src] = po.color || '#64748b';
-      } else if (po?.imageUrl && !iconBgBySrc[po.imageUrl]) {
-        needed[po.imageUrl] = po.color || '#64748b';
-      }
-    });
-    const srcs = Object.keys(needed);
-    if (srcs.length === 0) return;
-    let active = true;
-    Promise.all(srcs.map(async (src) => {
-      const bg = await getContrastingBackgroundForIcon(src, needed[src], 0.9);
-      return [src, bg];
-    })).then((pairs) => {
-      if (!active) return;
-      setIconBgBySrc((prev) => {
-        const next = { ...prev };
-        pairs.forEach(([s, bg]) => { next[s] = bg; });
-        return next;
-      });
-    }).catch(() => {});
-    return () => { active = false; };
-  }, [placeableObjects, iconBgBySrc]);
+    if (shouldDebug()) {
+      debug.log('mounted');
+      return () => debug.log('unmounted');
+    }
+  }, []);
 
-  // Pre-compute contrasting backgrounds for current objects
   useEffect(() => {
-    if (!objects || !objects.length) return;
-    const needed = {};
-    objects.forEach((obj) => {
-      const objectType = placeableObjects.find(p => p.id === obj.type);
-      if (!objectType) return;
-      const isEnhanced = !!objectType?.enhancedRendering?.enabled;
-      const base = objectType.enhancedRendering?.spriteBase;
-      const vt = getMapViewType(map);
-      const angle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
-      const src = isEnhanced && base ? buildSpriteUrl(base, angle, vt) : objectType.imageUrl;
-      if (src && !iconBgBySrc[src]) {
-        needed[src] = objectType.color || '#64748b';
-      }
-    });
-
-    const srcs = Object.keys(needed);
-    if (srcs.length === 0) return;
-
-    let active = true;
-    Promise.all(srcs.map(async (src) => {
-      const bg = await getContrastingBackgroundForIcon(src, needed[src], 0.9);
-      return [src, bg];
-    })).then((pairs) => {
-      if (!active) return;
-      setIconBgBySrc((prev) => {
-        const next = { ...prev };
-        pairs.forEach(([s, bg]) => { next[s] = bg; });
-        return next;
+    try {
+      if (!objects?.length || !placeableObjects?.length) return;
+      debug.group('prefetch sprites', () => {
+        debug.log('deps', { objectsCount: objects?.length || 0, placeableCount: placeableObjects?.length || 0, viewType: view?.viewType });
       });
-    }).catch(() => {});
+      const baseToAngles = new Map();
+      for (let i = 0; i < objects.length; i++) {
+        const obj = objects[i];
+        const t = placeableObjects.find(p => p.id === obj.type);
+        if (!t?.enhancedRendering?.enabled || !t.enhancedRendering?.spriteBase) continue;
+        const base = t.enhancedRendering.spriteBase;
+        const angle = quantizeAngleTo45(typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0);
+        if (!baseToAngles.has(base)) baseToAngles.set(base, new Set());
+        baseToAngles.get(base).add(angle);
+      }
+      baseToAngles.forEach((angles, base) => {
+        prefetchView(base, Array.from(angles), view?.viewType);
+      });
+    } catch (_) {}
+  }, [objects, placeableObjects, view?.viewType]);
 
-    return () => { active = false; };
-  }, [objects, placeableObjects, objectUpdateTrigger, iconBgBySrc]);
+  // Ensure enhanced sprites for present object types are registered for current view
+  useEffect(() => {
+    if (!map || !objects?.length || !placeableObjects?.length) return;
+    try {
+      const bases = new Map();
+      for (let i = 0; i < objects.length; i++) {
+        const obj = objects[i];
+        const t = placeableObjects.find(p => p.id === obj.type);
+        if (!t?.enhancedRendering?.enabled || !t.enhancedRendering?.spriteBase) continue;
+        const base = t.enhancedRendering.spriteBase;
+        const angles = t.enhancedRendering.angles || [0,45,90,135,180,225,270,315];
+        bases.set(base, angles);
+      }
+      const vt = view?.viewType || getMapViewType(map);
+      bases.forEach((angles, base) => {
+        try {
+          addEnhancedSpritesToMap(map, {
+            baseName: base,
+            publicDir: `/static/${base}`,
+            angles,
+            viewType: vt,
+            urlBuilder: buildFlatSpriteUrl,
+            replaceExisting: true
+          });
+        } catch (_) {}
+      });
+    } catch (_) {}
+  }, [map, objects, placeableObjects, view?.viewType]);
+
+  // Build and set GeoJSON data for dropped objects (define before effects that use it)
+  const rebuildDroppedData = useCallback(() => {
+    if (!map) return;
+    const src = (map && typeof map.getSource === 'function') ? map.getSource(DROPPED_SOURCE_ID) : null;
+    if (!src || typeof src.setData !== 'function') return;
+    try {
+      const vt = view?.viewType || getMapViewType(map);
+      const bearing = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
+      const feats = [];
+      const byId = new Map();
+      for (let i = 0; i < (objects || []).length; i++) {
+        const obj = objects[i];
+        if (!obj) continue;
+        const t = placeableObjects.find(p => p.id === obj.type);
+        if (!t) continue;
+        if (t.geometryType === 'rect') continue;
+        byId.set(obj.id, obj);
+        const baseSize = Math.max(t.size?.width || 24, t.size?.height || 24, 24);
+        const props = { id: obj.id, type: t.id, color: t.color || '#64748b', baseSize };
+        if (t?.enhancedRendering?.enabled && t.enhancedRendering?.spriteBase) {
+          const zeroOffset = (t?.enhancedRendering?.zeroOffsetDegByView?.[vt])
+            ?? (t?.enhancedRendering?.zeroOffsetDeg)
+            ?? DEFAULT_ZERO_OFFSET_BY_VIEW[vt] ?? 0;
+          const baseAngle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
+          const eff = (vt === 'isometric') ? (((baseAngle - bearing + zeroOffset) % 360 + 360) % 360) : (((baseAngle + zeroOffset) % 360 + 360) % 360);
+          const q = quantizeAngleTo45(eff);
+          const imgId = buildSpriteImageId(t.enhancedRendering.spriteBase, q);
+          // Set icon id and readiness flag (so circle fallback can show until sprite registers)
+          props.icon_image = imgId;
+          let ready = false;
+          try { ready = map && typeof map.hasImage === 'function' ? map.hasImage(imgId) : false; } catch (_) { ready = false; }
+          props.icon_ready = ready ? 1 : 0;
+        }
+        feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [obj.position.lng, obj.position.lat] }, properties: props });
+      }
+      src.setData({ type: 'FeatureCollection', features: feats });
+      (map.__droppedObjectsIndex = map.__droppedObjectsIndex || new Map());
+      map.__droppedObjectsIndex.clear();
+      byId.forEach((v, k) => map.__droppedObjectsIndex.set(k, v));
+    } catch (_) {}
+  }, [map, objects, placeableObjects, view?.viewType, view?.bearing]);
+
+  // Ensure GeoJSON source and layers exist
+  useEffect(() => {
+    if (!map) return;
+    const ensure = () => {
+      try {
+        if (!map.getSource(DROPPED_SOURCE_ID)) {
+          map.addSource(DROPPED_SOURCE_ID, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        }
+        if (!map.getLayer(DROPPED_SYMBOL_LAYER_ID)) {
+          map.addLayer({
+            id: DROPPED_SYMBOL_LAYER_ID,
+            type: 'symbol',
+            source: DROPPED_SOURCE_ID,
+            filter: ['has', 'icon_image'],
+            layout: {
+              'icon-image': ['get', 'icon_image'],
+              'icon-allow-overlap': true,
+              'icon-ignore-placement': true,
+              'icon-anchor': 'center',
+              // Scale sprite bitmap to desired pixel diameter based on baseSize and zoom.
+              // Assumes sprite bitmaps are ~512px. Diameter targets: baseSize*0.6 @ z12 → baseSize*1.6 @ z18, with 0.9 inset.
+              'icon-size': [
+                'interpolate', ['linear'], ['zoom'],
+                12, ['/', ['*', ['coalesce', ['get','baseSize'], 24], 0.54], 512],
+                18, ['/', ['*', ['coalesce', ['get','baseSize'], 24], 1.44], 512]
+              ]
+            },
+            paint: {
+              // Only show icon when property present; otherwise 0 so circle fallback shows
+              'icon-opacity': ['case', ['has', 'icon_image'], 1, 0]
+            }
+          });
+        }
+        if (!map.getLayer(DROPPED_CIRCLE_LAYER_ID)) {
+          map.addLayer({
+            id: DROPPED_CIRCLE_LAYER_ID,
+            type: 'circle',
+            source: DROPPED_SOURCE_ID,
+            filter: ['any', ['!', ['has', 'icon_image']], ['!=', ['get', 'icon_ready'], 1]],
+            paint: {
+              'circle-color': 'rgba(0,0,0,0)',
+              'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, ['*', ['coalesce', ['get','baseSize'], 24], 0.3], 18, ['*', ['coalesce', ['get','baseSize'], 24], 0.8]],
+              'circle-stroke-color': 'rgba(0,0,0,0.15)',
+              'circle-stroke-width': 1,
+              // Hide circle when icon is present
+              'circle-opacity': ['case', ['all', ['has', 'icon_image'], ['==', ['get', 'icon_ready'], 1]], 0, 1]
+            }
+          });
+        }
+        if (!map.getLayer(DROPPED_SELECTED_LAYER_ID)) {
+          map.addLayer({
+            id: DROPPED_SELECTED_LAYER_ID,
+            type: 'circle',
+            source: DROPPED_SOURCE_ID,
+            filter: ['==', ['get', 'id'], ''],
+            paint: {
+              'circle-color': 'rgba(0,0,0,0)',
+              'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 18, 18, 28],
+              'circle-stroke-color': '#2563eb',
+              'circle-stroke-width': 2
+            }
+          });
+        }
+        // Enforce filters even if layers already existed
+        try { map.setFilter(DROPPED_SYMBOL_LAYER_ID, ['has', 'icon_image']); } catch (_) {}
+        try { map.setFilter(DROPPED_CIRCLE_LAYER_ID, ['any', ['!', ['has', 'icon_image']], ['!=', ['get', 'icon_ready'], 1]]); } catch (_) {}
+        if (!map.getLayer(DROPPED_SELECTED_LAYER_ID)) {
+          map.addLayer({
+            id: DROPPED_SELECTED_LAYER_ID,
+            type: 'circle',
+            source: DROPPED_SOURCE_ID,
+            filter: ['==', ['get', 'id'], ''],
+            paint: {
+              'circle-color': 'rgba(37,99,235,0.20)',
+              'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 18, 18, 28],
+              'circle-stroke-color': '#2563eb',
+              'circle-stroke-width': 2
+            }
+          });
+        }
+        // Enforce z-order: circle below symbol, selected above all
+        try { if (map.getLayer(DROPPED_SYMBOL_LAYER_ID)) map.moveLayer(DROPPED_CIRCLE_LAYER_ID, DROPPED_SYMBOL_LAYER_ID); } catch (_) {}
+        try { map.moveLayer(DROPPED_SELECTED_LAYER_ID); } catch (_) {}
+        // Repeat shortly after to win races with late-added layers (draw/infrastructure)
+        setTimeout(() => {
+          try { if (map.getLayer(DROPPED_SYMBOL_LAYER_ID)) map.moveLayer(DROPPED_CIRCLE_LAYER_ID, DROPPED_SYMBOL_LAYER_ID); } catch (_) {}
+          try { map.moveLayer(DROPPED_SELECTED_LAYER_ID); } catch (_) {}
+        }, 50);
+        // After ensuring layers, push current data (defer to rebuild)
+        try { setTimeout(() => { try { rebuildDroppedData(); } catch (_) {} }, 0); } catch (_) {}
+      } catch (_) {}
+    };
+    const ready = typeof map.isStyleLoaded === 'function' ? map.isStyleLoaded() : true;
+    if (ready) ensure(); else map.once('style.load', ensure);
+  }, [map, rebuildDroppedData]);
+
+  // Update source data based on objects/view
+  useEffect(() => { rebuildDroppedData(); }, [rebuildDroppedData]);
+  useEffect(() => {
+    // Rebuild when view changes to swap icon_image for new view type/bearing
+    rebuildDroppedData();
+  }, [view?.viewType, view?.bearing]);
+
+  // Register on-demand missing image handler to load sprites if requested by style before preloading finishes
+  useEffect(() => {
+    if (!map) return;
+    const onMissing = async (e) => {
+      try {
+        const id = e && e.id;
+        if (!id || typeof id !== 'string') return;
+        const parts = id.split('_');
+        if (parts.length < 2) return;
+        const base = parts[0];
+        const angles = [0,45,90,135,180,225,270,315];
+        const vt = view?.viewType || getMapViewType(map);
+        await addEnhancedSpritesToMap(map, {
+          baseName: base,
+          publicDir: `/static/${base}`,
+          angles,
+          viewType: vt,
+          urlBuilder: buildFlatSpriteUrl,
+          replaceExisting: true
+        });
+        // Rebuild source to update icon_ready flags
+        setTimeout(() => { try { rebuildDroppedData(); } catch (_) {} }, 0);
+      } catch (_) {}
+    };
+    try { map.on('styleimagemissing', onMissing); } catch (_) {}
+    return () => { try { map.off('styleimagemissing', onMissing); } catch (_) {} };
+  }, [map, view?.viewType, rebuildDroppedData]);
+
+  // Update selection highlight filter
+  useEffect(() => {
+    if (!map) return;
+    try {
+      const filter = selectedId ? ['==', ['get', 'id'], selectedId] : ['==', ['get', 'id'], '__none__'];
+      if (map.getLayer(DROPPED_SELECTED_LAYER_ID)) map.setFilter(DROPPED_SELECTED_LAYER_ID, filter);
+    } catch (_) {}
+  }, [map, selectedId]);
+
+  // Interactions: click to select, drag to move (centralized via useMapEvents)
+  const onSelectRef = React.useRef(onSelectObject);
+  const onMoveRef = React.useRef(onMoveObject);
+  useEffect(() => { onSelectRef.current = onSelectObject; }, [onSelectObject]);
+  useEffect(() => { onMoveRef.current = onMoveObject; }, [onMoveObject]);
+  const handleLayerClick = React.useCallback((e) => {
+    try {
+      const f = e?.features?.[0];
+      const id = f?.properties?.id;
+      if (!id) return;
+      const obj = map && map.__droppedObjectsIndex ? map.__droppedObjectsIndex.get(id) : null;
+      if (!obj) return;
+      // Select via callback
+      if (typeof onSelectRef.current === 'function') onSelectRef.current(obj);
+      // Arm dragging for this id for a short time window
+      dragArmedIdRef.current = id;
+      try { setTimeout(() => { if (dragArmedIdRef.current === id) dragArmedIdRef.current = null; }, 1500); } catch (_) {}
+      // Open action popup at object
+      try {
+        const p = ensurePopup();
+        if (p) {
+          const content = buildActionPopupContent(obj);
+          if (content) {
+            p.setDOMContent(content);
+            p.setLngLat([obj.position.lng, obj.position.lat]);
+            p.addTo(map);
+          }
+        }
+      } catch (_) {}
+    } catch (_) {}
+  }, [map]);
+  const startDragLayer = React.useCallback((e) => {
+    try {
+      const f = e?.features?.[0];
+      const id = f?.properties?.id;
+      if (!id || !onMoveRef.current) return;
+      // Only allow dragging when the object is selected, or was just armed by a click
+      const canDrag = (selectedId && id === selectedId) || dragArmedIdRef.current === id;
+      if (!canDrag) return;
+      // Clear arming now that dragging begins
+      dragArmedIdRef.current = null;
+      e.preventDefault && e.preventDefault();
+      try { map && map.dragPan && map.dragPan.disable && map.dragPan.disable(); } catch (_) {}
+      let moving = true;
+      const container = map && map.getContainer ? map.getContainer() : null;
+      const rect = container && container.getBoundingClientRect ? container.getBoundingClientRect() : { left: 0, top: 0 };
+      const onMoveWin = (ev) => {
+        if (!moving) return;
+        try {
+          const x = ev.clientX - rect.left;
+          const y = ev.clientY - rect.top;
+          if (map && typeof map.unproject === 'function') {
+            const ll = map.unproject([x, y]);
+            onMoveRef.current && onMoveRef.current(id, ll.lng, ll.lat);
+          }
+        } catch (_) {}
+      };
+      const onUpWin = (ev) => {
+        ev && ev.preventDefault && ev.preventDefault();
+        moving = false;
+        window.removeEventListener('mousemove', onMoveWin);
+        window.removeEventListener('mouseup', onUpWin);
+        try { map && map.dragPan && map.dragPan.enable && map.dragPan.enable(); } catch (_) {}
+      };
+      window.addEventListener('mousemove', onMoveWin);
+      window.addEventListener('mouseup', onUpWin, { once: true });
+    } catch (_) {}
+  }, [map, selectedId]);
+  const cursorPointerOn = React.useCallback(() => {
+    try { map && map.getCanvas && (map.getCanvas().style.cursor = 'pointer'); } catch (_) {}
+  }, [map]);
+  const cursorPointerOff = React.useCallback(() => {
+    try { map && map.getCanvas && (map.getCanvas().style.cursor = ''); } catch (_) {}
+  }, [map]);
+  useMapEvents(map, [
+    { event: 'click', layerId: DROPPED_SYMBOL_LAYER_ID, handler: handleLayerClick },
+    { event: 'click', layerId: DROPPED_CIRCLE_LAYER_ID, handler: handleLayerClick },
+    { event: 'mousedown', layerId: DROPPED_SYMBOL_LAYER_ID, handler: startDragLayer },
+    { event: 'mousedown', layerId: DROPPED_CIRCLE_LAYER_ID, handler: startDragLayer },
+    { event: 'mouseenter', layerId: DROPPED_SYMBOL_LAYER_ID, handler: cursorPointerOn },
+    { event: 'mouseenter', layerId: DROPPED_CIRCLE_LAYER_ID, handler: cursorPointerOn },
+    { event: 'mouseleave', layerId: DROPPED_SYMBOL_LAYER_ID, handler: cursorPointerOff },
+    { event: 'mouseleave', layerId: DROPPED_CIRCLE_LAYER_ID, handler: cursorPointerOff }
+  ], { reattachOnStyleLoad: true });
+
+  // Hover popup removed; click handler opens popup.
+
+  // Log view state changes for diagnosing geometry issues when switching modes
+  useEffect(() => {
+    if (!shouldDebug()) return;
+    debug.group('view state', () => {
+      debug.log('view', {
+        viewType: view?.viewType,
+        bearing: view?.bearing,
+        zoom: view?.zoom,
+        renderTick: view?.renderTick
+      });
+    });
+  }, [view?.viewType, view?.bearing, view?.zoom, view?.renderTick]);
 
   // Test effect to see if we can manually trigger updates
   useEffect(() => {
     if (!map || !objects.length) return;
-    
-    if (DEBUG) console.log('DroppedObjects: useEffect triggered', { objectUpdateTrigger });
+    debug.group('effect(map, objects, objectUpdateTrigger)', () => {
+      debug.log('deps', [!!map, objects.length, objectUpdateTrigger]);
+      debug.log('triggered', { objectUpdateTrigger });
+    });
     
     // Test the map project function
     if (objects.length > 0) {
       const testObj = objects[0];
       try {
         const pixel = map.project([testObj.position.lng, testObj.position.lat]);
-        if (DEBUG) console.log('DroppedObjects: Test projection successful', { pixel });
+        debug.log('projection ok', { pixel });
       } catch (error) {
-        if (DEBUG) console.error('DroppedObjects: Test projection failed', error);
+        debug.error('projection failed', error);
       }
     }
   }, [map, objects, objectUpdateTrigger]);
 
+  // Detect and log newly placed objects by ID
+  const seenIdsRef = React.useRef(new Set());
+  useEffect(() => {
+    if (!shouldDebug()) return;
+    try {
+      const seen = seenIdsRef.current;
+      const newOnes = Array.isArray(objects) ? objects.filter(o => o && !seen.has(o.id)) : [];
+      if (newOnes.length) {
+        debug.group(`objects placed (+${newOnes.length})`, () => {
+          newOnes.forEach(o => {
+            debug.log('placed', {
+              id: o.id,
+              type: o.type,
+              position: o.position,
+              properties: o.properties
+            });
+          });
+        });
+        newOnes.forEach(o => seen.add(o.id));
+      }
+    } catch (e) {
+      debug.error('error while diffing placed objects', e);
+    }
+  }, [objects]);
+
+  // Sample a few objects and log their computed geometry when view type changes
+  useEffect(() => {
+    if (!shouldDebug()) return;
+    if (!objects?.length || !map) return;
+    try {
+      const sample = objects.slice(0, Math.min(3, objects.length));
+      debug.group(`geometry sample (${view?.viewType})`, () => {
+        sample.forEach((obj) => {
+          const objectType = placeableObjects.find(p => p.id === obj.type);
+          if (!objectType) return;
+          let pixel = null;
+          try {
+            pixel = map.project([obj.position.lng, obj.position.lat]);
+          } catch (_) {}
+          const baseAngle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
+          const bearing = typeof view?.bearing === 'number' ? view.bearing : 0;
+          const angleForSprite = (view?.viewType === 'isometric')
+            ? (((baseAngle - bearing) % 360 + 360) % 360)
+            : (((baseAngle) % 360 + 360) % 360);
+          const qAngle = quantizeAngleTo45(angleForSprite);
+          const style = getObjectStyle(obj);
+          debug.log('geom', {
+            id: obj.id,
+            type: objectType.id,
+            lngLat: obj.position,
+            pixel,
+            viewType: view?.viewType,
+            bearing,
+            baseAngle,
+            angleForSprite,
+            qAngle,
+            style
+          });
+        });
+      });
+    } catch (e) {
+      debug.error('geometry sample error', e);
+    }
+  }, [view?.viewType, objects, placeableObjects, map]);
+
   // Always call ALL hooks at the top level - never conditionally
   const getObjectStyle = useCallback((object) => {
     const objectType = placeableObjects.find(p => p.id === object.type);
-    if (!objectType || !map || typeof map.project !== 'function') {
+    if (!objectType || !map) {
       return { display: 'none' };
     }
     
     try {
-      // Convert lat/lng to current screen coordinates
-      const pixel = map.project([object.position.lng, object.position.lat]);
-      
-      if (DEBUG) console.log('DroppedObjects: Calculating position for', object.id, {
-        lngLat: [object.position.lng, object.position.lat],
-        pixel: { x: pixel.x, y: pixel.y },
-        trigger: objectUpdateTrigger
-      });
+      // Avoid noisy render-path logs; only log errors below
       
       // Compute zoom-based scale so icons shrink when zoomed out and grow when zoomed in
-      const zoom = typeof map.getZoom === 'function' ? map.getZoom() : 16;
+      const zoom = view?.zoom ?? (typeof map.getZoom === 'function' ? map.getZoom() : 16);
       const zoomScale = Math.min(1.6, Math.max(0.6, 0.6 + (zoom - 12) * 0.1));
 
       // Use the object's defined size or default to 24px, scaled by zoom
       const baseSize = Math.max(objectType.size.width, objectType.size.height, 24);
       const iconSize = baseSize * zoomScale;
       const halfSize = iconSize / 2;
-      
       return {
         position: 'absolute',
-        left: pixel.x - halfSize,
-        top: pixel.y - halfSize,
+        left: 0,
+        top: 0,
         width: iconSize,
         height: iconSize,
         display: 'flex',
@@ -158,13 +582,35 @@ const DroppedObjects = ({
         border: '1px solid rgba(0,0,0,0.1)'
       };
     } catch (error) {
-      if (DEBUG) console.error('DroppedObjects: Error calculating position', error);
+      debug.error('getObjectStyle error', error);
       return { display: 'none' };
     }
-  }, [placeableObjects, map, objectUpdateTrigger]);
+  }, [placeableObjects, map, objectUpdateTrigger, view?.zoom, view?.viewType]);
 
+  // Render memo driven by view.renderTick for smooth camera-following without remounting
+  const debugRef = React.useRef(new Map());
+  const elementRefs = React.useRef(new Map());
+  const baseSizeByType = useMemo(() => {
+    const m = new Map();
+    try {
+      (placeableObjects || []).forEach((t) => {
+        if (!t) return;
+        const base = Math.max(t?.size?.width || 24, t?.size?.height || 24, 24);
+        m.set(t.id, base);
+      });
+    } catch (_) {}
+    return m;
+  }, [placeableObjects]);
+  const registerRef = useCallback((id, el) => {
+    try {
+      const mapRef = elementRefs.current;
+      if (el) mapRef.set(id, el); else mapRef.delete(id);
+    } catch (_) {}
+  }, []);
   const renderedObjects = useMemo(() => {
-    if (DEBUG) console.log('DroppedObjects: Recalculating rendered objects, trigger:', objectUpdateTrigger);
+    const DOM_OVERLAY_ENABLED = USE_DOM_OVERLAY || !map || typeof map.getSource !== 'function';
+    if (!DOM_OVERLAY_ENABLED) return [];
+    debug.log('recalc rendered objects', { viewType: view?.viewType, renderTick: view?.renderTick, zoom: view?.zoom, trigger: objectUpdateTrigger });
     
     // Now we can do conditional logic inside the memoized value
     if (!objects || !Array.isArray(objects) || objects.length === 0) {
@@ -185,27 +631,42 @@ const DroppedObjects = ({
       if (style.display === 'none') return null;
       
       // Calculate icon size for font sizing
-      const zoom = typeof map.getZoom === 'function' ? map.getZoom() : 16;
+      const baseSize = baseSizeByType.get(objectType.id) || Math.max(objectType.size.width, objectType.size.height, 24);
+      const zoom = view?.zoom ?? (typeof map.getZoom === 'function' ? map.getZoom() : 16);
       const zoomScale = Math.min(1.6, Math.max(0.6, 0.6 + (zoom - 12) * 0.1));
-      const baseSize = Math.max(objectType.size.width, objectType.size.height, 24);
-      const iconSize = baseSize * zoomScale;
-      const fontSize = Math.max(iconSize * 0.6, 14);
-
-      // Determine icon src and override background for contrast if we have it
-      const isEnhanced = !!objectType?.enhancedRendering?.enabled;
-      const base = objectType.enhancedRendering?.spriteBase;
-      const vt = getMapViewType(map);
-      const angle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
-      const q = isEnhanced ? quantizeAngleTo45(angle) : angle;
-      const fallbacks = isEnhanced && base ? buildSpriteFallbacks(base, q, vt) : (objectType.imageUrl ? [objectType.imageUrl] : []);
-      const iconSrc = fallbacks[0] || null;
-      // Pre-register bg fallbacks to avoid flash
-      if (isEnhanced && base) {
-        const fallbacks = buildSpriteFallbacks(base, q, vt);
-        fallbacks.forEach((f) => { if (!iconBgBySrc[f]) iconBgBySrc[f] = style.backgroundColor; });
+      const iconSize = baseSize; // scale applied in render loop via CSS transform
+      const fontSize = Math.max((baseSize * zoomScale) * 0.6, 14);
+      const baseAngle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
+      const rawBearing = typeof view?.bearing === 'number' ? view.bearing : 0;
+      const qBearing = quantizeAngleTo45(rawBearing);
+      // Compensate for map bearing so the object doesn't appear to rotate when the map rotates
+      const bearing = typeof view?.bearing === 'number' ? view.bearing : 0;
+      const zeroOffset = (objectType?.enhancedRendering?.zeroOffsetDegByView?.[view?.viewType])
+        ?? (objectType?.enhancedRendering?.zeroOffsetDeg)
+        ?? DEFAULT_ZERO_OFFSET_BY_VIEW[view?.viewType] ?? 0;
+      const angleForSprite = (((baseAngle - bearing + zeroOffset) % 360 + 360) % 360);
+      const qAngle = quantizeAngleTo45(angleForSprite);
+      const candidates = getCandidateSrcs(objectType, angleForSprite, view?.viewType);
+      if (shouldDebug()) {
+        const payload = {
+          id: obj.id,
+          type: objectType.id,
+          viewType: view?.viewType,
+          rotationDeg: baseAngle,
+          bearing,
+          angleForSprite,
+          qAngle,
+          primary: candidates?.[0],
+          zeroOffset
+        };
+        const sig = `${payload.viewType}|${payload.qAngle}|${payload.primary}`;
+        const now = performance.now();
+        const entry = debugRef.current.get(obj.id) || {};
+        if (entry.sig !== sig || (now - (entry.t || 0)) > 500) {
+          debugRef.current.set(obj.id, { sig, t: now });
+          debug.log('sprite', payload);
+        }
       }
-      const bg = iconBgBySrc[iconSrc];
-      if (bg) style.backgroundColor = bg;
       
       const isSelected = selectedId && obj.id === selectedId;
       if (isSelected) {
@@ -214,31 +675,133 @@ const DroppedObjects = ({
       }
 
       return (
-        <div
-          key={`${obj.id}-${objectUpdateTrigger}`}
+        <PlacedPoint
+          key={obj.id}
           style={style}
-          title={obj.name}
+          fontSize={fontSize}
+          iconSize={iconSize}
+          flipped={!!obj?.properties?.flipped}
+          object={obj}
+          objectType={objectType}
+          candidates={candidates}
+          changeKey={`${view?.viewType || ''}:${qAngle}`}
+          onEditNote={onEditNote}
+          onRemoveObject={onRemoveObject}
+          isNoteEditing={isNoteEditing}
+          onSelectObject={onSelectObject}
+          onMoveObject={onMoveObject}
+          map={map}
+          defaultColor={defaultColorFor(objectType)}
+          registerRef={registerRef}
+        />
+      );
+    }).filter(Boolean);
+  }, [objects, placeableObjects, baseSizeByType, getObjectStyle, onRemoveObject, map, selectedId, onSelectObject, view?.viewType, view?.renderTick, view?.zoom]);
+
+  // Map move-synced DOM positioning with transform-only updates (DOM overlay disabled by default)
+  useEffect(() => {
+    const DOM_OVERLAY_ENABLED = USE_DOM_OVERLAY || !map || typeof map.getSource !== 'function';
+    if (!DOM_OVERLAY_ENABLED) return;
+    if (!map || !objects || !objects.length) return;
+    const update = () => {
+      try {
+        const zoom = typeof map.getZoom === 'function' ? map.getZoom() : 16;
+        const zoomScale = Math.min(1.6, Math.max(0.6, 0.6 + (zoom - 12) * 0.1));
+        const anchorBottom = view?.viewType === 'isometric';
+        for (let i = 0; i < objects.length; i++) {
+          const obj = objects[i];
+          const el = elementRefs.current.get(obj.id);
+          if (!el) continue;
+          const pixel = map.project([obj.position.lng, obj.position.lat]);
+          const translate = `translate(${pixel.x}px, ${pixel.y}px) ${anchorBottom ? 'translate(-50%, -100%)' : 'translate(-50%, -50%)'}`;
+          const transform = `${translate} scale(${zoomScale}) translateZ(0)`;
+          if (el.__lastTransform !== transform) {
+            el.style.transform = transform;
+            el.__lastTransform = transform;
+          }
+        }
+      } catch (_) {}
+    };
+    try { map.on('move', update); } catch (_) {}
+    try { map.on('zoom', update); } catch (_) {}
+    try { map.on('rotate', update); } catch (_) {}
+    try { map.on('pitch', update); } catch (_) {}
+    try { map.on('resize', update); } catch (_) {}
+    // Initial apply
+    update();
+    return () => {
+      try { map.off('move', update); } catch (_) {}
+      try { map.off('zoom', update); } catch (_) {}
+      try { map.off('rotate', update); } catch (_) {}
+      try { map.off('pitch', update); } catch (_) {}
+      try { map.off('resize', update); } catch (_) {}
+    };
+  }, [map, objects, view?.viewType]);
+
+  // Render DOM overlay if enabled or if map source APIs are unavailable (test env)
+  if (USE_DOM_OVERLAY || !map || typeof map.getSource !== 'function') {
+    return (
+      <div className="pointer-events-none">
+        {renderedObjects}
+      </div>
+    );
+  }
+  return null;
+};
+
+export default DroppedObjects;
+
+const PlacedPoint = ({ style, fontSize, iconSize, flipped, object, objectType, candidates, changeKey, onEditNote, onRemoveObject, isNoteEditing, onSelectObject, onMoveObject, map, defaultColor, registerRef }) => {
+  const src = useStableImageSrc(candidates, changeKey);
+  const [bg, setBg] = useState(null);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const c = await bgColorFor(src, defaultColor, 0.9);
+        if (active) setBg(c);
+      } catch (_) {}
+    })();
+    return () => { active = false; };
+  }, [src, defaultColor]);
+
+  const s = { ...style };
+  if (bg) s.backgroundColor = bg;
+
+  return (
+    <div
+      ref={(el) => registerRef && registerRef(object.id, el)}
+      style={s}
+      title={object.name}
           className="group relative placed-object"
-          onClick={(e) => { e.stopPropagation(); if (typeof onSelectObject === 'function') onSelectObject(obj); }}
-        >
-          {iconSrc ? (
-            <img
-              src={iconSrc}
-              alt={objectType.name}
-              onError={(e) => {
-                try {
-                  const current = e.currentTarget.getAttribute('src');
-                  const idx = fallbacks.indexOf(current);
-                  const next = fallbacks[idx + 1];
-                  if (next) {
-                    e.currentTarget.src = next;
-                  } else {
-                    // hide broken image; text fallback will remain hidden but still usable via title
-                    e.currentTarget.style.visibility = 'hidden';
+      onClick={(e) => { e.stopPropagation(); if (typeof onSelectObject === 'function') onSelectObject(object); }}
+      onMouseDown={(e) => {
+        e.stopPropagation();
+        if (!onMoveObject) return;
+        let moving = true;
+        const canvasEl = map && map.getCanvas ? map.getCanvas() : (typeof document !== 'undefined' ? document.querySelector('.mapboxgl-canvas') : null);
+        const rect = canvasEl && canvasEl.getBoundingClientRect ? canvasEl.getBoundingClientRect() : { left: 0, top: 0 };
+        const onMove = (ev) => {
+          if (!moving) return;
+          try {
+            const x = ev.clientX - rect.left;
+            const y = ev.clientY - rect.top;
+            if (map && typeof map.unproject === 'function') {
+              const ll = map.unproject([x, y]);
+              onMoveObject(object.id, ll.lng, ll.lat);
                   }
                 } catch (_) {}
-              }}
-              style={{ width: iconSize, height: iconSize, objectFit: 'contain', transform: obj?.properties?.flipped ? 'scaleX(-1)' : undefined }}
+        };
+        const onUp = (ev) => { ev.preventDefault(); moving = false; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp, { once: true });
+      }}
+    >
+      {src ? (
+        <img
+          src={src}
+          alt={objectType.name}
+          style={{ width: iconSize, height: iconSize, objectFit: 'contain', transform: flipped ? 'scaleX(-1)' : undefined }}
               draggable={false}
             />
           ) : (
@@ -247,21 +810,20 @@ const DroppedObjects = ({
                 color: objectType.color,
                 fontSize: `${fontSize}px`,
                 lineHeight: '1',
-                transform: obj?.properties?.flipped ? 'scaleX(-1)' : undefined
+            transform: flipped ? 'scaleX(-1)' : undefined
               }}
             >
               {objectType.icon}
             </div>
           )}
           
-          {/* Floating controls: edit note and remove */}
           {!isNoteEditing && (
             <div className="absolute -top-2 right-0 left-0 mx-auto w-max flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
                 type="button"
                 className="bg-white/90 dark:bg-gray-900/80 border border-gray-300 dark:border-gray-700 rounded-full px-2 py-1 text-[10px] shadow"
                 title="Edit note"
-                onClick={(e) => { e.stopPropagation(); onEditNote && onEditNote(obj); }}
+            onClick={(e) => { e.stopPropagation(); onEditNote && onEditNote(object); }}
               >
                 Edit
               </button>
@@ -269,7 +831,7 @@ const DroppedObjects = ({
                 type="button"
                 className="bg-red-500 text-white rounded-full p-1 shadow"
                 title="Remove"
-                onClick={(e) => { e.stopPropagation(); onRemoveObject && onRemoveObject(obj.id); }}
+            onClick={(e) => { e.stopPropagation(); onRemoveObject && onRemoveObject(object.id); }}
               >
                 <X className="w-3 h-3" />
               </button>
@@ -277,11 +839,4 @@ const DroppedObjects = ({
           )}
         </div>
       );
-    }).filter(Boolean);
-  }, [objects, placeableObjects, objectUpdateTrigger, getObjectStyle, onRemoveObject, map, iconBgBySrc, selectedId, onSelectObject, (map && map.getPitch ? map.getPitch() : 0)]);
-
-  // After all hooks are called, we can return early
-  return <>{renderedObjects}</>;
 };
-
-export default DroppedObjects;

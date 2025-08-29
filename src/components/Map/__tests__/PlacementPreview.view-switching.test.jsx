@@ -22,7 +22,8 @@ describe('PlacementPreview view switching', () => {
       />
     );
     const img = container.querySelector('img');
-    expect(img.getAttribute('src')).toContain('/static/banner/isometric/renders/banner_045.png');
+    // With default zero-offset for isometric (-90), 45° becomes 315° sprite
+    expect(img.getAttribute('src')).toContain('/static/banner/banner_315.png');
   });
 
   it('uses top-down path when pitch <= 15', () => {
@@ -35,7 +36,7 @@ describe('PlacementPreview view switching', () => {
       />
     );
     const img = container.querySelector('img');
-    expect(img.getAttribute('src')).toContain('/static/banner/top-down/renders/banner_TOP_045.png');
+    expect(img.getAttribute('src')).toContain('/static/banner/banner_TOP_045.png');
   });
 });
 

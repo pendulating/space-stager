@@ -354,9 +354,13 @@ export const exportPermitAreaSiteplanV2 = async (
 
     // Preload PNG icons for visible layers for both PDF and PNG flows
     const pngIcons = await loadVisibleLayerIconsAsPngDataUrls(layers);
+    // Determine view type for export assets (match offscreen pitch)
+    const viewTypeForExport = (() => {
+      try { return (typeof offscreen.getPitch === 'function' && offscreen.getPitch() > 15) ? 'isometric' : 'top-down'; } catch (_) { return 'top-down'; }
+    })();
     // Preload per-feature enhanced variant icons (e.g., linknyc 0..315) when available
-    const enhancedVariantPngs = await collectEnhancedVariantPngs(layers, infrastructureData);
-    const droppedObjectPngs = await loadDroppedObjectIconPngs(droppedObjects, bearingAdjustDeg);
+    const enhancedVariantPngs = await collectEnhancedVariantPngs(layers, infrastructureData, viewTypeForExport);
+    const droppedObjectPngs = await loadDroppedObjectIconPngs(droppedObjects, bearingAdjustDeg, viewTypeForExport);
     // Ensure we have infra data for meters, signs, and bus stops even if not preloaded
     let ensuredInfra = infrastructureData || {};
     try {
@@ -1406,17 +1410,27 @@ const drawDroppedObjectsOnPdf = (pdf, droppedObjects, project, toMm, droppedObje
     }
     const p = toMm(project(obj.position.lng, obj.position.lat));
     const isEnhanced = !!objType?.enhancedRendering?.enabled;
-    const adjusted = (((obj?.properties?.rotationDeg ?? 0) + bearingAdjustDeg) % 360 + 360) % 360;
-    const angleStr = String(adjusted).padStart(3, '0');
+    const currentView = 'isometric'; // main map export uses isometric unless overridden by bearing adjust
+    const zeroOffset = (objType?.enhancedRendering?.zeroOffsetDegByView?.[currentView])
+      ?? objType?.enhancedRendering?.zeroOffsetDeg
+      ?? DEFAULT_ZERO_OFFSET_BY_VIEW[currentView]
+      ?? 0;
+    const baseAngle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
+    const eff = (currentView === 'isometric')
+      ? (((baseAngle - bearingAdjustDeg + zeroOffset) % 360 + 360) % 360)
+      : (((baseAngle + zeroOffset) % 360 + 360) % 360);
+    const q = quantizeTo45(eff);
+    const angleStr = String(q).padStart(3, '0');
     const key = isEnhanced ? `${obj.type}::${angleStr}` : `${obj.type}`;
     const imgPng = droppedObjectPngs?.[key];
-    if (imgPng) {
+    const fallbackTypePng = droppedObjectPngs?.[obj.type];
+    if (imgPng || fallbackTypePng) {
       try {
         // Scale up 3x compared to base size
         const basePx = Math.max((objType.size?.width || 28), (objType.size?.height || 28)) * 3;
         const sizeMm = basePx * 0.2645 / 3; // rough px->mm mapping aligned to earlier scale
         // jsPDF lacks a stable per-image mirror API across builds; render unflipped for PDF
-        pdf.addImage(imgPng, 'PNG', p.x - sizeMm / 2, p.y - sizeMm / 2, sizeMm, sizeMm);
+        pdf.addImage(imgPng || fallbackTypePng, 'PNG', p.x - sizeMm / 2, p.y - sizeMm / 2, sizeMm, sizeMm);
       } catch (e) {
         pdf.setFillColor(40, 40, 40);
         pdf.circle(p.x, p.y, 1.8, 'F');
@@ -1863,7 +1877,7 @@ export const loadVisibleLayerIconsAsPngDataUrls = async (layers) => {
 
 // Preload dropped object images to ensure consistency in canvas and PDF
 // Prepare dropped object icons as PNG data URLs for jsPDF
-export const loadDroppedObjectIconPngs = async (droppedObjects, bearingAdjustDeg = 0) => {
+export const loadDroppedObjectIconPngs = async (droppedObjects, bearingAdjustDeg = 0, viewType = 'top-down') => {
   const map = {};
   if (!droppedObjects || droppedObjects.length === 0) return map;
   // Build unique keys for base or per-angle variants
@@ -1874,17 +1888,27 @@ export const loadDroppedObjectIconPngs = async (droppedObjects, bearingAdjustDeg
     const isEnhanced = !!objType?.enhancedRendering?.enabled;
     if (isEnhanced) {
       const base = objType.enhancedRendering.spriteBase;
-      const dir = objType.enhancedRendering.publicDir || '/data/icons/isometric-bw';
-      const ang = typeof obj?.properties?.rotationDeg === 'number' ? (((obj.properties.rotationDeg + bearingAdjustDeg) % 360) + 360) % 360 : bearingAdjustDeg;
-      const angleStr = String(((ang % 360) + 360) % 360).padStart(3, '0');
+      const zeroOffset = (objType?.enhancedRendering?.zeroOffsetDegByView?.[viewType])
+        ?? objType?.enhancedRendering?.zeroOffsetDeg
+        ?? DEFAULT_ZERO_OFFSET_BY_VIEW[viewType]
+        ?? 0;
+      const baseAngle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
+      // Match on-map screen logic: top-down ignores bearing; isometric compensates
+      const eff = (viewType === 'isometric')
+        ? (((baseAngle - bearingAdjustDeg + zeroOffset) % 360) + 360) % 360
+        : (((baseAngle + zeroOffset) % 360) + 360) % 360;
+      const q = quantizeTo45(eff);
+      const angleStr = String(q).padStart(3, '0');
+      const file = (viewType === 'top-down') ? `${base}_TOP_${angleStr}.png` : `${base}_${angleStr}.png`;
       const key = `${obj.type}::${angleStr}`;
       if (!uniqueKeys.has(key)) {
         uniqueKeys.add(key);
         try {
-          map[key] = await rasterizeToPngDataUrl(`${dir}/${base}_${angleStr}.png`, 192);
+          map[key] = await rasterizeToPngDataUrl(`/static/${base}/${file}`, 192);
+          if (!map[obj.type]) map[obj.type] = map[key];
         } catch (_) {
-          // fallback to 000 variant
-          try { map[key] = await rasterizeToPngDataUrl(`${dir}/${base}_000.png`, 192); } catch {}
+          try { map[key] = await rasterizeToPngDataUrl(`/static/${base}/${base}_000.png`, 192); } catch {}
+          if (map[key] && !map[obj.type]) map[obj.type] = map[key];
         }
       }
     } else if (objType?.imageUrl) {
@@ -1900,7 +1924,7 @@ export const loadDroppedObjectIconPngs = async (droppedObjects, bearingAdjustDeg
 
 // Collect enhanced-variant PNGs referenced by visible layers' features.
 // Returns a map { imageId: dataUrl } where imageId matches feature.properties.icon_image
-const collectEnhancedVariantPngs = async (layers, infrastructureData) => {
+const collectEnhancedVariantPngs = async (layers, infrastructureData, viewType = 'top-down') => {
   const map = {};
   try {
     for (const [layerId, cfg] of Object.entries(layers)) {
@@ -1915,13 +1939,13 @@ const collectEnhancedVariantPngs = async (layers, infrastructureData) => {
         if (typeof id === 'string' && id) ids.add(id);
       });
       // Resolve each to a public URL then rasterize to PNG data URL
-      const dir = cfg.enhancedRendering.publicDir || '/data/icons/isometric-bw';
       await Promise.all(Array.from(ids).map(async (imageId) => {
         if (map[imageId]) return; // skip cached
         // imageId is of form `${spriteBase}_NNN`
         const suffix = imageId.split('_').pop();
         const base = cfg.enhancedRendering.spriteBase;
-        const src = `${dir}/${base}_${suffix}.png`;
+        const file = (viewType === 'top-down') ? `${base}_TOP_${suffix}.png` : `${base}_${suffix}.png`;
+        const src = `/static/${base}/${file}`;
         try {
           map[imageId] = await rasterizeToPngDataUrl(src, 96);
         } catch (_) {}
@@ -2367,45 +2391,27 @@ const drawDroppedObjectsOnCanvas = async (ctx, mapArea, map, droppedObjects, bea
       try {
         const isEnhanced = !!objectType?.enhancedRendering?.enabled;
         const base = objectType.enhancedRendering?.spriteBase;
-        const adjusted = (((obj?.properties?.rotationDeg ?? 0) + bearingAdjustDeg) % 360 + 360) % 360;
-        // For export, assume current map view to drive variant; if not available, default to isometric
-        let viewType = 'isometric';
-        try { if (map && typeof map.getPitch === 'function') viewType = (map.getPitch() > 15) ? 'isometric' : 'top-down'; } catch (_) {}
-        const src = isEnhanced && base ? `/static/${base}/${viewType}/renders/${viewType === 'top-down' ? `${base}_TOP_${String(adjusted).padStart(3,'0')}` : `${base}_${String(adjusted).padStart(3,'0')}`}.png` : objectType.imageUrl;
+        const baseAngle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
+        // Determine export view type from offscreen map
+        const exportView = (() => {
+          try { return (map && typeof map.getPitch === 'function' && map.getPitch() > 15) ? 'isometric' : 'top-down'; } catch (_) { return 'top-down'; }
+        })();
+        const zeroOffset = (objectType?.enhancedRendering?.zeroOffsetDegByView?.[exportView])
+          ?? objectType?.enhancedRendering?.zeroOffsetDeg
+          ?? DEFAULT_ZERO_OFFSET_BY_VIEW[exportView]
+          ?? 0;
+        const eff = (exportView === 'isometric')
+          ? (((baseAngle - bearingAdjustDeg + zeroOffset) % 360 + 360) % 360)
+          : (((baseAngle + zeroOffset) % 360 + 360) % 360);
+        const q = quantizeTo45(eff);
+        let src;
+        if (isEnhanced && base) {
+          const angleStr = String(q).padStart(3, '0');
+          src = (exportView === 'top-down') ? `/static/${base}/${base}_TOP_${angleStr}.png` : `/static/${base}/${base}_${angleStr}.png`;
+        } else {
+          src = objectType.imageUrl;
+        }
         const img = await loadImage(src);
-        // Draw a contrasting background circle for visibility
-        try {
-          const c = document.createElement('canvas');
-          const w = Math.max(1, Math.min(24, img.width || 24));
-          const h = Math.max(1, Math.min(24, img.height || 24));
-          c.width = w; c.height = h;
-          const cctx = c.getContext('2d', { willReadFrequently: true });
-          cctx.drawImage(img, 0, 0, w, h);
-          const { data } = cctx.getImageData(0, 0, w, h);
-          let lumSum = 0, aSum = 0;
-          for (let i = 0; i < data.length; i += 4) {
-            const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3] / 255;
-            if (a < 0.1) continue;
-            lumSum += (0.2126 * r + 0.7152 * g + 0.0722 * b) * a;
-            aSum += a;
-          }
-          const avgLum = aSum > 0 ? lumSum / aSum : 0;
-          const isLight = avgLum >= 200;
-          let bg = 'rgba(255,255,255,0.9)';
-          if (isLight) {
-            const rgb = hexToRgb(objectType.color || '#64748b') || { r: 31, g: 41, b: 55 };
-            bg = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.9)`;
-          }
-          ctx.save();
-          ctx.beginPath();
-          ctx.arc(mapPixelX, mapPixelY, objSize / 2, 0, 2 * Math.PI);
-          ctx.fillStyle = bg;
-          ctx.fill();
-          ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-          ctx.lineWidth = 1;
-          ctx.stroke();
-          ctx.restore();
-        } catch (_) {}
         if (obj?.properties?.flipped) {
           ctx.save();
           // Mirror around the image center
@@ -2436,6 +2442,15 @@ const drawDroppedObjectsOnCanvas = async (ctx, mapArea, map, droppedObjects, bea
       console.error('Error drawing dropped object:', error, obj);
     }
   }
+};
+
+// Local helpers to match on-map sprite selection logic
+const DEFAULT_ZERO_OFFSET_BY_VIEW = { 'isometric': -90, 'top-down': 0 };
+const quantizeTo45 = (deg) => {
+  try {
+    const n = ((deg % 360) + 360) % 360;
+    return (Math.round(n / 45) * 45) % 360;
+  } catch (_) { return 0; }
 };
 
 

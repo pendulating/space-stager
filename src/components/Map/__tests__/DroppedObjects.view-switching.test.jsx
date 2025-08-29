@@ -37,7 +37,8 @@ describe('DroppedObjects view switching', () => {
       />
     );
     const img = container.querySelector('img');
-    expect(img.getAttribute('src')).toContain('/static/banner/isometric/renders/banner_090.png');
+    // With isometric zero-offset (-90), 90° becomes 000° sprite
+    expect(img.getAttribute('src')).toContain('/static/banner/banner_000.png');
   });
 
   it('uses top-down path when pitch <= 15', () => {
@@ -50,6 +51,6 @@ describe('DroppedObjects view switching', () => {
       />
     );
     const img = container.querySelector('img');
-    expect(img.getAttribute('src')).toContain('/static/banner/top-down/renders/banner_TOP_090.png');
+    expect(img.getAttribute('src')).toContain('/static/banner/banner_TOP_090.png');
   });
 });

@@ -7,12 +7,18 @@ import {
 } from '../services/infrastructureService';
 import { calculateGeometryBounds, expandBounds } from '../utils/geometryUtils';
 import { createInfrastructureTooltipContent } from '../utils/tooltipUtils';
-import { addIconsToMap, retryLoadIcons } from '../utils/iconUtils';
+import { addIconsToMap, retryLoadIcons, INFRASTRUCTURE_ICONS } from '../utils/iconUtils';
 import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
-import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, buildSpriteImageId, getMapViewType, buildSpriteUrl } from '../utils/enhancedRenderingUtils';
+import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, buildSpriteImageId, getMapViewType, buildSpriteUrl, buildFlatSpriteUrl } from '../utils/enhancedRenderingUtils';
+import { useMapViewState } from './useMapViewState';
+import { prefetchView } from '../utils/spriteResolver';
 
+// NOTE: Enhanced infra sprites: use flat /static/{base}/{base|base_TOP} paths for both views
+// because our public assets are deployed in flat layout. The spriteResolver handles nested fallbacks.
 export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
+  const view = useMapViewState(map);
   console.log('[DEBUG] useInfrastructure hook called with map:', !!map);
+  const DEFAULT_ZERO_OFFSET_BY_VIEW = { 'isometric': -90, 'top-down': 0 };
   
   const [infrastructureData, setInfrastructureData] = useState({
     trees: null,
@@ -184,6 +190,97 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     try { map.on('style.load', onStyleLoad); } catch (_) {}
     return () => { try { map.off('style.load', onStyleLoad); } catch (_) {} };
   }, [map]);
+
+  // When view type changes (isometric <-> top-down), reload enhanced sprite images in the map sprite registry
+  // so on-map instances update to the correct perspective without reloading data.
+  useEffect(() => {
+    if (!map) return;
+    const viewType = view?.viewType || getMapViewType(map);
+    try {
+      Object.entries(layers).forEach(([layerId, cfg]) => {
+        if (!cfg?.visible || !cfg?.enhancedRendering?.enabled) return;
+        const base = cfg.enhancedRendering.spriteBase;
+        const angles = cfg.enhancedRendering.angles || [0,45,90,135,180,225,270,315];
+        // Replace existing images for this sprite family with the current view variant
+        addEnhancedSpritesToMap(map, {
+          baseName: base,
+          publicDir: `/static/${base}`,
+          angles,
+          viewType,
+          urlBuilder: buildFlatSpriteUrl,
+          replaceExisting: true
+        });
+        // Opportunistic prefetch via DOM for sidebar/other consumers
+        try { prefetchView(base, angles, viewType); } catch (_) {}
+
+        // Force a lightweight layout refresh on the symbol layer so updated images are bound
+        try {
+          const pointLayerId = `layer-${layerId}-point`;
+          if (map.getLayer(pointLayerId)) {
+            const prev = map.getLayoutProperty(pointLayerId, 'icon-image');
+            const fallbackId = INFRASTRUCTURE_ICONS[layerId]?.id;
+            if (fallbackId) {
+              // Temporarily set to a simple id, then restore the previous expression/value
+              map.setLayoutProperty(pointLayerId, 'icon-image', fallbackId);
+              // Next tick restore original to trigger rebind
+              setTimeout(() => {
+                try { map.setLayoutProperty(pointLayerId, 'icon-image', prev); } catch (_) {}
+              }, 0);
+            }
+          }
+        } catch (_) {}
+      });
+      try { if (typeof map.triggerRepaint === 'function') map.triggerRepaint(); } catch (_) {}
+    } catch (_) {}
+  }, [map, layers, view?.viewType]);
+
+  // When map bearing changes, recompute icon_image for visible enhanced layers to compensate camera rotation
+  useEffect(() => {
+    if (!map) return;
+    const vt = view?.viewType || getMapViewType(map);
+    const mapBearing = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
+    try {
+      Object.entries(layers).forEach(([layerId, cfg]) => {
+        if (!cfg?.visible || !cfg?.enhancedRendering?.enabled) return;
+        const data = infrastructureData?.[layerId];
+        if (!data || !Array.isArray(data.features) || data.features.length === 0) return;
+        let changed = false;
+        const next = {
+          ...data,
+          features: data.features.map((f) => {
+            if (!f || f.geometry?.type !== 'Point') return f;
+            const p = f.properties || {};
+            const base = p.icon_sprite_base || cfg.enhancedRendering.spriteBase;
+            const baseBearing = (typeof p.icon_base_bearing === 'number') ? p.icon_base_bearing : null;
+            let img = p.icon_image;
+            if (base && baseBearing != null) {
+              try {
+                const zeroOffset = DEFAULT_ZERO_OFFSET_BY_VIEW[vt] ?? 0;
+                const effective = (vt === 'isometric')
+                  ? (((baseBearing - mapBearing + zeroOffset) % 360 + 360) % 360)
+                  : baseBearing;
+                const q = quantizeAngleTo45(effective);
+                const newImg = buildSpriteImageId(base, q);
+                if (newImg !== img) {
+                  changed = true;
+                  return { ...f, properties: { ...p, icon_image: newImg } };
+                }
+              } catch (_) {}
+            }
+            return f;
+          })
+        };
+        if (changed) {
+          try {
+            const sourceId = `source-${layerId}`;
+            const src = map.getSource(sourceId);
+            if (src && typeof src.setData === 'function') src.setData(next);
+          } catch (_) {}
+          setInfrastructureData(prev => ({ ...prev, [layerId]: next }));
+        }
+      });
+    } catch (_) {}
+  }, [map, view?.bearing, view?.viewType]);
 
   // Add infrastructure layer to map - move this before loadInfrastructureLayer
   const addInfrastructureLayerToMap = useCallback((layerId, data) => {
@@ -413,14 +510,16 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
         if (cfg?.enhancedRendering?.enabled) {
           // Ensure sprites are loaded for variants
           try {
-            const viewType = getMapViewType(map);
+            const viewType = view?.viewType || getMapViewType(map);
             await addEnhancedSpritesToMap(map, {
               baseName: cfg.enhancedRendering.spriteBase,
-              publicDir: `/static/${cfg.enhancedRendering.spriteBase}/${viewType}/renders`,
+              publicDir: `/static/${cfg.enhancedRendering.spriteBase}`,
               angles: cfg.enhancedRendering.angles,
               viewType,
-              urlBuilder: buildSpriteUrl
+              urlBuilder: buildFlatSpriteUrl
             });
+            // Opportunistic prefetch for current view
+            try { prefetchView(cfg.enhancedRendering.spriteBase, cfg.enhancedRendering.angles, viewType); } catch(_) {}
           } catch (_) {}
 
           // For point features, compute a bearing from nearest CSCL centerline when desired
@@ -458,25 +557,36 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
             }
           } catch (_) {}
 
-          // Annotate each Point feature with icon_image property
+          // Annotate each Point feature with base bearing and initial icon_image property
           filteredData = {
             ...filteredData,
             features: filteredData.features.map((f) => {
               if (!f || f.geometry?.type !== 'Point') return f;
               let img = null;
+              let baseBearing = null;
               if (lineFeatures && lineFeatures.length > 0) {
                 const br = computeNearestLineBearing(f, lineFeatures);
                 if (br != null) {
-                  const q = quantizeAngleTo45(br);
-                  img = buildSpriteImageId(cfg.enhancedRendering.spriteBase, q);
+                  baseBearing = br;
                 }
               }
               if (!img) {
                 // Fallback to 000
                 img = buildSpriteImageId(cfg.enhancedRendering.spriteBase, 0);
               }
+              // Apply camera-compensation for isometric view so sprites stay aligned to world
+              try {
+                const vt = view?.viewType || getMapViewType(map);
+                const mapBearing = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
+                const zeroOffset = DEFAULT_ZERO_OFFSET_BY_VIEW[vt] ?? 0;
+                const effective = (vt === 'isometric' && baseBearing != null)
+                  ? (((baseBearing - mapBearing + zeroOffset) % 360 + 360) % 360)
+                  : (baseBearing != null ? baseBearing : 0);
+                const q = quantizeAngleTo45(effective);
+                img = buildSpriteImageId(cfg.enhancedRendering.spriteBase, q);
+              } catch (_) {}
               const p = f.properties || {};
-              return { ...f, properties: { ...p, icon_image: img } };
+              return { ...f, properties: { ...p, icon_image: img, icon_sprite_base: cfg.enhancedRendering.spriteBase, icon_base_bearing: baseBearing } };
             })
           };
         }
@@ -527,7 +637,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     } finally {
       loadingLayersRef.current.delete(layerId);
     }
-  }, [map, focusedArea, addInfrastructureLayerToMap, setLayers]);
+  }, [map, focusedArea, addInfrastructureLayerToMap, setLayers, view?.viewType]);
 
   // Clear layer - use useCallback
   const clearLayer = useCallback((layerId) => {

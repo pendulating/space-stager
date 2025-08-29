@@ -15,7 +15,7 @@ describe('PlacementPreview', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('renders icon character for non-image object with correct flip style', () => {
+  it('renders sprite for non-enhanced object when static assets exist (bench)', () => {
     render(
       <PlacementPreview
         placementMode={{ objectType: { id: 'bench' }, isFlipped: true, rotationDeg: 0 }}
@@ -23,9 +23,9 @@ describe('PlacementPreview', () => {
         placeableObjects={objects}
       />
     );
-    // find by text B
-    const el = screen.getByText('B');
-    expect(el).toBeInTheDocument();
+    const img = document.querySelector('img');
+    expect(img).toBeTruthy();
+    expect(img.getAttribute('src')).toContain('/static/bench/bench_TOP_000.png');
   });
 
   it('renders image url for non-enhanced image and sprite for enhanced image', () => {
@@ -49,8 +49,8 @@ describe('PlacementPreview', () => {
       />
     );
     const img2 = document.querySelector('img');
-    // No map passed, preview defaults to isometric path
-    expect(img2.getAttribute('src')).toContain('/static/banner/isometric/renders/banner_090.png');
+    // Without a map, default view is top-down
+    expect(img2.getAttribute('src')).toContain('/static/banner/banner_TOP_090.png');
   });
 });
 
