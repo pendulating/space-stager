@@ -10,37 +10,30 @@ const PlaceableObjectsPanel = ({
   activeRectObjectTypeId
 }) => {
   const handleClick = useCallback((e, obj) => {
-    // If object is rectangle-based, use rect activation path
     if (obj?.geometryType === 'rect') {
       if (onRectActivation) onRectActivation(obj);
       return;
     }
-    // Check if shift is held for batch mode (only for point objects)
     const isBatchMode = e.shiftKey;
     onActivation(obj, isBatchMode);
   }, [onActivation, onRectActivation]);
 
   const [bgBySrc, setBgBySrc] = useState({});
-  const view = useMapViewState(null); // panel thumbnails are view-agnostic; keep iso defaults
+  const [hoverLabel, setHoverLabel] = useState('');
+  useMapViewState(null);
 
-  // Precompute contrasting backgrounds for all object thumbnails (base icon or iso fallback)
   useEffect(() => {
     if (!objects || !objects.length) return;
     const needed = {};
     objects.forEach((obj) => {
       const candidates = getCandidateSrcs(obj, 135, 'isometric');
       const src = candidates[0] || obj.imageUrl || null;
-      if (src && !bgBySrc[src]) {
-        needed[src] = obj.color || '#64748b';
-      }
+      if (src && !bgBySrc[src]) needed[src] = obj.color || '#64748b';
     });
     const srcs = Object.keys(needed);
     if (srcs.length === 0) return;
     let active = true;
-    Promise.all(srcs.map(async (src) => {
-      const bg = await bgColorFor(src, needed[src], 0.9);
-      return [src, bg];
-    })).then((pairs) => {
+    Promise.all(srcs.map(async (src) => [src, await bgColorFor(src, needed[src], 0.9)])).then((pairs) => {
       if (!active) return;
       setBgBySrc((prev) => {
         const next = { ...prev };
@@ -51,78 +44,65 @@ const PlaceableObjectsPanel = ({
     return () => { active = false; };
   }, [objects, bgBySrc]);
 
+  const isActivePoint = (obj) => placementMode?.objectType?.id === obj.id;
+  const isActiveRect = (obj) => activeRectObjectTypeId === obj.id;
+
   return (
-    <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-      <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-3">Event Objects</h3>
-      <div className="grid grid-cols-2 gap-2 placeable-objects-grid">
+    <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-xs font-semibold tracking-wide text-gray-600 dark:text-gray-300 uppercase">Event Objects</h3>
+        <div className="text-xs text-gray-500 dark:text-gray-400 h-4 inline-flex items-center justify-center min-w-[40%] text-center mx-2">
+          {hoverLabel && (
+            <span className="px-2 py-0.5 rounded-full bg-white/80 dark:bg-gray-800/70 border border-gray-200/60 dark:border-gray-700/60 text-gray-700 dark:text-gray-200 shadow-sm truncate max-w-full">
+              {hoverLabel}
+            </span>
+          )}
+        </div>
+        <div className="text-xs text-gray-500 dark:text-gray-400">{objects?.length || 0}</div>
+      </div>
+
+      <div className="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto pr-1">
         {objects.map((obj) => {
-          const isActivePoint = placementMode?.objectType?.id === obj.id;
-          const isBatchMode = isActivePoint && placementMode.isBatchMode;
-          const isActiveRect = activeRectObjectTypeId === obj.id;
-          const isActive = isActivePoint || isActiveRect;
-          
+          const active = isActivePoint(obj) || isActiveRect(obj);
+          const isBatch = isActivePoint(obj) && placementMode?.isBatchMode;
+          const candidates = getCandidateSrcs(obj, 135, 'isometric');
+          const src = candidates[0] || obj.imageUrl || null;
+          const bg = (src && bgBySrc[src]) || (obj.color ? `${obj.color}E6` : undefined);
           return (
-            <div
+            <button
               key={obj.id}
               onClick={(e) => handleClick(e, obj)}
-              className={`flex flex-col items-center p-3 rounded-lg transition-all cursor-pointer object-item ${
-                isActive 
-                  ? 'bg-blue-100 dark:bg-blue-900/30 border-2 border-blue-500' 
-                  : 'bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 border-2 border-transparent'
-              } ${
-                isBatchMode ? 'border-4 border-blue-600' : ''
-              }`}
-              title={`Click to place ${obj.name}${isActive ? ' (click again to cancel)' : ''}`}
+              onMouseEnter={() => setHoverLabel(obj.name)}
+              onMouseLeave={() => setHoverLabel('')}
+              className={`relative group rounded-lg border p-1.5 flex items-center justify-center transition ${
+                active ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-500' : 'bg-white dark:bg-gray-900 border-gray-200/70 dark:border-gray-700/60 hover:bg-gray-50 dark:hover:bg-gray-800'
+              } ${isBatch ? 'ring-2 ring-blue-500' : ''}`}
+              title={`Click to place ${obj.name}${active ? ' (click again to cancel)' : ''}`}
             >
-              {(() => {
-                const candidates = getCandidateSrcs(obj, 135, 'isometric');
-                const src = candidates[0] || obj.imageUrl || null;
-                const bg = (src && bgBySrc[src]) || (obj.color ? `${obj.color}E6` : undefined);
-                return (
-                  <div
-                    className="w-12 h-12 mb-2 rounded-full flex items-center justify-center"
-                    style={{ backgroundColor: bg || 'rgba(255,255,255,0.9)' }}
+              <div
+                className="w-10 h-10 rounded-full flex items-center justify-center"
+                style={{ backgroundColor: bg || 'rgba(255,255,255,0.9)' }}
+              >
+                {src ? (
+                  <img
+                    src={src}
+                    alt={obj.name}
+                    className="w-8 h-8 object-contain"
+                    draggable={false}
+                  />
+                ) : (
+                  <div 
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium"
+                    style={{ backgroundColor: obj.color || '#64748b' }}
                   >
-                    {src ? (
-                      <img
-                        src={src}
-                        alt={obj.name}
-                        className="w-10 h-10"
-                        style={{ objectFit: 'contain' }}
-                        draggable={false}
-                        onError={(e) => {
-                          try {
-                            const current = e.currentTarget.getAttribute('src');
-                            const idx = fallbacks.indexOf(current);
-                            const next = fallbacks[idx + 1];
-                            if (next) {
-                              e.currentTarget.src = next;
-                            } else {
-                              e.currentTarget.style.visibility = 'hidden';
-                            }
-                          } catch (_) {}
-                        }}
-                      />
-                    ) : (
-                      <div 
-                        className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-medium"
-                        style={{ backgroundColor: obj.color }}
-                      >
-                        {obj.icon}
-                      </div>
-                    )}
+                    {obj.icon}
                   </div>
-                );
-              })()}
-              <span className="text-xs text-gray-700 dark:text-gray-200 text-center font-medium">
-                {obj.name}
-              </span>
-              {isActive && (
-                <span className="text-xs text-blue-600 dark:text-blue-300 mt-1">
-                  {isBatchMode ? 'Batch Mode' : 'Active'}
-                </span>
+                )}
+              </div>
+              {active && (
+                <div className="absolute inset-0 rounded-lg ring-2 ring-blue-500 pointer-events-none" />
               )}
-            </div>
+            </button>
           );
         })}
       </div>

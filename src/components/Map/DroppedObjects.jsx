@@ -94,22 +94,53 @@ const DroppedObjects = ({
       const wrap = document.createElement('div');
       wrap.className = 'pointer-events-auto';
       const container = document.createElement('div');
-      container.className = 'bg-white/95 dark:bg-gray-900/90 border border-gray-300 dark:border-gray-700 rounded-full px-2 py-1 text-[10px] shadow flex gap-1';
+      container.className = 'rounded-full px-2 py-1 text-[11px] shadow-sm flex gap-1 bg-white/90 dark:bg-gray-900/80 border border-gray-200/60 dark:border-gray-700/60';
+      // Enter transition
+      container.style.transform = 'translateY(4px) scale(0.97)';
+      container.style.opacity = '0';
+      container.style.transition = 'opacity 140ms ease, transform 160ms cubic-bezier(.2,.7,.3,1)';
+
       const editBtn = document.createElement('button');
       editBtn.type = 'button';
       editBtn.title = 'Edit note';
       editBtn.textContent = 'Edit';
-      editBtn.className = 'px-2 py-0.5 rounded-full border border-gray-300 dark:border-gray-700';
-      editBtn.onclick = (e) => { e.stopPropagation(); if (typeof onEditNote === 'function') onEditNote(obj); try { popupRef.current && popupRef.current.remove(); } catch (_) {} };
+      editBtn.className = 'px-2 py-0.5 rounded-full border border-gray-300/70 dark:border-gray-700 text-gray-700 dark:text-gray-200 bg-white/70 dark:bg-gray-800/50 hover:bg-white/90';
+      editBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (typeof onEditNote === 'function') onEditNote(obj);
+        try {
+          // Exit transition before remove
+          container.style.transform = 'translateY(4px) scale(0.97)';
+          container.style.opacity = '0';
+          setTimeout(() => { try { popupRef.current && popupRef.current.remove(); } catch (_) {} }, 160);
+        } catch (_) {}
+      };
+
       const rmBtn = document.createElement('button');
       rmBtn.type = 'button';
       rmBtn.title = 'Remove';
       rmBtn.textContent = '✕';
-      rmBtn.className = 'bg-red-500 text-white rounded-full px-2 py-0.5';
-      rmBtn.onclick = (e) => { e.stopPropagation(); if (typeof onRemoveObject === 'function') onRemoveObject(obj.id); try { popupRef.current && popupRef.current.remove(); } catch (_) {} };
+      rmBtn.className = 'text-white rounded-full px-2 py-0.5 bg-red-500 hover:bg-red-600';
+      rmBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (typeof onRemoveObject === 'function') onRemoveObject(obj.id);
+        try {
+          container.style.transform = 'translateY(4px) scale(0.97)';
+          container.style.opacity = '0';
+          setTimeout(() => { try { popupRef.current && popupRef.current.remove(); } catch (_) {} }, 160);
+        } catch (_) {}
+      };
+
       container.appendChild(editBtn);
       container.appendChild(rmBtn);
       wrap.appendChild(container);
+
+      // Trigger appear on next frame
+      requestAnimationFrame(() => {
+        container.style.transform = 'translateY(0) scale(1)';
+        container.style.opacity = '1';
+      });
+
       return wrap;
     } catch (_) { return null; }
   };
@@ -446,6 +477,24 @@ const DroppedObjects = ({
             p.setDOMContent(content);
             p.setLngLat([obj.position.lng, obj.position.lat]);
             p.addTo(map);
+            // Strip default popup chrome/background
+            try {
+              const el = p.getElement && p.getElement();
+              if (el) {
+                el.style.background = 'transparent';
+                el.style.border = 'none';
+                el.style.boxShadow = 'none';
+                const contentEl = el.querySelector('.maplibregl-popup-content, .mapboxgl-popup-content');
+                if (contentEl) {
+                  contentEl.style.background = 'transparent';
+                  contentEl.style.border = 'none';
+                  contentEl.style.boxShadow = 'none';
+                  contentEl.style.padding = '0';
+                }
+                const tipEl = el.querySelector('.maplibregl-popup-tip, .mapboxgl-popup-tip');
+                if (tipEl) tipEl.style.display = 'none';
+              }
+            } catch (_) {}
           }
         }
       } catch (_) {}
