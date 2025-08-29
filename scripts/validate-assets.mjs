@@ -80,6 +80,29 @@ function urlToFsPath(urlPath) {
   return path.join(publicRoot, clean);
 }
 
+/**
+ * Attempt to normalize legacy nested sprite paths to the current flat layout.
+ * Examples:
+ *  /static/banner/isometric/renders/banner_090.png -> /static/banner/banner_090.png
+ *  /static/banner/top-down/renders/banner_TOP_090.png -> /static/banner/banner_TOP_090.png
+ * @param {string} urlPath
+ */
+function normalizeToFlatStatic(urlPath) {
+  try {
+    if (!urlPath) return urlPath;
+    const parts = urlPath.split('/').filter(Boolean);
+    // Expect: [static, base, (isometric|top-down), renders, file]
+    if (parts.length >= 5 && parts[0] === 'static') {
+      const base = parts[1];
+      const file = parts[parts.length - 1];
+      return `/static/${base}/${file}`;
+    }
+    return urlPath;
+  } catch (_) {
+    return urlPath;
+  }
+}
+
 function angleToSuffix(angle) {
   const fixed = Math.round(angle);
   return String(fixed).padStart(3, '0');
@@ -100,8 +123,17 @@ async function main() {
   // 1) Direct imageUrl references in PLACEABLE_OBJECTS
   const imageUrls = parseImageUrls(placeableText);
   for (const url of imageUrls) {
-    const fsPath = urlToFsPath(url);
-    const res = validateFile(fsPath);
+    let fsPath = urlToFsPath(url);
+    let res = validateFile(fsPath);
+    // Fallback to flat layout if legacy nested path is referenced
+    if (!res.ok && /\/static\//.test(url)) {
+      const flatUrl = normalizeToFlatStatic(url.replace(/^\//, ''));
+      const flatFsPath = urlToFsPath(flatUrl);
+      const res2 = validateFile(flatFsPath);
+      checks.push({ kind: 'imageUrl', url: `${url} | flat:${flatUrl}`, fsPath: `${fsPath} | ${flatFsPath}`, ok: res2.ok, message: res2.ok ? undefined : res.message });
+      if (!res2.ok) failures.push({ kind: 'imageUrl', url, fsPath, message: res.message });
+      continue;
+    }
     checks.push({ kind: 'imageUrl', url, fsPath, ok: res.ok, message: res.message });
     if (!res.ok) failures.push({ kind: 'imageUrl', url, fsPath, message: res.message });
   }
@@ -111,11 +143,25 @@ async function main() {
   for (const b of blocks) {
     for (const angle of b.angles) {
       const fileName = `${b.spriteBase}_${angleToSuffix(angle)}.png`;
-      const rel = path.join(b.publicDir.replace(/^\//, ''), fileName);
-      const fsPath = path.join(publicRoot, rel.replace(/^\//, ''));
-      const res = validateFile(fsPath);
-      checks.push({ kind: 'sprite', spriteBase: b.spriteBase, angle, fsPath, ok: res.ok, message: res.message });
-      if (!res.ok) failures.push({ kind: 'sprite', spriteBase: b.spriteBase, angle, fsPath, message: res.message });
+      const candidates = [];
+      // As-declared publicDir
+      try {
+        const rel = path.join((b.publicDir || '').replace(/^\//, ''), fileName);
+        candidates.push(path.join(publicRoot, rel));
+      } catch (_) {}
+      // Flat static fallback: /static/{base}/{base}_NNN.png
+      candidates.push(path.join(publicRoot, 'static', b.spriteBase, fileName));
+
+      let foundOk = false;
+      for (const p of candidates) {
+        const r = validateFile(p);
+        checks.push({ kind: 'sprite', spriteBase: b.spriteBase, angle, fsPath: p, ok: r.ok, message: r.message });
+        if (r.ok) { foundOk = true; break; }
+      }
+      if (!foundOk) {
+        // Report first candidate as failure for brevity
+        failures.push({ kind: 'sprite', spriteBase: b.spriteBase, angle, fsPath: candidates[0], message: 'not found in declared or flat fallback' });
+      }
     }
   }
 
