@@ -808,11 +808,79 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     }
   }, [map, isDrawingActive, activeModeForEvents, zoneCreator, buildTooltipContent, calculateGeometryArea]);
 
+  // Global guard: hide hover tooltip immediately when cursor is not over any geometry
+  const handleGlobalMouseMove = useCallback((e) => {
+    if (!map) return;
+    try {
+      // Never show hover tooltip while drawing or a clicked popover is visible
+      if (isDrawingActive() || clickedTooltipVisibleRef.current) {
+        setTooltip(prev => ({ ...prev, visible: false }));
+        return;
+      }
+      const feats = map.queryRenderedFeatures(e.point, { layers: [hoverLayerIdForEvents] }) || [];
+      if (!feats.length) {
+        // Hide tooltip and clear any hover visuals when moving off geometry
+        setTooltip(prev => ({ ...prev, visible: false }));
+        if (activeModeForEvents === 'intersections') {
+          try {
+            const prevId = hoveredIntersectionIdRef.current;
+            if (prevId !== null && prevId !== undefined) animateHoverProgress(map, 'intersections', prevId, 0);
+            hoveredIntersectionIdRef.current = null;
+          } catch (_) {}
+        } else {
+          try {
+            const idPrefix = activeModeForEvents === 'parks' ? 'permit-areas' : (activeModeForEvents === 'plazas' ? 'plaza-areas' : '');
+            if (idPrefix) {
+              const hoverOutlineId = `${idPrefix}-hover-outline`;
+              if (map.getLayer(hoverOutlineId)) map.setFilter(hoverOutlineId, ['==', ['id'], '']);
+            }
+            hoveredPolygonIdRef.current = null;
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }, [map, isDrawingActive, activeModeForEvents, hoverLayerIdForEvents, animateHoverProgress]);
+
   useMapEvents(map, [
     { event: 'mouseenter', layerId: hoverLayerIdForEvents, handler: handleMouseEnter },
     { event: 'mouseleave', layerId: hoverLayerIdForEvents, handler: handleMouseLeave },
     { event: 'mousemove', layerId: hoverLayerIdForEvents, handler: handleMouseMove }
   ], { reattachOnStyleLoad: true });
+
+  // Map-level mousemove to ensure hover UI clears when not over any feature
+  useMapEvents(map, [
+    { event: 'mousemove', handler: handleGlobalMouseMove }
+  ], { reattachOnStyleLoad: true });
+
+  // DOM-level guards: hide tooltip when cursor leaves the map canvas or when over non-canvas overlays
+  useEffect(() => {
+    if (!map) return;
+    let container = null;
+    try { container = (typeof map.getCanvasContainer === 'function') ? map.getCanvasContainer() : null; } catch (_) { container = null; }
+    const canvas = (() => { try { return (typeof map.getCanvas === 'function') ? map.getCanvas() : null; } catch (_) { return null; } })();
+    if (!container) return;
+
+    const hide = () => { try { setTooltip(prev => ({ ...prev, visible: false })); } catch (_) {} };
+    const onDocMove = (ev) => {
+      try {
+        const target = ev.target;
+        // If pointer is outside the map container OR not on the canvas (i.e., over an overlay), hide the hover tooltip
+        if (!container.contains(target) || (canvas && target !== canvas)) {
+          setTooltip(prev => ({ ...prev, visible: false }));
+        }
+      } catch (_) {}
+    };
+
+    try { container.addEventListener('mouseleave', hide); } catch (_) {}
+    try { container.addEventListener('touchstart', hide, { passive: true }); } catch (_) {}
+    try { document.addEventListener('mousemove', onDocMove, true); } catch (_) {}
+
+    return () => {
+      try { container.removeEventListener('mouseleave', hide); } catch (_) {}
+      try { container.removeEventListener('touchstart', hide, { passive: true }); } catch (_) {}
+      try { document.removeEventListener('mousemove', onDocMove, true); } catch (_) {}
+    };
+  }, [map]);
 
   
 
@@ -1220,6 +1288,18 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       if (map && map.getLayer(`${idPrefix}-focused-fill`)) map.setFilter(`${idPrefix}-focused-fill`, ['==', ['id'], '']);
       if (map && map.getLayer(`${idPrefix}-focused-outline`)) map.setFilter(`${idPrefix}-focused-outline`, ['==', ['id'], '']);
       if (map && map.getLayer(`${idPrefix}-focused-points`)) map.setFilter(`${idPrefix}-focused-points`, ['==', ['id'], '']);
+    } catch (_) {}
+    // Also clear any hover outline highlight and hover state trackers
+    try {
+      if (idPrefix === 'permit-areas' || idPrefix === 'plaza-areas') {
+        const hoverOutlineId = `${idPrefix}-hover-outline`;
+        if (map && map.getLayer(hoverOutlineId)) map.setFilter(hoverOutlineId, ['==', ['id'], '']);
+        hoveredPolygonIdRef.current = null;
+      } else if (idPrefix === 'intersections') {
+        const prevId = hoveredIntersectionIdRef.current;
+        if (prevId !== null && prevId !== undefined) animateHoverProgress(map, 'intersections', prevId, 0);
+        hoveredIntersectionIdRef.current = null;
+      }
     } catch (_) {}
     // Restore base layers when exiting focus but keep focused overlays visible reset
     try {

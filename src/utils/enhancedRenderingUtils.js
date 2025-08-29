@@ -22,6 +22,15 @@ export const quantizeAngleTo45 = (angleDeg) => {
 };
 
 /**
+ * Quantize to nearest 90-degree bucket (0,90,180,270) to favor parallel/perpendicular alignment.
+ */
+export const quantizeAngleTo90 = (angleDeg) => {
+  const a = ((angleDeg % 360) + 360) % 360;
+  const q = Math.round(a / 90) * 90;
+  return (q + 360) % 360;
+};
+
+/**
  * Compute rhumb bearing from p1 -> p2 in degrees (0=N, 90=E).
  * Uses simple approximation suitable for small distances in NYC.
  */
@@ -235,5 +244,12 @@ export const buildSpriteFallbacks = (baseName, angle, viewType = VIEW_TYPES.ISOM
   if (!chain.includes(legacy)) chain.push(legacy);
   return chain;
 };
+
+/**
+ * Choose an angle quantizer based on alignment preference.
+ * When aligning to CSCL centerlines, prefer parallel/perpendicular (90° bins).
+ * Otherwise, allow 45° bins for more diagonal freedom.
+ */
+export const chooseAngleQuantizer = (preferRightAngles = false) => (preferRightAngles ? quantizeAngleTo90 : quantizeAngleTo45);
 
 

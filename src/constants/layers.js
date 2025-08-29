@@ -133,6 +133,9 @@ export const INITIAL_LAYERS = {
       spriteBase: 'parking-meter',
       publicDir: '/static/parking-meter/isometric/renders',
       desiredParallelTo: 'cscl',
+      // Rotate starting angle by +90° so meters face the street
+      zeroOffsetDeg: 90,
+      zeroOffsetDegByView: { isometric: 90, 'top-down': 90 },
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
   },

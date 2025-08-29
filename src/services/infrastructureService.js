@@ -553,7 +553,9 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
             'icon-image': iconImage,
             'icon-size': iconSize,
             'icon-allow-overlap': true,
-            'icon-ignore-placement': true
+            'icon-ignore-placement': true,
+            'icon-rotation-alignment': 'viewport',
+            'icon-pitch-alignment': 'viewport'
           },
           paint: {
             'icon-color': baseColor,
@@ -585,7 +587,9 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
             'icon-image': iconImage,
             'icon-size': iconSize,
             'icon-allow-overlap': true,
-            'icon-ignore-placement': true
+            'icon-ignore-placement': true,
+            'icon-rotation-alignment': 'viewport',
+            'icon-pitch-alignment': 'viewport'
           },
           paint: {
             'icon-color': baseColor,
@@ -614,7 +618,9 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
             'icon-image': 'bus-stop-icon',
             'icon-size': iconSize,
             'icon-allow-overlap': true,
-            'icon-ignore-placement': true
+            'icon-ignore-placement': true,
+            'icon-rotation-alignment': 'viewport',
+            'icon-pitch-alignment': 'viewport'
           },
           paint: {
             'icon-color': baseColor,
@@ -646,7 +652,9 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
             'icon-image': iconImage,
             'icon-size': iconSize,
             'icon-allow-overlap': true,
-            'icon-ignore-placement': true
+            'icon-ignore-placement': true,
+            'icon-rotation-alignment': 'viewport',
+            'icon-pitch-alignment': 'viewport'
           },
           paint: {
             'icon-color': baseColor,
@@ -702,7 +710,9 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
             'icon-image': iconImage,
             'icon-size': iconSize,
             'icon-allow-overlap': true,
-            'icon-ignore-placement': true
+            'icon-ignore-placement': true,
+            'icon-rotation-alignment': 'viewport',
+            'icon-pitch-alignment': 'viewport'
           },
           paint: {
             'icon-color': baseColor,
@@ -731,7 +741,9 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
             'icon-image': 'citibike-station-icon',
             'icon-size': iconSize,
             'icon-allow-overlap': true,
-            'icon-ignore-placement': true
+            'icon-ignore-placement': true,
+            'icon-rotation-alignment': 'viewport',
+            'icon-pitch-alignment': 'viewport'
           },
           paint: {
             'icon-color': baseColor,
@@ -760,7 +772,9 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
             'icon-image': 'subway-entrance-icon',
             'icon-size': iconSize,
             'icon-allow-overlap': true,
-            'icon-ignore-placement': true
+            'icon-ignore-placement': true,
+            'icon-rotation-alignment': 'viewport',
+            'icon-pitch-alignment': 'viewport'
           },
           paint: {
             'icon-color': baseColor,
@@ -811,7 +825,9 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
             'icon-image': 'pedestrian-ramp-icon',
             'icon-size': iconSize,
             'icon-allow-overlap': true,
-            'icon-ignore-placement': true
+            'icon-ignore-placement': true,
+            'icon-rotation-alignment': 'viewport',
+            'icon-pitch-alignment': 'viewport'
           },
           paint: {
             'icon-color': baseColor,
@@ -843,7 +859,9 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
             'icon-image': iconImage,
             'icon-size': iconSize,
             'icon-allow-overlap': true,
-            'icon-ignore-placement': true
+            'icon-ignore-placement': true,
+            'icon-rotation-alignment': 'viewport',
+            'icon-pitch-alignment': 'viewport'
           },
           paint: {
             'icon-color': baseColor,
@@ -876,7 +894,9 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
             'icon-image': iconImage,
             'icon-size': iconSize,
             'icon-allow-overlap': true,
-            'icon-ignore-placement': true
+            'icon-ignore-placement': true,
+            'icon-rotation-alignment': 'viewport',
+            'icon-pitch-alignment': 'viewport'
           },
           paint: {
             'icon-color': baseColor,
@@ -905,7 +925,9 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
             'icon-image': 'public-restroom-icon',
             'icon-size': iconSize,
             'icon-allow-overlap': true,
-            'icon-ignore-placement': true
+            'icon-ignore-placement': true,
+            'icon-rotation-alignment': 'viewport',
+            'icon-pitch-alignment': 'viewport'
           },
           paint: {
             'icon-color': baseColor,
@@ -934,7 +956,9 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
             'icon-image': 'drinking-fountain-icon',
             'icon-size': iconSize,
             'icon-allow-overlap': true,
-            'icon-ignore-placement': true
+            'icon-ignore-placement': true,
+            'icon-rotation-alignment': 'viewport',
+            'icon-pitch-alignment': 'viewport'
           },
           paint: {
             'icon-color': baseColor,
@@ -963,7 +987,9 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
             'icon-image': 'spray-shower-icon',
             'icon-size': iconSize,
             'icon-allow-overlap': true,
-            'icon-ignore-placement': true
+            'icon-ignore-placement': true,
+            'icon-rotation-alignment': 'viewport',
+            'icon-pitch-alignment': 'viewport'
           },
           paint: {
             'icon-color': baseColor,
@@ -1021,7 +1047,9 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
             'icon-image': 'ice-ladder-icon',
             'icon-size': iconSize,
             'icon-allow-overlap': true,
-            'icon-ignore-placement': true
+            'icon-ignore-placement': true,
+            'icon-rotation-alignment': 'viewport',
+            'icon-pitch-alignment': 'viewport'
           },
           paint: {
             'icon-color': baseColor,
@@ -1050,7 +1078,9 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
             'icon-image': 'parks-sign-icon',
             'icon-size': iconSize,
             'icon-allow-overlap': true,
-            'icon-ignore-placement': true
+            'icon-ignore-placement': true,
+            'icon-rotation-alignment': 'viewport',
+            'icon-pitch-alignment': 'viewport'
           },
           paint: {
             'icon-color': baseColor,
@@ -1079,7 +1109,9 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
             'icon-image': iconDef.id,
             'icon-size': iconSize,
             'icon-allow-overlap': true,
-            'icon-ignore-placement': true
+            'icon-ignore-placement': true,
+            'icon-rotation-alignment': 'viewport',
+            'icon-pitch-alignment': 'viewport'
           },
           paint: {
             'icon-color': baseColor,

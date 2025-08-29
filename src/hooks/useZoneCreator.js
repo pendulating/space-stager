@@ -132,6 +132,11 @@ export function useZoneCreator(map, geographyType) {
             }
           }
         } catch (_) {}
+        // Also clear any focused/hover outline specific to intersections mode
+        try {
+          const hoverFocusedId = `${idPrefix}-focused-points`;
+          if (map.getLayer(hoverFocusedId)) map.setFilter(hoverFocusedId, ['==', ['id'], '']);
+        } catch (_) {}
         // Clear node selections in context and reset preview state
         try { clearNodes(); } catch(_) {}
         try { setPreviewActive(false); } catch(_) {}

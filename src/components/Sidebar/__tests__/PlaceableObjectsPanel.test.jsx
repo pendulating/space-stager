@@ -26,15 +26,20 @@ describe('PlaceableObjectsPanel', () => {
       />
     );
 
-    expect(screen.getByText('Chair')).toBeInTheDocument();
-    expect(screen.getByText('Table')).toBeInTheDocument();
+    // Header and count reflect new layout
+    expect(screen.getByText('Event Objects')).toBeInTheDocument();
+    expect(screen.getByText('2')).toBeInTheDocument();
+
+    // Tiles no longer show labels per-object; validate via alt/title
+    const chairBtn = screen.getByTitle('Click to place Chair (click again to cancel)');
+    const tableBtn = screen.getByTitle('Click to place Table');
 
     // Click chair -> onActivation
-    fireEvent.click(screen.getByText('Chair').closest('.object-item'));
+    fireEvent.click(chairBtn);
     expect(onActivation).toHaveBeenCalled();
 
     // Click table -> onRectActivation
-    fireEvent.click(screen.getByText('Table').closest('.object-item'));
+    fireEvent.click(tableBtn);
     expect(onRectActivation).toHaveBeenCalled();
   });
 });

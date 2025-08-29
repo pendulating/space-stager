@@ -9,7 +9,9 @@ describe('DroppedObjectsList', () => {
     const objects = [{ id: 'o1', type: 'bench', name: 'Bench 1' }];
     const placeable = [{ id: 'bench', name: 'Bench', color: '#333', icon: 'B' }];
     render(<DroppedObjectsList objects={objects} placeableObjects={placeable} onRemove={onRemove} />);
-    expect(screen.getByText('Placed Objects (1)')).toBeInTheDocument();
+    // New layout: header 'Placed' with separate count
+    expect(screen.getByText('Placed')).toBeInTheDocument();
+    expect(screen.getByText('1')).toBeInTheDocument();
     fireEvent.click(screen.getByTitle('Remove object'));
     expect(onRemove).toHaveBeenCalledWith('o1');
   });
