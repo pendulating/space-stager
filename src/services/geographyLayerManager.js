@@ -65,6 +65,7 @@ export function ensureBaseLayers(map, idPrefix, type, options = {}) {
           id: circleId,
           type: 'circle',
           source: idPrefix,
+          minzoom: 9.5,
           layout: { visibility: 'visible' },
           paint: {
             'circle-color': [
@@ -74,31 +75,52 @@ export function ensureBaseLayers(map, idPrefix, type, options = {}) {
               fillColor
             ],
             'circle-opacity': [
-              'case',
-              ['boolean', ['feature-state', 'selected'], false],
-              0.35,
-              0.12
+              'interpolate', ['linear'], ['zoom'],
+              9.5, 0,
+              12.8, 0,
+              14.6, [
+                'case',
+                ['boolean', ['feature-state', 'selected'], false],
+                0.5,
+                0.2
+              ]
             ],
+            'circle-opacity-transition': { 'duration': 200 },
             'circle-stroke-color': [
               'case',
               ['boolean', ['feature-state', 'selected'], false],
               '#2563eb',
               fillColor
             ],
+            'circle-stroke-opacity': [
+              'interpolate', ['linear'], ['zoom'],
+              9.5, 0,
+              12.8, 0,
+              14.6, 1
+            ],
+            'circle-stroke-opacity-transition': { 'duration': 150 },
             'circle-stroke-width': [
               'case',
               ['boolean', ['feature-state', 'selected'], false],
               3,
               2
             ],
-            // radius = base + progress*delta
+            // radius shrinks at low zoom; add hover growth via feature-state
             'circle-radius': [
-              '+',
-              6,
-              ['*', 1,
-                ['coalesce', ['feature-state', 'hoverProgress'], 0]
-              ]
-            ]
+              'interpolate', ['linear'], ['zoom'],
+              12.8, ['+', 0.5, ['*', 1, ['coalesce', ['feature-state', 'hoverProgress'], 0]]],
+              14.6, ['+', 3.5, ['*', 1, ['coalesce', ['feature-state', 'hoverProgress'], 0]]],
+              16.0, ['+', 5,   ['*', 1, ['coalesce', ['feature-state', 'hoverProgress'], 0]]],
+              17.5, ['+', 6,   ['*', 1, ['coalesce', ['feature-state', 'hoverProgress'], 0]]]
+            ],
+            'circle-radius-transition': { 'duration': 200 },
+            'circle-blur': [
+              'interpolate', ['linear'], ['zoom'],
+              9.5, 0.8,
+              12.8, 0.5,
+              14.6, 0
+            ],
+            'circle-pitch-scale': 'viewport'
           }
         });
       }
@@ -111,11 +133,25 @@ export function ensureBaseLayers(map, idPrefix, type, options = {}) {
           type: 'circle',
           source: idPrefix,
           filter: ['==', ['id'], ''],
+          minzoom: 9.5,
           layout: { visibility: 'visible' },
           paint: {
             'circle-color': focusColor,
-            'circle-opacity': 0.16,
+            'circle-opacity': [
+              'interpolate', ['linear'], ['zoom'],
+              9.5, 0,
+              12.8, 0,
+              14.6, 0.16
+            ],
+            'circle-opacity-transition': { 'duration': 200 },
             'circle-stroke-color': focusColor,
+            'circle-stroke-opacity': [
+              'interpolate', ['linear'], ['zoom'],
+              9.5, 0,
+              12.8, 0,
+              14.6, 1
+            ],
+            'circle-stroke-opacity-transition': { 'duration': 150 },
             'circle-stroke-width': [
               'case',
               ['boolean', ['feature-state', 'selected'], false],
@@ -123,12 +159,20 @@ export function ensureBaseLayers(map, idPrefix, type, options = {}) {
               3
             ],
             'circle-radius': [
-              '+',
-              9,
-              ['*', 1,
-                ['coalesce', ['feature-state', 'hoverProgress'], 0]
-              ]
-            ]
+              'interpolate', ['linear'], ['zoom'],
+              12.8, ['+', 1,   ['*', 1, ['coalesce', ['feature-state', 'hoverProgress'], 0]]],
+              14.6, ['+', 5.5, ['*', 1, ['coalesce', ['feature-state', 'hoverProgress'], 0]]],
+              16.0, ['+', 7.5, ['*', 1, ['coalesce', ['feature-state', 'hoverProgress'], 0]]],
+              17.5, ['+', 9,   ['*', 1, ['coalesce', ['feature-state', 'hoverProgress'], 0]]]
+            ],
+            'circle-radius-transition': { 'duration': 200 },
+            'circle-blur': [
+              'interpolate', ['linear'], ['zoom'],
+              9.5, 0.8,
+              12.8, 0.5,
+              14.6, 0
+            ],
+            'circle-pitch-scale': 'viewport'
           }
         });
       }

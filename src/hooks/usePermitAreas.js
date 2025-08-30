@@ -143,6 +143,8 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   const hoveredIntersectionIdRef = useRef(null);
   // Track currently hovered polygon id (parks/plazas)
   const hoveredPolygonIdRef = useRef(null);
+  // Track last mouse position in screen pixels to validate hover during camera moves
+  const lastPointerRef = useRef(null);
   // Mirror clicked popover visibility in a ref to avoid effect dependency churn
   const clickedTooltipVisibleRef = useRef(false);
   useEffect(() => {
@@ -769,6 +771,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   const handleMouseMove = useCallback((e) => {
     if (!map) return;
     if (e.features.length === 0) return;
+    try { lastPointerRef.current = { x: e.point.x, y: e.point.y }; } catch (_) {}
     if (isDrawingActive()) { setTooltip(prev => ({ ...prev, visible: false })); return; }
     if (clickedTooltipVisibleRef.current) { setTooltip(prev => ({ ...prev, visible: false })); return; }
     if (activeModeForEvents === 'intersections') {
@@ -812,12 +815,18 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   const handleGlobalMouseMove = useCallback((e) => {
     if (!map) return;
     try {
+      try { lastPointerRef.current = { x: e.point.x, y: e.point.y }; } catch (_) {}
       // Never show hover tooltip while drawing or a clicked popover is visible
       if (isDrawingActive() || clickedTooltipVisibleRef.current) {
         setTooltip(prev => ({ ...prev, visible: false }));
         return;
       }
-      const feats = map.queryRenderedFeatures(e.point, { layers: [hoverLayerIdForEvents] }) || [];
+      // Robust: check across all potential geography layers (base and focused)
+      const candidateLayers = ['permit-areas-fill','plaza-areas-fill','intersections-points','permit-areas-focused-fill','plaza-areas-focused-fill','intersections-focused-points']
+        .filter((id) => { try { return map.getLayer && map.getLayer(id); } catch (_) { return false; } });
+      const feats = candidateLayers.length > 0
+        ? (map.queryRenderedFeatures([e.point.x, e.point.y], { layers: candidateLayers }) || [])
+        : [];
       if (!feats.length) {
         // Hide tooltip and clear any hover visuals when moving off geometry
         setTooltip(prev => ({ ...prev, visible: false }));
@@ -841,6 +850,54 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     } catch (_) {}
   }, [map, isDrawingActive, activeModeForEvents, hoverLayerIdForEvents, animateHoverProgress]);
 
+  // Hide hover tooltip while panning/zooming if the last pointer location is no longer over geometry
+  const handleCameraMove = useCallback(() => {
+    if (!map) return;
+    try {
+      const pt = lastPointerRef.current;
+      if (!pt || typeof pt.x !== 'number' || typeof pt.y !== 'number') {
+        setTooltip(prev => ({ ...prev, visible: false }));
+        if (activeModeForEvents === 'intersections') {
+          try {
+            const prevId = hoveredIntersectionIdRef.current;
+            if (prevId !== null && prevId !== undefined) animateHoverProgress(map, 'intersections', prevId, 0);
+            hoveredIntersectionIdRef.current = null;
+          } catch (_) {}
+        } else {
+          try {
+            const idPrefix = activeModeForEvents === 'parks' ? 'permit-areas' : (activeModeForEvents === 'plazas' ? 'plaza-areas' : '');
+            if (idPrefix) {
+              const hoverOutlineId = `${idPrefix}-hover-outline`;
+              if (map.getLayer(hoverOutlineId)) map.setFilter(hoverOutlineId, ['==', ['id'], '']);
+            }
+            hoveredPolygonIdRef.current = null;
+          } catch (_) {}
+        }
+        return;
+      }
+      const feats = map.queryRenderedFeatures([pt.x, pt.y], { layers: [hoverLayerIdForEvents] }) || [];
+      if (!feats.length) {
+        setTooltip(prev => ({ ...prev, visible: false }));
+        if (activeModeForEvents === 'intersections') {
+          try {
+            const prevId = hoveredIntersectionIdRef.current;
+            if (prevId !== null && prevId !== undefined) animateHoverProgress(map, 'intersections', prevId, 0);
+            hoveredIntersectionIdRef.current = null;
+          } catch (_) {}
+        } else {
+          try {
+            const idPrefix = activeModeForEvents === 'parks' ? 'permit-areas' : (activeModeForEvents === 'plazas' ? 'plaza-areas' : '');
+            if (idPrefix) {
+              const hoverOutlineId = `${idPrefix}-hover-outline`;
+              if (map.getLayer(hoverOutlineId)) map.setFilter(hoverOutlineId, ['==', ['id'], '']);
+            }
+            hoveredPolygonIdRef.current = null;
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }, [map, hoverLayerIdForEvents, activeModeForEvents, animateHoverProgress]);
+
   useMapEvents(map, [
     { event: 'mouseenter', layerId: hoverLayerIdForEvents, handler: handleMouseEnter },
     { event: 'mouseleave', layerId: hoverLayerIdForEvents, handler: handleMouseLeave },
@@ -850,6 +907,64 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   // Map-level mousemove to ensure hover UI clears when not over any feature
   useMapEvents(map, [
     { event: 'mousemove', handler: handleGlobalMouseMove }
+  ], { reattachOnStyleLoad: true });
+
+  // Camera movements can invalidate the last hover position; verify and hide if needed
+  useMapEvents(map, [
+    { event: 'move', handler: handleCameraMove }
+  ], { reattachOnStyleLoad: true });
+
+  // Frame-by-frame validation: if tooltip is visible but no features are under the last pointer, hide it
+  const validateHoverOnRender = useCallback(() => {
+    if (!map) return;
+    try {
+      // If not visible, nothing to validate
+      if (!tooltip || !tooltip.visible) return;
+      // Do not alter clicked popover flows or while drawing
+      if (isDrawingActive() || clickedTooltipVisibleRef.current) return;
+      const pt = lastPointerRef.current;
+      if (!pt || typeof pt.x !== 'number' || typeof pt.y !== 'number') {
+        setTooltip(prev => ({ ...prev, visible: false }));
+        return;
+      }
+      const candidateLayers = ['permit-areas-fill','plaza-areas-fill','intersections-points','permit-areas-focused-fill','plaza-areas-focused-fill','intersections-focused-points']
+        .filter((id) => { try { return map.getLayer && map.getLayer(id); } catch (_) { return false; } });
+      const feats = candidateLayers.length > 0
+        ? (map.queryRenderedFeatures([pt.x, pt.y], { layers: candidateLayers }) || [])
+        : [];
+      if (!feats.length) {
+        setTooltip(prev => ({ ...prev, visible: false }));
+      }
+    } catch (_) {}
+  }, [map, tooltip, isDrawingActive]);
+
+  useMapEvents(map, [
+    { event: 'render', handler: validateHoverOnRender }
+  ], { reattachOnStyleLoad: true });
+
+  // Immediately hide hover on interaction starts that can invalidate hover
+  const hideHoverImmediate = useCallback(() => {
+    try {
+      setTooltip(prev => ({ ...prev, visible: false }));
+      const idPrefix = activeModeForEvents === 'parks' ? 'permit-areas' : (activeModeForEvents === 'plazas' ? 'plaza-areas' : 'intersections');
+      if (idPrefix === 'intersections') {
+        const prevId = hoveredIntersectionIdRef.current;
+        if (prevId !== null && prevId !== undefined) animateHoverProgress(map, 'intersections', prevId, 0);
+        hoveredIntersectionIdRef.current = null;
+      } else {
+        const hoverOutlineId = `${idPrefix}-hover-outline`;
+        if (map && map.getLayer && map.getLayer(hoverOutlineId)) map.setFilter(hoverOutlineId, ['==', ['id'], '']);
+        hoveredPolygonIdRef.current = null;
+      }
+    } catch (_) {}
+  }, [map, activeModeForEvents, animateHoverProgress]);
+
+  useMapEvents(map, [
+    { event: 'dragstart', handler: hideHoverImmediate },
+    { event: 'zoomstart', handler: hideHoverImmediate },
+    { event: 'wheel', handler: hideHoverImmediate },
+    { event: 'pitchstart', handler: hideHoverImmediate },
+    { event: 'rotatestart', handler: hideHoverImmediate }
   ], { reattachOnStyleLoad: true });
 
   // DOM-level guards: hide tooltip when cursor leaves the map canvas or when over non-canvas overlays
@@ -864,9 +979,45 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     const onDocMove = (ev) => {
       try {
         const target = ev.target;
+        const rect = container && container.getBoundingClientRect ? container.getBoundingClientRect() : null;
+        // Compute pointer relative to map container for robust queries even when overlays intercept events
+        if (rect && typeof ev.clientX === 'number' && typeof ev.clientY === 'number') {
+          const x = ev.clientX - rect.left;
+          const y = ev.clientY - rect.top;
+          lastPointerRef.current = { x, y };
+        }
         // If pointer is outside the map container OR not on the canvas (i.e., over an overlay), hide the hover tooltip
         if (!container.contains(target) || (canvas && target !== canvas)) {
           setTooltip(prev => ({ ...prev, visible: false }));
+          return;
+        }
+        // Inside the container but overlays may block map mousemove; proactively hide when no features under pointer
+        if (!isDrawingActive() && !clickedTooltipVisibleRef.current && lastPointerRef.current) {
+          const { x, y } = lastPointerRef.current;
+          const candidateLayers = ['permit-areas-fill','plaza-areas-fill','intersections-points','permit-areas-focused-fill','plaza-areas-focused-fill','intersections-focused-points']
+            .filter((id) => { try { return map.getLayer && map.getLayer(id); } catch (_) { return false; } });
+          const feats = candidateLayers.length > 0
+            ? (map.queryRenderedFeatures([x, y], { layers: candidateLayers }) || [])
+            : [];
+          if (!feats.length) {
+            setTooltip(prev => ({ ...prev, visible: false }));
+            if (activeModeForEvents === 'intersections') {
+              try {
+                const prevId = hoveredIntersectionIdRef.current;
+                if (prevId !== null && prevId !== undefined) animateHoverProgress(map, 'intersections', prevId, 0);
+                hoveredIntersectionIdRef.current = null;
+              } catch (_) {}
+            } else {
+              try {
+                const idPrefix = activeModeForEvents === 'parks' ? 'permit-areas' : (activeModeForEvents === 'plazas' ? 'plaza-areas' : '');
+                if (idPrefix) {
+                  const hoverOutlineId = `${idPrefix}-hover-outline`;
+                  if (map.getLayer(hoverOutlineId)) map.setFilter(hoverOutlineId, ['==', ['id'], '']);
+                }
+                hoveredPolygonIdRef.current = null;
+              } catch (_) {}
+            }
+          }
         }
       } catch (_) {}
     };

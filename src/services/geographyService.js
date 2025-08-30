@@ -1,5 +1,7 @@
 // Generic geography loaders modeled after permitAreaService with defensive initialization
 
+import { ensureBaseLayers } from './geographyLayerManager.js';
+
 export const loadPolygonAreas = async (map, { idPrefix, url, fillColor = '#f97316', focusColor = '#3b82f6', signal } = {}) => {
   const sourceId = idPrefix;
   const fillId = `${idPrefix}-fill`;
@@ -33,21 +35,8 @@ export const loadPolygonAreas = async (map, { idPrefix, url, fillColor = '#f9731
       for (let i = 0; i < styleLayers.length; i++) {
         if (styleLayers[i].type === 'symbol') { firstSymbolId = styleLayers[i].id; break; }
       }
-      if (!map.getSource(sourceId)) {
-        map.addSource(sourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, generateId: true });
-      }
-      if (!map.getLayer(fillId)) {
-        map.addLayer({ id: fillId, type: 'fill', source: sourceId, layout: { visibility: 'visible' }, paint: { 'fill-color': fillColor, 'fill-opacity': 0.2 } }, firstSymbolId);
-      }
-      if (!map.getLayer(outlineId)) {
-        map.addLayer({ id: outlineId, type: 'line', source: sourceId, layout: { visibility: 'visible' }, paint: { 'line-color': fillColor, 'line-width': 1 } }, firstSymbolId);
-      }
-      if (!map.getLayer(focusedFillId)) {
-        map.addLayer({ id: focusedFillId, type: 'fill', source: sourceId, filter: ['==', ['id'], ''], layout: { visibility: 'visible' }, paint: { 'fill-color': focusColor, 'fill-opacity': 0.3 } }, firstSymbolId);
-      }
-      if (!map.getLayer(focusedOutlineId)) {
-        map.addLayer({ id: focusedOutlineId, type: 'line', source: sourceId, filter: ['==', ['id'], ''], layout: { visibility: 'visible' }, paint: { 'line-color': focusColor, 'line-width': 3, 'line-dasharray': [2, 2], 'line-opacity': 1 } }, firstSymbolId);
-      }
+      // Delegate base layer creation to geographyLayerManager for a single source of truth
+      ensureBaseLayers(map, sourceId, 'polygon', { fillColor, focusColor });
 
       const response = await fetch(`${url}?_ts=${Date.now()}`, { cache: 'no-store', signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -112,69 +101,8 @@ export const loadPointAreas = async (map, { idPrefix, url, circleColor = '#f9731
       for (let i = 0; i < styleLayers.length; i++) {
         if (styleLayers[i].type === 'symbol') { firstSymbolId = styleLayers[i].id; break; }
       }
-      if (!map.getSource(sourceId)) {
-        map.addSource(sourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, generateId: true });
-      }
-      if (!map.getLayer(circleId)) {
-        // Subtle filled dot with ring; grow on hover via feature-state
-        map.addLayer({
-          id: circleId,
-          type: 'circle',
-          source: sourceId,
-          layout: { visibility: 'visible' },
-          paint: {
-            'circle-color': circleColor,
-            'circle-opacity': [
-              'case',
-              ['boolean', ['feature-state', 'selected'], false],
-              0.3,
-              0.12
-            ],
-            'circle-stroke-color': [
-              'case',
-              ['boolean', ['feature-state', 'selected'], false],
-              focusColor,
-              circleColor
-            ],
-            'circle-stroke-width': [
-              'case',
-              ['boolean', ['feature-state', 'selected'], false],
-              3,
-              2
-            ],
-            'circle-radius': [
-              '+',
-              6,
-              ['*', 1, ['coalesce', ['feature-state', 'hoverProgress'], 0]]
-            ]
-          }
-        });
-      }
-      if (!map.getLayer(focusedId)) {
-        map.addLayer({
-          id: focusedId,
-          type: 'circle',
-          source: sourceId,
-          filter: ['==', ['id'], ''],
-          layout: { visibility: 'visible' },
-          paint: {
-            'circle-color': focusColor,
-            'circle-opacity': 0.16,
-            'circle-stroke-color': focusColor,
-            'circle-stroke-width': [
-              'case',
-              ['boolean', ['feature-state', 'selected'], false],
-              4,
-              3
-            ],
-            'circle-radius': [
-              '+',
-              9,
-              ['*', 1, ['coalesce', ['feature-state', 'hoverProgress'], 0]]
-            ]
-          }
-        });
-      }
+      // Delegate base point layer creation to geographyLayerManager to avoid duplication
+      ensureBaseLayers(map, sourceId, 'point', { fillColor: circleColor, focusColor });
 
       const response = await fetch(`${url}?_ts=${Date.now()}`, { cache: 'no-store', signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);

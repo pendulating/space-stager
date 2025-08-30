@@ -470,6 +470,8 @@ export const exportPermitAreaSiteplanV2 = async (
       includeStreetSidewalkDimensions = false,
       dimensionUnits = 'ft'
     } = exportOptions || {};
+    // Draw subtle infrastructure polygon fills first so they sit beneath active geometry and overlays
+    try { drawInfrastructurePolygonFillsOnPdf(pdf, layers, ensuredInfra, project, toMm, 0.08); } catch (_) {}
     // 1) Zone boundary dimensions (off by default)
     if (includeZoneDimensions) {
       drawDimensionsOnPdf(pdf, areaForExport, project, toMm, dimensionUnits);
@@ -498,14 +500,14 @@ export const exportPermitAreaSiteplanV2 = async (
         drawSidewalkWidthLabelsOnPdf(pdf, zoneSidewalks, project, toMm, dimensionUnits);
       } catch (_) {}
     }
-    // Draw order: (optional) object dimensions -> dropped objects -> shapes -> infrastructure -> labels on top
+    // Draw order: infrastructure polygon fills -> (optional) object dimensions -> dropped objects -> shapes -> infrastructure strokes/icons -> labels on top
     if (includeObjectDimensions) {
       try { drawObjectDimensionsOnPdf(pdf, droppedObjects, project, toMm, dimensionUnits); } catch (_) {}
     }
     drawDroppedObjectsOnPdf(pdf, droppedObjects, project, toMm, droppedObjectPngs, bearingAdjustDeg);
     drawDroppedObjectNotesOnPdf(pdf, droppedObjects, project, toMm);
     drawCustomShapesOnPdf(pdf, numberedShapes, project, toMm);
-    drawInfrastructureOnPdf(pdf, layers, infrastructureData, project, toMm, mmFromPx, pngIcons, enhancedVariantPngs);
+    drawInfrastructureOnPdf(pdf, layers, ensuredInfra, project, toMm, mmFromPx, pngIcons, enhancedVariantPngs);
     // Labels last so they overlay icons/lines
     if (regsVisible.length > 0) {
       drawParkingFeatureLabelsOnPdf(pdf, project, toMm, regsVisible, 'P');
@@ -1273,6 +1275,92 @@ const drawSidewalkWidthLabelsOnPdf = (pdf, sidewalksGeojson, project, toMm, unit
   } catch (_) {}
 };
 
+// Helpers: render GeoJSON geometries onto jsPDF using projected mm coordinates
+const drawGeojsonLineOnPdf = (pdf, geometry, project, toMm) => {
+  try {
+    if (!geometry) return;
+    if (geometry.type === 'LineString') {
+      const pts = (geometry.coordinates || []).map(([lng, lat]) => toMm(project(lng, lat)));
+      if (!pts || pts.length < 2) return;
+      pdf.setLineWidth(0.6);
+      pdf.lines(
+        (function toRelativeSegments(points){ const segs=[]; for(let i=1;i<points.length;i++){segs.push([points[i].x-points[i-1].x, points[i].y-points[i-1].y]);} return segs; })(pts),
+        pts[0].x,
+        pts[0].y,
+        [1, 1],
+        'S',
+        false
+      );
+    } else if (geometry.type === 'MultiLineString') {
+      (geometry.coordinates || []).forEach((line) => {
+        drawGeojsonLineOnPdf(pdf, { type: 'LineString', coordinates: line }, project, toMm);
+      });
+    }
+  } catch (_) {}
+};
+
+const drawGeojsonPolygonOnPdf = (pdf, geometry, project, toMm) => {
+  try {
+    if (!geometry) return;
+    if (geometry.type === 'Polygon') {
+      const ring = Array.isArray(geometry.coordinates?.[0])
+        ? geometry.coordinates[0].map(([lng, lat]) => toMm(project(lng, lat)))
+        : [];
+      if (ring.length < 2) return;
+      // Stroke outline only to avoid incorrect fills across complex geometries
+      pdf.setLineWidth(0.6);
+      pdf.lines(
+        (function toRelativeSegments(points){ const segs=[]; for(let i=1;i<points.length;i++){segs.push([points[i].x-points[i-1].x, points[i].y-points[i-1].y]);} return segs; })(ring),
+        ring[0].x,
+        ring[0].y,
+        [1, 1],
+        'S',
+        true
+      );
+    } else if (geometry.type === 'MultiPolygon') {
+      (geometry.coordinates || []).forEach((poly) => {
+        drawGeojsonPolygonOnPdf(pdf, { type: 'Polygon', coordinates: poly }, project, toMm);
+      });
+    }
+  } catch (_) {}
+};
+
+// Draw faint polygon fills for infrastructure layers early in the pipeline so they appear beneath
+// annotations and icons. Fill only (no stroke), with low opacity for subtlety.
+const drawInfrastructurePolygonFillsOnPdf = (pdf, layers, infrastructureData, project, toMm, fillOpacity = 0.08) => {
+  try {
+    if (!layers) return;
+    const entries = Object.entries(layers).filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible && !cfg?.disabled);
+    entries.forEach(([layerId, cfg]) => {
+      const data = infrastructureData?.[layerId];
+      if (!data?.features) return;
+      const color = hexToRgb(cfg.color || '#333333');
+      pdf.setFillColor(color.r, color.g, color.b);
+      const setOpacity = (alpha) => {
+        try { if (pdf.saveGraphicsState) pdf.saveGraphicsState(); if (pdf.setGState && typeof pdf.GState === 'function') pdf.setGState(new pdf.GState({ opacity: alpha })); } catch (_) {}
+      };
+      const restoreOpacity = () => { try { if (pdf.restoreGraphicsState) pdf.restoreGraphicsState(); } catch (_) {} };
+      data.features.forEach((feat) => {
+        const g = feat.geometry;
+        if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) return;
+        const drawPoly = (coords) => {
+          try {
+            const ring = Array.isArray(coords?.[0]) ? coords[0].map(([lng, lat]) => toMm(project(lng, lat))) : [];
+            if (ring.length < 3) return;
+            const rel = (function toRel(points){ const segs=[]; for (let i=1;i<points.length;i++){ segs.push([points[i].x-points[i-1].x, points[i].y-points[i-1].y]); } return segs; })(ring);
+            setOpacity(fillOpacity);
+            // Fill only; close=true
+            pdf.lines(rel, ring[0].x, ring[0].y, [1,1], 'F', true);
+            restoreOpacity();
+          } catch (_) {}
+        };
+        if (g.type === 'Polygon') drawPoly(g.coordinates);
+        else if (g.type === 'MultiPolygon') (g.coordinates || []).forEach(poly => drawPoly(poly));
+      });
+    });
+  } catch (_) {}
+};
+
 const drawInfrastructureOnPdf = (pdf, layers, infrastructureData, project, toMm, mmFromPx, pngIcons, enhancedVariantPngs) => {
   if (!layers) return;
   const entries = Object.entries(layers).filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible && !cfg?.disabled);
@@ -1562,10 +1650,14 @@ const drawLegendOnPdf = (pdf, rect, layers, numberedShapes, droppedObjects, focu
 
   // Title
   const { title: siteTitle, subtitle: siteSubtitle } = getSiteplanTitleParts(focusedArea);
-  const title = `SITE PLAN: ${String(siteTitle).toUpperCase()}`;
   setPdfFont(pdf, 'heading', theme.sizesMm.h2);
   pdf.setTextColor(theme.colors.text.r, theme.colors.text.g, theme.colors.text.b);
-  wrapPdfLines(pdf, title, maxW, ptFromMm(theme.sizesMm.h2)).forEach((line) => {
+  // Line 1: label
+  pdf.text('SITE PLAN:', leftX, cursorY);
+  cursorY += theme.sizesMm.h2 * 0.9;
+  // Line 2+: wrapped site name
+  const nameUpper = String(siteTitle).toUpperCase();
+  wrapPdfLines(pdf, nameUpper, maxW, ptFromMm(theme.sizesMm.h2)).forEach((line) => {
     pdf.text(line, leftX, cursorY);
     cursorY += theme.sizesMm.h2 * 0.9;
   });

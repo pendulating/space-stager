@@ -52,6 +52,56 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
   // Get the focused area ID for comparison
   const focusedAreaId = focusedArea?.id || focusedArea?.properties?.id;
 
+  // Remove infrastructure layer - define early so effects can depend on it safely
+  const removeInfrastructureLayer = useCallback((layerId) => {
+    if (!map) return;
+    // Check if map has a style loaded before trying to access layers
+    try {
+      if (!map.getStyle()) {
+        if (DEBUG_INFRA) console.log(`Infrastructure: Map style not loaded, skipping remove for ${layerId}`);
+        return;
+      }
+    } catch (error) {
+      if (DEBUG_INFRA) console.log(`Infrastructure: Error checking map style, skipping remove for ${layerId}:`, error);
+      return;
+    }
+    // Remove all possible layer IDs and sources
+    const pointLayerId = `layer-${layerId}-point`;
+    const lineLayerId = `layer-${layerId}-line`;
+    const polygonLayerId = `layer-${layerId}-polygon`;
+    const altLayerId = `${layerId}-layer`;
+    const sourceId = layerId;
+    const altSourceId = `source-${layerId}`;
+    try {
+      if (map.getLayer(pointLayerId)) {
+        try { map.off('mouseenter', pointLayerId); } catch {}
+        try { map.off('mouseleave', pointLayerId); } catch {}
+        try { map.off('click', pointLayerId); } catch {}
+        map.removeLayer(pointLayerId);
+      }
+      if (map.getLayer(lineLayerId)) {
+        map.removeLayer(lineLayerId);
+      }
+      if (map.getLayer(polygonLayerId)) {
+        try { map.off('mouseenter', polygonLayerId); } catch {}
+        try { map.off('mouseleave', polygonLayerId); } catch {}
+        try { map.off('click', polygonLayerId); } catch {}
+        map.removeLayer(polygonLayerId);
+      }
+      if (map.getLayer(altLayerId)) {
+        map.removeLayer(altLayerId);
+      }
+      if (map.getSource(sourceId)) {
+        map.removeSource(sourceId);
+      }
+      if (map.getSource(altSourceId)) {
+        map.removeSource(altSourceId);
+      }
+    } catch (error) {
+      console.error(`Error removing ${layerId} layer/source:`, error);
+    }
+  }, [map]);
+
   // Debug: Track map changes
   useEffect(() => {
     if (DEBUG_INFRA) console.log('[DEBUG] Map changed:', !!map, 'map.isStyleLoaded():', map?.isStyleLoaded());
@@ -77,57 +127,29 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     } else {
       // Clear everything when focus is removed
       if (map) {
-        ['trees', 'hydrants', 'busStops', 'benches', 'bikeLanes', 'bikeParking', 'citibikeStations', 'subwayEntrances', 'fireLanes', 'specialDisasterRoutes', 'pedestrianRamps', 'parkingMeters', 'linknycKiosks', 'publicRestrooms', 'drinkingFountains', 'sprayShowers', 'parksTrails', 'parkingLots', 'iceLadders', 'parksSigns'].forEach(layerId => {
-          removeInfrastructureLayer(layerId);
-        });
+        try {
+          Object.keys(layers || {}).forEach((layerId) => {
+            if (layerId !== 'permitAreas') removeInfrastructureLayer(layerId);
+          });
+        } catch (_) {}
       }
       
-      setInfrastructureData({
-        trees: null,
-        hydrants: null,
-        busStops: null,
-        benches: null,
-        bikeLanes: null,
-        bikeParking: null,
-        citibikeStations: null,
-        subwayEntrances: null,
-        fireLanes: null,
-        specialDisasterRoutes: null,
-        pedestrianRamps: null,
-        parkingMeters: null,
-        linknycKiosks: null,
-        publicRestrooms: null,
-        drinkingFountains: null,
-        sprayShowers: null,
-        parksTrails: null,
-        parkingLots: null,
-        iceLadders: null,
-        parksSigns: null
-      });
+      // Reset infrastructure data map
+      setInfrastructureData({});
       
-      setLayers(prev => ({
-        ...prev,
-        bikeLanes: { ...prev.bikeLanes, visible: false, loading: false },
-        bikeParking: { ...prev.bikeParking, visible: false, loading: false },
-        pedestrianRamps: { ...prev.pedestrianRamps, visible: false, loading: false },
-        parkingMeters: { ...prev.parkingMeters, visible: false, loading: false },
-        linknycKiosks: { ...prev.linknycKiosks, visible: false, loading: false },
-        publicRestrooms: { ...prev.publicRestrooms, visible: false, loading: false },
-        drinkingFountains: { ...prev.drinkingFountains, visible: false, loading: false },
-        sprayShowers: { ...prev.sprayShowers, visible: false, loading: false },
-        parksTrails: { ...prev.parksTrails, visible: false, loading: false },
-        parkingLots: { ...prev.parkingLots, visible: false, loading: false },
-        iceLadders: { ...prev.iceLadders, visible: false, loading: false },
-        parksSigns: { ...prev.parksSigns, visible: false, loading: false },
-        trees: { ...prev.trees, visible: false, loading: false },
-        hydrants: { ...prev.hydrants, visible: false, loading: false },
-        busStops: { ...prev.busStops, visible: false, loading: false },
-        benches: { ...prev.benches, visible: false, loading: false }
-      }));
+      // Reset all layer states dynamically
+      setLayers(prev => {
+        const next = { ...prev };
+        Object.keys(prev || {}).forEach((layerId) => {
+          if (layerId === 'permitAreas') return;
+          next[layerId] = { ...prev[layerId], visible: false, loading: false, loaded: false, error: null };
+        });
+        return next;
+      });
       
       loadingLayersRef.current.clear();
     }
-  }, [focusedAreaId]); // Only depend on the ID
+  }, [focusedAreaId, layers, map, removeInfrastructureLayer, setLayers]);
 
   // Clear existing layers when focused area changes
   useEffect(() => {
@@ -447,57 +469,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     }
   }, [map, layers]);
 
-  // Remove infrastructure layer - move this before addInfrastructureLayerToMap
-  const removeInfrastructureLayer = useCallback((layerId) => {
-    if (!map) return;
-    
-    // Check if map has a style loaded before trying to access layers
-    try {
-      if (!map.getStyle()) {
-        if (DEBUG_INFRA) console.log(`Infrastructure: Map style not loaded, skipping remove for ${layerId}`);
-        return;
-      }
-    } catch (error) {
-      if (DEBUG_INFRA) console.log(`Infrastructure: Error checking map style, skipping remove for ${layerId}:`, error);
-      return;
-    }
-    
-    // Remove all possible layer IDs
-    const pointLayerId = `layer-${layerId}-point`;
-    const lineLayerId = `layer-${layerId}-line`;
-    const polygonLayerId = `layer-${layerId}-polygon`;
-    const altLayerId = `${layerId}-layer`;
-    const sourceId = layerId;
-    const altSourceId = `source-${layerId}`;
-    try {
-      if (map.getLayer(pointLayerId)) {
-        map.off('mouseenter', pointLayerId);
-        map.off('mouseleave', pointLayerId);
-        map.off('click', pointLayerId);
-        map.removeLayer(pointLayerId);
-      }
-      if (map.getLayer(lineLayerId)) {
-        map.removeLayer(lineLayerId);
-      }
-      if (map.getLayer(polygonLayerId)) {
-        map.off('mouseenter', polygonLayerId);
-        map.off('mouseleave', polygonLayerId);
-        map.off('click', polygonLayerId);
-        map.removeLayer(polygonLayerId);
-      }
-      if (map.getLayer(altLayerId)) {
-        map.removeLayer(altLayerId);
-      }
-      if (map.getSource(sourceId)) {
-        map.removeSource(sourceId);
-      }
-      if (map.getSource(altSourceId)) {
-        map.removeSource(altSourceId);
-      }
-    } catch (error) {
-      console.error(`Error removing ${layerId} layer/source:`, error);
-    }
-  }, [map]);
+  // (removed duplicate definition further below)
 
   // Load infrastructure layer - now addInfrastructureLayerToMap is defined
   const loadInfrastructureLayer = useCallback(async (layerId) => {
@@ -899,9 +871,11 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
       // Clear focus and all infrastructure - ensure state is properly reset
   const clearFocus = useCallback(() => {
     if (map) {
-      ['trees', 'hydrants', 'busStops', 'benches', 'bikeLanes', 'bikeParking', 'citibikeStations', 'subwayEntrances', 'fireLanes', 'specialDisasterRoutes', 'pedestrianRamps', 'parkingMeters', 'linknycKiosks', 'publicRestrooms', 'drinkingFountains', 'sprayShowers', 'parksTrails', 'parkingLots', 'iceLadders', 'parksSigns'].forEach(layerId => {
-        removeInfrastructureLayer(layerId);
-      });
+      try {
+        Object.keys(layers || {}).forEach((layerId) => {
+          if (layerId !== 'permitAreas') removeInfrastructureLayer(layerId);
+        });
+      } catch (_) {}
     }
 
     // Reset all infrastructure layer states
@@ -922,31 +896,10 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     });
 
     // Clear data
-    setInfrastructureData({
-      trees: null,
-      hydrants: null,
-      busStops: null,
-      benches: null,
-      bikeLanes: null,
-      bikeParking: null,
-      citibikeStations: null,
-      subwayEntrances: null,
-      fireLanes: null,
-      specialDisasterRoutes: null,
-      pedestrianRamps: null,
-      parkingMeters: null,
-      linknycKiosks: null,
-      publicRestrooms: null,
-      drinkingFountains: null,
-      sprayShowers: null,
-      parksTrails: null,
-      parkingLots: null,
-      iceLadders: null,
-      parksSigns: null
-    });
+    setInfrastructureData({});
 
     loadingLayersRef.current.clear();
-  }, [map, removeInfrastructureLayer, setLayers]);
+  }, [map, layers, removeInfrastructureLayer, setLayers]);
 
   return {
     infrastructureData,
