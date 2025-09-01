@@ -660,7 +660,7 @@ const MapContainer = forwardRef(({
 
   // Open text editor on text feature creation anywhere
   useEffect(() => {
-    if (!map || !drawTools?.draw?.current) return;
+    if (!map) return;
     const onCreateAny = (e) => {
       try {
         const f = e?.features?.[0];
@@ -690,7 +690,7 @@ const MapContainer = forwardRef(({
 
   // Listen for rectangle draw completion to convert into dropped object and remove draw feature
   useEffect(() => {
-    if (!map || !drawTools?.draw?.current) return;
+    if (!map) return;
     const onCreate = (e) => {
       try {
         const f = e?.features?.[0];
