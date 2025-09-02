@@ -459,6 +459,17 @@ const DroppedObjects = ({
     } catch (_) {}
   }, [map, selectedId]);
 
+  // Close action popup when selection cleared or selected object removed
+  useEffect(() => {
+    try {
+      const p = popupRef.current;
+      if (!p) return;
+      if (!selectedId) { try { p.remove(); } catch (_) {} return; }
+      const exists = Array.isArray(objects) && objects.some((o) => o && o.id === selectedId);
+      if (!exists) { try { p.remove(); } catch (_) {} }
+    } catch (_) {}
+  }, [selectedId, objects]);
+
   // Interactions: click to select, drag to move (centralized via useMapEvents)
   const onSelectRef = React.useRef(onSelectObject);
   const onMoveRef = React.useRef(onMoveObject);

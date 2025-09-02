@@ -651,6 +651,37 @@ const MapContainer = forwardRef(({
     }
   };
 
+  // Delete selected dropped object with Delete/Backspace (select mode only)
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      try {
+        // Ignore when typing in inputs/editors
+        const t = e.target;
+        const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+        if (typing) return;
+        // Only act when not in placement mode
+        if (placementMode) return;
+        const isDel = e.key === 'Delete' || e.key === 'Backspace';
+        if (!isDel) return;
+        // Prevent page navigation/backspace default
+        e.preventDefault();
+        // Delete whichever kind is selected
+        const id = selectedObjectId;
+        if (!id) return;
+        if (selectedKind === 'rect') {
+          // Remove rectangle by deleting the corresponding dropped object
+          try { clickToPlace.removeDroppedObject(id); } catch (_) {}
+          try { clearSelection(); } catch (_) {}
+        } else if (selectedKind === 'point') {
+          try { clickToPlace.removeDroppedObject(id); } catch (_) {}
+          try { clearSelection(); } catch (_) {}
+        }
+      } catch (_) {}
+    };
+    window.addEventListener('keydown', onKeyDown, { passive: false });
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [placementMode, selectedObjectId, selectedKind, clickToPlace, clearSelection]);
+
   // Disable double-click zoom when map is loaded to prevent conflicts with permit area selection
   React.useEffect(() => {
     if (mapLoaded && map && map.doubleClickZoom) {
