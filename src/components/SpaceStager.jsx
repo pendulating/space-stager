@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import Header from './Header/Header';
+import ExamplesModal from './Modals/ExamplesModal';
 import Sidebar from './Sidebar/Sidebar';
 import MapContainer from './Map/MapContainer';
 import InfoPanel from './Modals/InfoPanel';
@@ -41,6 +42,7 @@ const SpaceStager = () => {
   const labelSigRef = useRef('');
   const [labelScanFlag, setLabelScanFlag] = useState(false);
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
+  const [showExamples, setShowExamples] = useState(false);
   const getInitialDark = () => {
     if (typeof window === 'undefined') return false;
     try {
@@ -488,7 +490,7 @@ const SpaceStager = () => {
         return;
       }
 
-      const rotationAmount = 15; // degrees per key press
+      const rotationAmount = 45; // degrees per key press
       
       if (e.key.toLowerCase() === 'q') {
         e.preventDefault();
@@ -542,6 +544,52 @@ const SpaceStager = () => {
     if (headerFileInputRef.current) headerFileInputRef.current.click();
   }, []);
 
+  const openExampleInEditor = useCallback(async (example) => {
+    try {
+      if (!example?.json) return;
+      const res = await fetch(example.json);
+      const blob = await res.blob();
+      const file = new File([blob], `${example.slug}.json`, { type: 'application/json' });
+      // Reuse existing import flow
+      importPlan(
+        file,
+        map,
+        drawTools.draw,
+        null,
+        clickToPlace.setDroppedObjects,
+        setLayers,
+        {
+          selectGeography: (type) => {
+            try { if (type && type !== geographyType) selectGeography(type); } catch (_) {}
+          },
+          focusAreaByIdentity: ({ type, system, id }) => {
+            let attempts = 0;
+            const maxAttempts = 25;
+            const tryFocus = () => {
+              attempts += 1;
+              try {
+                const list = permitAreas.permitAreas || [];
+                let found = null;
+                if (type === 'parks' && system) {
+                  found = list.find(f => f?.properties?.system === system);
+                } else if (id !== undefined && id !== null) {
+                  found = list.find(f => f?.id === id);
+                }
+                if (found) {
+                  try { permitAreas.focusOnPermitArea(found); } catch (_) {}
+                  return;
+                }
+              } catch (_) {}
+              if (attempts < maxAttempts) setTimeout(tryFocus, 200);
+            };
+            tryFocus();
+          }
+        }
+      );
+      setShowExamples(false);
+    } catch (_) {}
+  }, [map, drawTools.draw, clickToPlace.setDroppedObjects, setLayers, selectGeography, geographyType, permitAreas]);
+
   return (
     <div className={`h-screen w-full flex flex-col bg-gray-50 dark:bg-gray-900 dark:text-gray-100 ${isShaking ? 'shake-animation' : ''}`}>
       {/* Hidden input paired to header import button */}
@@ -562,6 +610,7 @@ const SpaceStager = () => {
         isDarkMode={isDarkMode}
         onToggleDarkMode={toggleDarkMode}
         onImportClick={triggerHeaderImport}
+        onShowExamples={() => setShowExamples(true)}
       />
       
       {/* Tutorial Components */}
@@ -607,6 +656,12 @@ const SpaceStager = () => {
           onClose={() => permitAreas.setShowFocusInfo(false)}
         />
       )}
+
+      <ExamplesModal
+        isOpen={showExamples}
+        onClose={() => setShowExamples(false)}
+        onOpenInEditor={openExampleInEditor}
+      />
 
       {/* Site Plan Mode Indicator */}
       {isSitePlanMode && (

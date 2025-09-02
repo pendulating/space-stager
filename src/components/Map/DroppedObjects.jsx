@@ -237,7 +237,8 @@ const DroppedObjects = ({
             ?? (t?.enhancedRendering?.zeroOffsetDeg)
             ?? DEFAULT_ZERO_OFFSET_BY_VIEW[vt] ?? 0;
           const baseAngle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
-          const eff = (vt === 'isometric') ? (((baseAngle - bearing + zeroOffset) % 360 + 360) % 360) : (((baseAngle + zeroOffset) % 360 + 360) % 360);
+          // Compensate for map bearing in both views so icons remain visually stationary while rotating the map
+          const eff = (((baseAngle - bearing + zeroOffset) % 360 + 360) % 360);
           const q = quantizeAngleTo45(eff);
           const imgId = buildSpriteImageId(t.enhancedRendering.spriteBase, q);
           // Set icon id and readiness flag (so circle fallback can show until sprite registers)
@@ -309,6 +310,9 @@ const DroppedObjects = ({
               'icon-allow-overlap': true,
               'icon-ignore-placement': true,
               'icon-anchor': 'center',
+              // Ensure symbols do not rotate with map; we swap sprites ourselves on bearing changes
+              'icon-rotation-alignment': 'viewport',
+              'icon-pitch-alignment': 'viewport',
               // Scale sprite bitmap to desired pixel diameter based on baseSize and zoom.
               // Assumes sprite bitmaps are ~512px. Diameter targets: baseSize*0.6 @ z12 → baseSize*1.6 @ z18, with 0.9 inset.
               'icon-size': [
@@ -359,6 +363,10 @@ const DroppedObjects = ({
         // Enforce filters even if layers already existed
         try { map.setFilter(DROPPED_SYMBOL_LAYER_ID, ['has', 'icon_image']); } catch (_) {}
         try { map.setFilter(DROPPED_CIRCLE_LAYER_ID, ['!', ['has', 'icon_image']]); } catch (_) {}
+        // Enforce viewport alignment so icons do not rotate with map bearing/pitch
+        try { map.setLayoutProperty(DROPPED_SYMBOL_LAYER_ID, 'icon-rotation-alignment', 'viewport'); } catch (_) {}
+        try { map.setLayoutProperty(DROPPED_SYMBOL_LAYER_ID, 'icon-pitch-alignment', 'viewport'); } catch (_) {}
+        try { map.setLayoutProperty(DROPPED_SYMBOL_LAYER_ID, 'icon-rotate', 0); } catch (_) {}
         if (!map.getLayer(DROPPED_SELECTED_LAYER_ID)) {
           map.addLayer({
             id: DROPPED_SELECTED_LAYER_ID,

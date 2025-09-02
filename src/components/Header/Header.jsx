@@ -1,6 +1,6 @@
 // src/components/Header/Header.jsx
 import React from 'react';
-import { Map, Info, Settings, Moon, Sun, Upload } from 'lucide-react';
+import { Map, Info, Settings, Moon, Sun, Upload, BookOpen } from 'lucide-react';
 import { useTutorial } from '../../contexts/TutorialContext';
 
 const Header = ({ 
@@ -8,7 +8,8 @@ const Header = ({
   setShowInfo,
   isDarkMode = false,
   onToggleDarkMode = () => {},
-  onImportClick = null
+  onImportClick = null,
+  onShowExamples = null
 }) => {
   const { isTutorialDisabled, disableTutorial, enableTutorial } = useTutorial();
 
@@ -23,6 +24,15 @@ const Header = ({
             </h1>
           </div>
           <div className="flex items-center space-x-2">
+            {/* Examples Modal */}
+            <button
+              onClick={onShowExamples || (() => {})}
+              className="p-2 rounded-lg transition-colors bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700"
+              title="Examples"
+              aria-label="Show examples"
+            >
+              <BookOpen className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+            </button>
             {/* Import Plan (JSON) - always visible */}
             <button
               onClick={onImportClick || (() => {})}

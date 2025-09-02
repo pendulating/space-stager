@@ -539,8 +539,8 @@ def main():
                 cam_obj.data.ortho_scale = max(0.1, cam_obj.data.ortho_scale * factor)
 
         def compute_needed_ortho_scale_ndc_for_current_pose(scn, cam_obj, world_points, margin: float = 1.05, border_px_local: int = 4):
-            """Non-mutating: compute required ortho_scale based on NDC span at current pose.
-            Uses world_to_camera_view which already accounts for aspect and camera framing.
+            """Non-mutating: compute required ortho_scale based on NDC axis spans at current pose.
+            Keeps the larger of width/height within frame by the given margin.
             """
             if not world_points:
                 return cam_obj.data.ortho_scale
@@ -561,25 +561,25 @@ def main():
                     max_y = y
             span_x = max(1e-6, max_x - min_x)
             span_y = max(1e-6, max_y - min_y)
-            span = max(span_x, span_y)
-            if not math.isfinite(span):
+            max_span = max(span_x, span_y)
+            if not math.isfinite(max_span):
                 return cam_obj.data.ortho_scale
-            # If span*margin <= 1.0 we fit already; otherwise scale up proportionally
-            factor = max(1.0, span * margin)
+            # If max_span*margin <= 1.0 we fit already; otherwise scale up proportionally
+            factor = max(1.0, max_span * margin)
             width_needed = cam_obj.data.ortho_scale * factor
-            # Add border in pixels converted to world units; approximate via resolution_x
+            # Account for border in pixels converted to world units; use the limiting axis
             res_x = max(1, scn.render.resolution_x)
-            # Solve width_needed_final = width_needed + 2*border_px*(width_needed_final/res_x)
-            denom = max(1e-6, 1.0 - (2.0 * border_px_local / res_x))
-            width_needed_final = width_needed / denom
+            res_y = max(1, scn.render.resolution_y)
+            edge_safe_x = 1.0 - (2.0 * border_px_local / res_x)
+            edge_safe_y = 1.0 - (2.0 * border_px_local / res_y)
+            edge_safe = max(1e-6, min(edge_safe_x, edge_safe_y))
+            width_needed_final = width_needed / edge_safe
             return max(0.1, width_needed_final)
 
-        def compute_ndc_span(scn, cam_obj, world_points):
-            """Return diagonal of projected X/Y spans in NDC [0..1] at current pose/scale.
-            Using the diagonal makes the size measure rotation-invariant (less bias at 45°).
-            """
+        def compute_ndc_spans(scn, cam_obj, world_points):
+            """Return (span_x, span_y) of projected points in NDC [0..1] at current pose/scale."""
             if not world_points:
-                return 0.0
+                return 0.0, 0.0
             min_x = 1.0
             min_y = 1.0
             max_x = 0.0
@@ -597,7 +597,7 @@ def main():
                     max_y = y
             span_x = max(0.0, max_x - min_x)
             span_y = max(0.0, max_y - min_y)
-            return (span_x * span_x + span_y * span_y) ** 0.5
+            return span_x, span_y
 
         def margin_for_angle(angle_deg):
             angle_mod = int(angle_deg) % 360
@@ -608,20 +608,58 @@ def main():
             return base
 
         def set_ortho_scale_to_target_span(scn, cam_obj, world_points, target_span: float, border_px_local: int = 4):
-            """Adjust cam_obj.data.ortho_scale so that projected max span equals target_span.
+            """Adjust cam_obj.data.ortho_scale so that max(width, height) in NDC equals target_span.
             Keeps a safety margin from the frame edges via border_px_local.
             """
             if not world_points:
                 return
             res_x = max(1, scn.render.resolution_x)
-            # For diagonal span, safe limit scales by sqrt(2) times edge-safe extent
-            edge_safe = max(1e-3, 1.0 - (2.0 * border_px_local / res_x) - 1e-3)
-            safe_limit = (2.0 ** 0.5) * edge_safe
+            res_y = max(1, scn.render.resolution_y)
+            edge_safe_x = 1.0 - (2.0 * border_px_local / res_x)
+            edge_safe_y = 1.0 - (2.0 * border_px_local / res_y)
+            safe_limit = max(1e-3, min(edge_safe_x, edge_safe_y) - 1e-3)
             desired = min(max(1e-3, target_span), safe_limit)
-            span = compute_ndc_span(scn, cam_obj, world_points)
-            if span <= 0.0:
+            span_x, span_y = compute_ndc_spans(scn, cam_obj, world_points)
+            max_span = max(span_x, span_y)
+            if max_span <= 0.0:
                 return
-            factor = span / desired
+            factor = max_span / desired
+            if not math.isfinite(factor) or factor <= 0.0:
+                return
+            cam_obj.data.ortho_scale = max(0.1, cam_obj.data.ortho_scale * factor)
+
+        def compute_max_ndc_radius(scn, cam_obj, world_points, center_world):
+            """Return max radial distance in NDC from projected center_world to projected points."""
+            if not world_points:
+                return 0.0
+            c = world_to_camera_view(scn, cam_obj, center_world)
+            cx, cy = c.x, c.y
+            max_r = 0.0
+            for p in world_points:
+                uvw = world_to_camera_view(scn, cam_obj, p)
+                dx = uvw.x - cx
+                dy = uvw.y - cy
+                r = (dx * dx + dy * dy) ** 0.5
+                if r > max_r and math.isfinite(r):
+                    max_r = r
+            return max_r
+
+        def set_ortho_scale_to_target_radius(scn, cam_obj, world_points, center_world, target_radius: float, border_px_local: int = 4):
+            """Adjust cam_obj.data.ortho_scale so that max radial distance in NDC equals target_radius.
+            Rotation-invariant for top-down (camera roll) views.
+            """
+            if not world_points:
+                return
+            res_x = max(1, scn.render.resolution_x)
+            res_y = max(1, scn.render.resolution_y)
+            r_safe_x = 0.5 - (border_px_local / res_x)
+            r_safe_y = 0.5 - (border_px_local / res_y)
+            r_safe = max(1e-3, min(r_safe_x, r_safe_y) - 1e-3)
+            desired = min(max(1e-3, target_radius), r_safe)
+            current = compute_max_ndc_radius(scn, cam_obj, world_points, center_world)
+            if current <= 0.0:
+                return
+            factor = current / desired
             if not math.isfinite(factor) or factor <= 0.0:
                 return
             cam_obj.data.ortho_scale = max(0.1, cam_obj.data.ortho_scale * factor)
@@ -722,7 +760,8 @@ def main():
                 cam.rotation_euler = (0, 0, yaw_rad)
                 bpy.context.view_layer.update()
                 world_pts = get_world_corners(mesh_objects)
-                set_ortho_scale_to_target_span(scene, cam, world_pts, target_span=0.92, border_px_local=border_px)
+                # Target a constant pixel radius from center for rotation invariance
+                set_ortho_scale_to_target_radius(scene, cam, world_pts, center, target_radius=0.46, border_px_local=border_px)
                 render_top_down_view(cam, angle, model_stem, model_output_dir)
 
 
