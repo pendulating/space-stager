@@ -1,10 +1,18 @@
 import React from 'react';
-import { Circle, Pencil, Square, Trash2, Type, ArrowRight } from 'lucide-react';
+import { Dot, Square, Type, ArrowRight } from 'lucide-react';
+
+const DashedLineIcon = (props) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <path d="M4 20 L8 16" strokeDasharray="3 3" />
+    <path d="M10 14 L14 10" strokeDasharray="3 3" />
+    <path d="M16 8 L20 4" strokeDasharray="3 3" />
+  </svg>
+);
 
 const DrawingTools = ({ activeTool, onToolSelect, selectedShape, onDelete, drawAvailable = true, onRetry }) => {
   const tools = [
-    { id: 'point', icon: Circle, title: 'Add Point' },
-    { id: 'line', icon: Pencil, title: 'Draw Line' },
+    { id: 'point', icon: Dot, title: 'Add Point' },
+    { id: 'line', icon: DashedLineIcon, title: 'Draw Line' },
     { id: 'polygon', icon: Square, title: 'Draw Polygon' },
     { id: 'text', icon: Type, title: 'Text Annotation' },
     { id: 'arrow', icon: ArrowRight, title: 'Arrow Annotation' }
@@ -52,14 +60,6 @@ const DrawingTools = ({ activeTool, onToolSelect, selectedShape, onDelete, drawA
             <Icon className="w-5 h-5" />
           </button>
         ))}
-        <button
-          onClick={onDelete}
-          className="p-3 bg-gray-100 dark:bg-gray-800 hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-700 dark:text-gray-200 hover:text-red-600 dark:hover:text-red-300 rounded-lg transition-all"
-          title="Delete Selected"
-          disabled={!selectedShape || !drawAvailable}
-        >
-          <Trash2 className="w-5 h-5" />
-        </button>
       </div>
     </div>
   );

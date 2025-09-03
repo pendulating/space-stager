@@ -243,7 +243,8 @@ const SpaceStager = () => {
             if (attempts < maxAttempts) setTimeout(tryFocus, 200);
           };
           tryFocus();
-        }
+        },
+        setEventInfo: (info) => setEventInfo(info || {})
       }
     );
     // Force immediate annotation recompute after import
@@ -651,7 +652,7 @@ const SpaceStager = () => {
           showFocusInfo={true}
           hasSubFocus={permitAreas.hasSubFocus}
           onBeginSubFocus={() => {
-            try { drawTools.activateDrawingTool('polygon'); } catch (_) {}
+            try { drawTools.activateDrawingTool('subfocus'); } catch (_) {}
           }}
           onClearSubFocus={() => {
             try { permitAreas.clearSubFocusPolygon(); } catch (_) {}

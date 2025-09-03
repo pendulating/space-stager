@@ -79,7 +79,7 @@ const detectBasemapKey = (map) => {
 export const exportPlan = (map, draw, droppedObjects, layers, customShapes, options = {}) => {
   if (!map || !draw) return;
 
-  const { geographyType = 'parks', focusedArea = null, appVersion = undefined } = options || {};
+  const { geographyType = 'parks', focusedArea = null, appVersion = undefined, eventInfo = undefined } = options || {};
 
   const nowIso = new Date().toISOString();
   const center = map.getCenter();
@@ -105,7 +105,8 @@ export const exportPlan = (map, draw, droppedObjects, layers, customShapes, opti
     },
     layers: layers,
     customShapes: draw.current ? draw.current.getAll() : { type: 'FeatureCollection', features: [] },
-    droppedObjects: droppedObjects
+    droppedObjects: droppedObjects,
+    eventInfo: eventInfo || undefined
   };
 
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -1461,8 +1462,34 @@ const drawCustomShapesOnPdf = (pdf, shapes, project, toMm) => {
       }
       pdf.setLineWidth(0.5);
       pdf.lines(toRelativeSegments(coords), coords[0].x, coords[0].y, [1, 1], 'S', false);
+      // Compute true midpoint along the polyline (for badge/label placement)
+      const computePolylineMidpoint = (points) => {
+        try {
+          let total = 0;
+          for (let i = 1; i < points.length; i += 1) {
+            total += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+          }
+          if (total === 0) return points[0];
+          const half = total / 2;
+          let acc = 0;
+          for (let i = 1; i < points.length; i += 1) {
+            const segLen = Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+            if (acc + segLen >= half) {
+              const t = (half - acc) / (segLen || 1);
+              return {
+                x: points[i - 1].x + t * (points[i].x - points[i - 1].x),
+                y: points[i - 1].y + t * (points[i].y - points[i - 1].y)
+              };
+            }
+            acc += segLen;
+          }
+          return points[Math.floor(points.length / 2)];
+        } catch (_) { return points[Math.floor(points.length / 2)]; }
+      };
+      // Place badge at the geometric midpoint instead of an endpoint
+      labelPoint = computePolylineMidpoint(coords);
       // Arrowhead if this is an arrow
-      if (kind === 'arrow') {
+      if (kind === 'arrow' || (shape.properties && shape.properties.arrow === true)) {
         const a = coords[coords.length - 2];
         const b = coords[coords.length - 1];
         const dx = b.x - a.x; const dy = b.y - a.y;
@@ -1473,10 +1500,16 @@ const drawCustomShapesOnPdf = (pdf, shapes, project, toMm) => {
         const tip = b;
         const left = { x: b.x - ux * size - uy * (size * 0.6), y: b.y - uy * size + ux * (size * 0.6) };
         const right = { x: b.x - ux * size + uy * (size * 0.6), y: b.y - uy * size - ux * (size * 0.6) };
-        pdf.setFillColor(17, 24, 39);
-        pdf.lines([[left.x - tip.x, left.y - tip.y], [right.x - left.x, right.y - left.y], [tip.x - right.x, tip.y - right.y]], tip.x, tip.y, [1,1], 'F', true);
+        // Match line stroke color
+        pdf.setFillColor(59, 130, 246);
+        if (typeof pdf.triangle === 'function') {
+          try { pdf.triangle(tip.x, tip.y, left.x, left.y, right.x, right.y, 'F'); } catch (_) {
+            pdf.lines([[left.x - tip.x, left.y - tip.y], [right.x - left.x, right.y - left.y], [tip.x - right.x, tip.y - right.y]], tip.x, tip.y, [1,1], 'F', true);
+          }
+        } else {
+          pdf.lines([[left.x - tip.x, left.y - tip.y], [right.x - left.x, right.y - left.y], [tip.x - right.x, tip.y - right.y]], tip.x, tip.y, [1,1], 'F', true);
+        }
       }
-      labelPoint = coords[Math.floor(coords.length / 2)];
     } else if (g.type === 'Polygon') {
       const ring = g.coordinates[0].map(([lng, lat]) => toMm(project(lng, lat)));
       if (ring.length < 2) return;

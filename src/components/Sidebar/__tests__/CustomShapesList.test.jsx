@@ -45,7 +45,7 @@ describe('CustomShapesList', () => {
     );
 
     // Count renders
-    expect(screen.getByText(/Event Fixtures \(2\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Annotations \(2\)/)).toBeInTheDocument();
 
     // Toggle labels
     fireEvent.click(screen.getByRole('button', { name: /Show Labels/i }));

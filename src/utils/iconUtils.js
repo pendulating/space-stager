@@ -105,6 +105,13 @@ export const INFRASTRUCTURE_ICONS = {
     src: '/data/icons/layers/park-sign.svg',
     areaScale: 1
   },
+  trashBaskets: {
+    id: 'trash-basket-icon',
+    type: 'png',
+    // Reuse existing trash can svg from dropped objects as a layer icon
+    src: '/data/icons/dropped-objects/trash.svg',
+    areaScale: 1
+  },
   streetParkingSigns: {
     id: 'street-parking-signs-icon',
     type: 'png',

@@ -101,16 +101,29 @@ const MapContainer = forwardRef(({
     const disarm = () => { subFocusArmedRef.current = false; };
     window.addEventListener('subfocus:arm', arm);
     window.addEventListener('subfocus:disarm', disarm);
+    // Apply event: geometry comes from draw tools; compute and set subfocus without persisting draw feature
+    const apply = (e) => {
+      try {
+        const geom = e?.detail?.geometry;
+        if (!geom || !permitAreas?.focusedArea || !permitAreas?.setSubFocusPolygon) return;
+        const ok = permitAreas.setSubFocusPolygon({ type: 'Feature', properties: {}, geometry: geom });
+        subFocusArmedRef.current = false;
+      } catch (_) {}
+    };
+    window.addEventListener('subfocus:apply', apply);
     return () => {
       window.removeEventListener('subfocus:arm', arm);
       window.removeEventListener('subfocus:disarm', disarm);
+      window.removeEventListener('subfocus:apply', apply);
     };
   }, []);
 
   // Build derived features (text points, shape labels, arrow lines, and arrowheads) from Draw features
   const derivedAnnotations = useMemo(() => {
     try {
-      const features = drawTools?.draw?.current ? drawTools.draw.current.getAll().features : [];
+      // Defensive: if Draw is not yet initialized, return empty to avoid stale render
+      const fc = drawTools?.draw?.current && drawTools.draw.current.getAll ? drawTools.draw.current.getAll() : null;
+      const features = fc && Array.isArray(fc.features) ? fc.features : [];
       const texts = [];
       const shapeLabels = [];
       const arrows = [];
@@ -135,17 +148,16 @@ const MapContainer = forwardRef(({
             const a = coords[coords.length - 2];
             const b = coords[coords.length - 1];
             arrows.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: [a, b] }, properties: { sourceId: f.id } });
-            // Compute map-aligned bearing (degrees clockwise from north)
-            const dx = b[0] - a[0];
-            const dy = b[1] - a[1];
-            const degFromEastCCW = (Math.atan2(dy, dx) * 180) / Math.PI;
-            const bearingMapCWFromNorth = ((450 - degFromEastCCW) % 360 + 360) % 360;
-            arrowheads.push({ type: 'Feature', geometry: { type: 'Point', coordinates: b }, properties: { sourceId: f.id, bearing: bearingMapCWFromNorth, size: f.properties?.arrowSize || 1 } });
+            // Compute compass bearing (0°=north, clockwise) consistent with Maplibre icon-rotate
+            const theta = Math.atan2(b[0] - a[0], b[1] - a[1]);
+            let bearingDeg = (theta * 180) / Math.PI;
+            if (bearingDeg < 0) bearingDeg += 360;
+            arrowheads.push({ type: 'Feature', geometry: { type: 'Point', coordinates: b }, properties: { sourceId: f.id, bearing: bearingDeg, size: f.properties?.arrowSize || 1 } });
             // Optional label for arrow: midpoint text if label present
             if (typeof props.label === 'string' && props.label.trim()) {
               const mid = [ (a[0] + b[0]) / 2, (a[1] + b[1]) / 2 ];
               // Base rotation follows the arrow direction in map space; flip by 180° if the resultant viewport angle would be upside-down
-              let textRotate = bearingMapCWFromNorth;
+              let textRotate = bearingDeg;
               const viewportAngle = ((mapBearing + textRotate) % 360 + 360) % 360;
               if (viewportAngle > 90 && viewportAngle < 270) textRotate = (textRotate + 180) % 360;
               shapeLabels.push({ type: 'Feature', geometry: { type: 'Point', coordinates: mid }, properties: { sourceId: f.id, label: props.label, textSize: props.textSize || 14, textColor: props.textColor || '#111827', halo: props.halo !== false, textRotate } });
@@ -189,7 +201,7 @@ const MapContainer = forwardRef(({
       });
       return { type: 'FeatureCollection', features: [...texts, ...shapeLabels, ...arrows, ...arrowheads] };
     } catch (_) { return { type: 'FeatureCollection', features: [] }; }
-  }, [drawTools?.draw, clickToPlace.objectUpdateTrigger, annotationsTrigger, view?.bearing]);
+  }, [drawTools?.draw?.current, clickToPlace.objectUpdateTrigger, annotationsTrigger, view?.bearing]);
 
   // Register arrowhead icon; re-register on style load and handle missing images
   useEffect(() => {
@@ -204,23 +216,23 @@ const MapContainer = forwardRef(({
         canvas.width = size; canvas.height = size;
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0,0,size,size);
-        // Draw an open chevron (two line segments) pointing right (east)
-        const tipX = size * 0.8;
-        const tipY = size * 0.5;
-        const arm = size * 0.28;
-        const spread = arm * 0.7;
+        // Draw an open chevron (two line segments) pointing up (north)
+        const tipX = size * 0.5;
+        const tipY = size * 0.2;
+        const arm = size * 0.28; // vertical extent down from tip
+        const spread = arm * 0.7; // horizontal spread
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 6;
         ctx.lineCap = 'round';
-        // Upper limb
+        // Left limb (down-left from tip)
         ctx.beginPath();
         ctx.moveTo(tipX, tipY);
-        ctx.lineTo(tipX - arm, tipY - spread);
+        ctx.lineTo(tipX - spread, tipY + arm);
         ctx.stroke();
-        // Lower limb
+        // Right limb (down-right from tip)
         ctx.beginPath();
         ctx.moveTo(tipX, tipY);
-        ctx.lineTo(tipX - arm, tipY + spread);
+        ctx.lineTo(tipX + spread, tipY + arm);
         ctx.stroke();
         const data = ctx.getImageData(0,0,size,size);
         if (map.addImage) map.addImage(arrowIconId, data, { pixelRatio: 2 });
@@ -345,6 +357,8 @@ const MapContainer = forwardRef(({
     };
     const ready = typeof map.isStyleLoaded === 'function' ? map.isStyleLoaded() : true;
     if (ready) ensure(); else map.once('style.load', ensure);
+    // Also schedule a second pass shortly after to catch late Draw binding after import
+    try { setTimeout(() => { try { ensure(); } catch (_) {} }, 100); } catch (_) {}
   }, [map, derivedAnnotations]);
 
   // Keep annotation layers above MapboxDraw layers (which may be added later)
@@ -727,10 +741,15 @@ const MapContainer = forwardRef(({
     map.on('draw.update', bump);
     map.on('draw.delete', bump);
     map.on('draw.selectionchange', bump);
+    // Ensure we also respond after Style reload or initial Draw render (post-import timing)
+    map.on('draw.render', bump);
+    map.on('style.load', bump);
     return () => {
       try { map.off('draw.update', bump); } catch (_) {}
       try { map.off('draw.delete', bump); } catch (_) {}
       try { map.off('draw.selectionchange', bump); } catch (_) {}
+      try { map.off('draw.render', bump); } catch (_) {}
+      try { map.off('style.load', bump); } catch (_) {}
     };
   }, [map, drawTools]);
 
@@ -768,10 +787,10 @@ const MapContainer = forwardRef(({
           return;
         }
 
-        // Otherwise, if sub-focus mode is armed, treat this polygon as the sub-focus scope
-        if (subFocusArmedRef.current && permitAreas?.focusedArea && permitAreas?.setSubFocusPolygon) {
+        // If sub-focus mode is armed and this is a regular polygon (not an equipment rectangle),
+        // treat it as the sub-focus scope and do NOT persist the draw feature as an annotation
+        if (subFocusArmedRef.current && !typeId && permitAreas?.focusedArea && permitAreas?.setSubFocusPolygon) {
           const ok = permitAreas.setSubFocusPolygon({ type: 'Feature', properties: {}, geometry: f.geometry });
-          // Remove the transient draw shape and disarm
           try { drawTools.draw.current.delete(f.id); } catch (_) {}
           subFocusArmedRef.current = false;
           if (ok) return;

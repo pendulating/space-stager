@@ -189,6 +189,20 @@ export const loadInfrastructureData = async (layerId, bounds) => {
       });
     }
   }
+  // DSNY Trash Baskets: ensure geometry present and keep as points
+  if (layerId === 'trashBaskets') {
+    if (Array.isArray(data.features)) {
+      data.features = data.features.map((f) => {
+        let geometry = f.geometry;
+        const p = f.properties || {};
+        // GeoJSON already provides coordinates; fallback not needed here
+        if (!geometry && p && typeof p.longitude === 'number' && typeof p.latitude === 'number') {
+          geometry = { type: 'Point', coordinates: [p.longitude, p.latitude] };
+        }
+        return { ...f, geometry };
+      }).filter(f => !!f.geometry);
+    }
+  }
   if (layerId === 'accessiblePedSignals') {
     // Ensure geometry is Point for APS dataset
     const toNum = (v) => (v == null || v === '' ? null : Number(v));
@@ -484,6 +498,8 @@ export const filterFeaturesByType = (features, layerId) => {
         
       case 'parksSigns':
         return true; // All parks sign features are valid
+      case 'trashBaskets':
+        return hasValidPoint(feature);
       case 'streetParkingSigns':
         // Only keep valid point features with sane lon/lat
         return hasValidPoint(feature);
@@ -540,6 +556,37 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
   const sizeScale = Math.sqrt(areaScale); // icon-size scales linearly; user parameter controls area
   
   switch(layerId) {
+    case 'trashBaskets':
+      if (hasIconDef) {
+        const base = 0.7 * sizeScale;
+        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
+        return {
+          type: 'symbol',
+          layout: {
+            'icon-image': 'trash-basket-icon',
+            'icon-size': iconSize,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+            'icon-rotation-alignment': 'viewport',
+            'icon-pitch-alignment': 'viewport'
+          },
+          paint: {
+            'icon-color': baseColor,
+            'icon-opacity': 0.9
+          }
+        };
+      } else {
+        return {
+          type: 'circle',
+          paint: {
+            'circle-radius': 4,
+            'circle-color': baseColor,
+            'circle-opacity': 0.9,
+            'circle-stroke-width': 1.5,
+            'circle-stroke-color': 'white'
+          }
+        };
+      }
     case 'hydrants':
       if (hasIconDef) {
         const base = 0.55 * sizeScale;

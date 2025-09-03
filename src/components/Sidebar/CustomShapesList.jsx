@@ -160,7 +160,7 @@ const CustomShapesList = ({
     <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">
-          Event Fixtures ({customShapes.length})
+          Annotations ({customShapes.length})
         </h3>
         <div className="flex items-center space-x-2">
           <button

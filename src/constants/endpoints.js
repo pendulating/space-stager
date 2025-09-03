@@ -139,6 +139,14 @@ export const INFRASTRUCTURE_ENDPOINTS = {
     isLocal: false
   },
 
+  // DSNY Litter Basket Inventory
+  trashBaskets: {
+    // Docs: https://dev.socrata.com/foundry/data.cityofnewyork.us/8znf-7b2c
+    baseUrl: 'https://data.cityofnewyork.us/resource/8znf-7b2c.geojson',
+    geoField: 'the_geom',
+    isLocal: false
+  },
+
   busStops: {
     baseUrl: '/data/static/bus_stops_nyc.geojson',
     geoField: null,

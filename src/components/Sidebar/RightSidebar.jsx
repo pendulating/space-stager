@@ -20,7 +20,27 @@ const RightSidebar = ({
     <>
       <div className="w-80 h-full bg-white dark:bg-gray-800 dark:text-gray-100 shadow-lg z-10 flex flex-col border-l border-gray-200 dark:border-gray-700 sidebar-right">
 
-      {/* Middle scroll area with flexible Event Objects panel */}
+      {/* Top: Event Information & Options (moved up, wider controls) */}
+      <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+        <div className="grid grid-cols-1 gap-2">
+          <button
+            type="button"
+            className="w-full px-4 py-3 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700"
+            onClick={() => window.dispatchEvent(new CustomEvent('ui:show-event-info'))}
+          >
+            Event Information
+          </button>
+          <button
+            type="button"
+            className="w-full px-4 py-3 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700"
+            onClick={() => window.dispatchEvent(new CustomEvent('ui:show-export-options'))}
+          >
+            Plan Options
+          </button>
+        </div>
+      </div>
+
+      {/* Middle scroll area with flexible panels */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {/* Drawing Tools */}
         <DrawingTools 
@@ -52,7 +72,7 @@ const RightSidebar = ({
           />
         </div>
 
-        {/* Custom Shapes List */}
+        {/* Custom Shapes List (Annotations) */}
         <CustomShapesList
           selectedShape={drawTools.selectedShape}
           onShapeSelect={drawTools.selectShape}
@@ -75,24 +95,6 @@ const RightSidebar = ({
 
       {/* Export Section */}
       <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 mt-auto">
-        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-3">Export Options</h3>
-        {/* Split row with Event Information and Export Options */}
-        <div className="grid grid-cols-2 gap-2 mb-3">
-          <button
-            type="button"
-            className="px-3 py-2 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
-            onClick={() => window.dispatchEvent(new CustomEvent('ui:show-event-info'))}
-          >
-            Event Information
-          </button>
-          <button
-            type="button"
-            className="px-3 py-2 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
-            onClick={() => window.dispatchEvent(new CustomEvent('ui:show-export-options'))}
-          >
-            Export Options
-          </button>
-        </div>
         <div className="space-y-2">
           {/* Export Event Plan */}
           <button 
@@ -100,7 +102,7 @@ const RightSidebar = ({
             className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2 export-button export-event-plan"
           >
             <Download className="w-4 h-4" />
-            <span>Save Draft</span>
+            <span>Save Digital Plan (JSON)</span>
           </button>
           
           {/* Export Siteplan Menu */}

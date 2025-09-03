@@ -5,7 +5,7 @@ export const LAYER_GROUPS = {
   'amenities': {
     name: 'Amenities',
     icon: '🚻',
-    layers: ['benches', 'publicRestrooms', 'linknycKiosks', 'trees']
+    layers: ['benches', 'publicRestrooms', 'trashBaskets', 'linknycKiosks', 'trees']
   },
   'lanes': {
     name: 'Biking',
@@ -270,6 +270,13 @@ export const INITIAL_LAYERS = {
       desiredParallelTo: 'cscl',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
+  },
+  trashBaskets: {
+    visible: false,
+    name: 'Trash Baskets',
+    color: '#374151',
+    loading: false,
+    loaded: false
   },
   stationEnvelopes: {
     visible: false,

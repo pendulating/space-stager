@@ -91,6 +91,8 @@ export const useDrawTools = (map, focusedArea = null) => {
   const [activeTool, setActiveTool] = useState(null);
   const activeToolRef = useRef(null);
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
+  // Track dedicated subfocus capture state to avoid bleeding into other polygon/rect tools
+  const subFocusActiveRef = useRef(false);
   const [selectedShape, setSelectedShape] = useState(null);
   const [shapeLabel, setShapeLabel] = useState('');
   const [drawInitialized, setDrawInitialized] = useState(false);
@@ -110,6 +112,15 @@ export const useDrawTools = (map, focusedArea = null) => {
       try {
         const currentTool = activeToolRef.current;
         const currentMode = (draw.current && draw.current.getMode) ? draw.current.getMode() : null;
+        // Dedicated subfocus capture: immediately apply and remove draw feature, do NOT persist as annotation
+        if (subFocusActiveRef.current && currentTool === 'subfocus' && feature && feature.geometry && feature.geometry.type === 'Polygon') {
+          try { window.dispatchEvent(new CustomEvent('subfocus:apply', { detail: { geometry: feature.geometry } })); } catch (_) {}
+          try { draw.current && draw.current.delete(feature.id); } catch (_) {}
+          try { draw.current && draw.current.changeMode('simple_select'); } catch (_) {}
+          subFocusActiveRef.current = false;
+          setActiveTool(null);
+          return;
+        }
         if (currentTool === 'arrow' && feature && feature.geometry && feature.geometry.type === 'LineString') {
           // Tag as arrow and normalize to two points
           feature.properties = Object.assign({}, feature.properties, { type: 'arrow' });
@@ -166,9 +177,10 @@ export const useDrawTools = (map, focusedArea = null) => {
             try {
               const a = coords[coords.length - 2];
               const b = coords[coords.length - 1];
-              const dx = b[0] - a[0];
-              const dy = b[1] - a[1];
-              const bearingDeg = -(Math.atan2(dy, dx) * 180 / Math.PI);
+              // Compute compass bearing (0°=north, 90°=east) for Map symbol rotation
+              const theta = Math.atan2(b[0] - a[0], b[1] - a[1]);
+              let bearingDeg = (theta * 180 / Math.PI);
+              if (bearingDeg < 0) bearingDeg += 360;
               f.properties = Object.assign({}, f.properties, { type: 'arrow', bearing: bearingDeg });
               f.geometry.coordinates = [coords[0], coords[coords.length - 1]];
               addIfChanged(f);
@@ -183,9 +195,9 @@ export const useDrawTools = (map, focusedArea = null) => {
           if (coords.length >= 2) {
             const a = coords[coords.length - 2];
             const b = coords[coords.length - 1];
-            const dx = b[0] - a[0];
-            const dy = b[1] - a[1];
-            const bearingDeg = -(Math.atan2(dy, dx) * 180 / Math.PI);
+            const theta = Math.atan2(b[0] - a[0], b[1] - a[1]);
+            let bearingDeg = (theta * 180 / Math.PI);
+            if (bearingDeg < 0) bearingDeg += 360;
             f.properties.bearing = bearingDeg;
             addIfChanged(f);
           }
@@ -292,12 +304,15 @@ export const useDrawTools = (map, focusedArea = null) => {
         if (styleReady) {
           console.log('Map style ready, proceeding with draw initialization');
           initDraw();
+          // Fire an annotations change once draw layers are in place to allow derived layers to sync
+          try { window.dispatchEvent(new Event('annotations:changed')); } catch (_) {}
         } else {
           console.log('Map style not loaded yet, waiting for style.load event');
           const onStyleLoad = () => {
             console.log('Style load received, initializing draw controls');
             try {
               initDraw();
+              try { window.dispatchEvent(new Event('annotations:changed')); } catch (_) {}
             } catch (error) {
               console.error('Error during draw initialization after style load:', error);
               setDrawInitialized(false);
@@ -346,6 +361,7 @@ export const useDrawTools = (map, focusedArea = null) => {
         if (existing && existing.features && existing.features.length > 0) {
           draw.current.add(existing);
         }
+        try { window.dispatchEvent(new Event('annotations:changed')); } catch (_) {}
         // Do not change drawInitialized here; keep tools available
       } catch (e) {
         console.warn('Draw rebind on style.load failed', e);
@@ -366,6 +382,8 @@ export const useDrawTools = (map, focusedArea = null) => {
     console.log('Activating drawing tool:', mode);
     
     setActiveTool(mode);
+    // Default subfocus flag off, enable when selecting subfocus mode
+    subFocusActiveRef.current = (mode === 'subfocus');
     switch(mode) {
       case 'point':
         draw.current.changeMode('draw_point');
@@ -375,6 +393,10 @@ export const useDrawTools = (map, focusedArea = null) => {
         break;
       case 'polygon':
         draw.current.changeMode('draw_polygon');
+        break;
+      case 'subfocus':
+        // Use standard polygon mode but tag on create via handler above
+        try { draw.current.changeMode('draw_polygon'); } catch (_) { draw.current.changeMode('simple_select'); }
         break;
       case 'text':
         // Use custom text annotation mode to ensure type is set before draw.create
@@ -397,6 +419,7 @@ export const useDrawTools = (map, focusedArea = null) => {
       default:
         draw.current.changeMode('simple_select');
         setActiveTool(null);
+        subFocusActiveRef.current = false;
     }
   }, []);
 
