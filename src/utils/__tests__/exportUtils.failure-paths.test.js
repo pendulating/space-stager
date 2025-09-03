@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { waitFor } from '@testing-library/react';
-import { importPlan, exportPermitAreaSiteplanV2 } from '../exportUtils.js';
+import { importPlan } from '../importUtils.js';
+import { exportPermitAreaSiteplanV2 } from '../exportUtils.js';
 
 describe('exportUtils failure/error paths', () => {
   const origCreate = document.createElement;

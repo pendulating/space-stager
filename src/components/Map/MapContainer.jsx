@@ -78,6 +78,8 @@ const MapContainer = forwardRef(({
     } catch (_) {}
   }, [view?.bearing, view?.pitch]);
 
+  // no-op
+
   // Force immediate label refresh on external annotation change events
   useEffect(() => {
     const bump = () => setAnnotationsTrigger(v => v + 1);
@@ -113,12 +115,17 @@ const MapContainer = forwardRef(({
       const shapeLabels = [];
       const arrows = [];
       const arrowheads = [];
+      const mapBearing = (() => {
+        try { return ((Number(view?.bearing || 0) % 360) + 360) % 360; } catch (_) { return 0; }
+      })();
       (features || []).forEach((f) => {
         if (!f || !f.geometry) return;
         const props = f.properties || {};
         // 1) Explicit text annotations
         if (props.type === 'text' && f.geometry.type === 'Point' && props.label) {
-          texts.push({ type: 'Feature', geometry: f.geometry, properties: { sourceId: f.id, type: 'text', label: props.label, textSize: props.textSize || 14, textColor: props.textColor || '#111827', halo: props.halo !== false } });
+          // Flip by 180° when map bearing would make the text upside-down in viewport
+          const flip = (mapBearing > 90 && mapBearing < 270) ? 180 : 0;
+          texts.push({ type: 'Feature', geometry: f.geometry, properties: { sourceId: f.id, type: 'text', label: props.label, textSize: props.textSize || 14, textColor: props.textColor || '#111827', halo: props.halo !== false, textRotate: flip } });
           return;
         }
         // 2) Arrow annotations: always derive line + arrowhead (even when labeled)
@@ -137,9 +144,10 @@ const MapContainer = forwardRef(({
             // Optional label for arrow: midpoint text if label present
             if (typeof props.label === 'string' && props.label.trim()) {
               const mid = [ (a[0] + b[0]) / 2, (a[1] + b[1]) / 2 ];
-              // Normalize label rotation to stay upright (avoid upside-down text)
+              // Base rotation follows the arrow direction in map space; flip by 180° if the resultant viewport angle would be upside-down
               let textRotate = bearingMapCWFromNorth;
-              if (textRotate > 90 && textRotate < 270) textRotate = (textRotate + 180) % 360;
+              const viewportAngle = ((mapBearing + textRotate) % 360 + 360) % 360;
+              if (viewportAngle > 90 && viewportAngle < 270) textRotate = (textRotate + 180) % 360;
               shapeLabels.push({ type: 'Feature', geometry: { type: 'Point', coordinates: mid }, properties: { sourceId: f.id, label: props.label, textSize: props.textSize || 14, textColor: props.textColor || '#111827', halo: props.halo !== false, textRotate } });
             }
           }
@@ -174,13 +182,14 @@ const MapContainer = forwardRef(({
             }
           }
           if (center) {
-            shapeLabels.push({ type: 'Feature', geometry: { type: 'Point', coordinates: center }, properties: { sourceId: f.id, label: props.label, textSize: props.textSize || 14, textColor: props.textColor || '#111827', halo: props.halo !== false } });
+            const flip = (mapBearing > 90 && mapBearing < 270) ? 180 : 0;
+            shapeLabels.push({ type: 'Feature', geometry: { type: 'Point', coordinates: center }, properties: { sourceId: f.id, label: props.label, textSize: props.textSize || 14, textColor: props.textColor || '#111827', halo: props.halo !== false, textRotate: flip } });
           }
         }
       });
       return { type: 'FeatureCollection', features: [...texts, ...shapeLabels, ...arrows, ...arrowheads] };
     } catch (_) { return { type: 'FeatureCollection', features: [] }; }
-  }, [drawTools?.draw, clickToPlace.objectUpdateTrigger, annotationsTrigger]);
+  }, [drawTools?.draw, clickToPlace.objectUpdateTrigger, annotationsTrigger, view?.bearing]);
 
   // Register arrowhead icon; re-register on style load and handle missing images
   useEffect(() => {
@@ -267,10 +276,14 @@ const MapContainer = forwardRef(({
               // Center text for standalone text annotations; keep shape labels above
               'text-offset': ['case', ['==', ['get', 'type'], 'text'], ['literal', [0, 0]], ['literal', [0, -1.0]]],
               'text-anchor': ['case', ['==', ['get', 'type'], 'text'], 'center', 'bottom'],
-              'text-rotate': ['coalesce', ['get', 'textRotate'], 0],
-              'text-rotation-alignment': 'map',
-              'text-pitch-alignment': 'map',
-              'text-keep-upright': true
+              // Keep labels perfectly horizontal in the viewport regardless of map rotation/pitch
+              'text-rotate': 0,
+              'text-rotation-alignment': 'viewport',
+              'text-pitch-alignment': 'viewport',
+              'text-keep-upright': true,
+              // Favor always-visible labels for user annotations
+              'text-allow-overlap': true,
+              'text-ignore-placement': true
             },
             paint: {
               'text-color': ['coalesce', ['get', 'textColor'], '#111827'],
@@ -280,10 +293,12 @@ const MapContainer = forwardRef(({
           });
         } else {
           // Ensure rotation properties are applied if the layer already exists
-          try { map.setLayoutProperty('annotation-text', 'text-rotate', ['coalesce', ['get', 'textRotate'], 0]); } catch (_) {}
-          try { map.setLayoutProperty('annotation-text', 'text-rotation-alignment', 'map'); } catch (_) {}
-          try { map.setLayoutProperty('annotation-text', 'text-pitch-alignment', 'map'); } catch (_) {}
+          try { map.setLayoutProperty('annotation-text', 'text-rotate', 0); } catch (_) {}
+          try { map.setLayoutProperty('annotation-text', 'text-rotation-alignment', 'viewport'); } catch (_) {}
+          try { map.setLayoutProperty('annotation-text', 'text-pitch-alignment', 'viewport'); } catch (_) {}
           try { map.setLayoutProperty('annotation-text', 'text-keep-upright', true); } catch (_) {}
+          try { map.setLayoutProperty('annotation-text', 'text-allow-overlap', true); } catch (_) {}
+          try { map.setLayoutProperty('annotation-text', 'text-ignore-placement', true); } catch (_) {}
         }
         // Arrow lines layer (black)
         if (!map.getLayer('annotation-arrows')) {

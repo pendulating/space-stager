@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { waitFor } from '@testing-library/react';
-import { exportPlan, importPlan, exportPermitAreaSiteplanV2 } from '../exportUtils.js';
+import { exportPlan, exportPermitAreaSiteplanV2 } from '../exportUtils.js';
+import { importPlan } from '../importUtils.js';
 
 describe('exportUtils export/import flows', () => {
   const origCreate = document.createElement;

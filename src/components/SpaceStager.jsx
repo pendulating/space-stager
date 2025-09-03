@@ -20,7 +20,8 @@ import { INITIAL_LAYERS } from '../constants/layers';
 import { PLACEABLE_OBJECTS } from '../constants/placeableObjects';
 import { GEOGRAPHIES } from '../constants/geographies';
 import { setBaseVisibility as setGeoBaseVisibility, ensureBaseLayers as ensureGeoBaseLayers } from '../services/geographyLayerManager';
-import { exportPlan, importPlan, exportPermitAreaSiteplanV2 } from '../utils/exportUtils';
+import { exportPlan, exportPermitAreaSiteplanV2 } from '../utils/exportUtils';
+import { importPlan } from '../utils/importUtils';
 import { useNudges } from '../hooks/useNudges';
 import { useGeography } from '../contexts/GeographyContext';
 import { useTutorial } from '../contexts/TutorialContext';
@@ -245,6 +246,8 @@ const SpaceStager = () => {
         }
       }
     );
+    // Force immediate annotation recompute after import
+    try { if (typeof window !== 'undefined') window.dispatchEvent(new Event('annotations:changed')); } catch (_) {}
   };
 
   const handleExportSiteplan = (format) => {
