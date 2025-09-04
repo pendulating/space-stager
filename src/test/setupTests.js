@@ -48,3 +48,12 @@ if (typeof window !== 'undefined' && !window.URL.createObjectURL) {
   } catch (_) {}
 }
 
+// Polyfill Blob.prototype.text for environments where it's missing
+try {
+  if (typeof Blob !== 'undefined' && typeof Blob.prototype.text !== 'function') {
+    // Use Response to read blob as text
+    // eslint-disable-next-line no-extend-native
+    Blob.prototype.text = function () { return new Response(this).text(); };
+  }
+} catch (_) {}
+

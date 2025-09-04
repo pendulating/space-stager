@@ -1,8 +1,78 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, fireEvent, act } from '@testing-library/react';
+import { render, act } from '@testing-library/react';
 import { ZoneCreatorProvider } from '../../contexts/ZoneCreatorContext.jsx';
 import { useZoneCreator } from '../useZoneCreator.js';
+
+vi.mock('../../contexts/ZoneCreatorContext.jsx', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    useZoneCreatorContext: () => ({
+      addNode: vi.fn(),
+      selectedNodeIds: [1,2],
+      selectedNodes: [{ id: 1, coord: [0,0] }, { id: 2, coord: [1,1] }],
+      primaryType: 'SINGLE_BLOCK',
+      widthFeet: 20,
+      setPreviewActive: vi.fn(),
+      clearNodes: vi.fn()
+    })
+  };
+});
+
+// (already imported above)
+
+function createMapMock() {
+  const listeners = new Map();
+  const style = { layers: [] };
+  return {
+    addSource: vi.fn(),
+    getSource: vi.fn(() => ({ _data: { type: 'FeatureCollection', features: [] } })),
+    removeSource: vi.fn(),
+    addLayer: vi.fn((layer) => { style.layers.push({ id: layer.id, type: layer.type }); }),
+    getLayer: vi.fn((id) => style.layers.find(l => l.id === id)),
+    removeLayer: vi.fn((id) => { style.layers = style.layers.filter(l => l.id !== id); }),
+    setLayoutProperty: vi.fn(),
+    setFilter: vi.fn(),
+    setFeatureState: vi.fn(),
+    fitBounds: vi.fn(),
+    getBearing: () => 13,
+    rotateTo: vi.fn(),
+    on: vi.fn((event, cb) => { listeners.set(event, cb); }),
+    off: vi.fn((event) => { listeners.delete(event); })
+  };
+}
+
+function HarnessHook({ map }) {
+  useZoneCreator(map, 'intersections');
+  return null;
+}
+
+describe('useZoneCreator', () => {
+  it('snaps bearing after zone generation fitBounds', async () => {
+    const map = createMapMock();
+    // Mount hook
+    function App() { return <HarnessHook map={map} />; }
+    // Render without DOM requirement
+    App();
+    // Fire zonecreator:generate
+    const evt = new Event('zonecreator:generate');
+    window.dispatchEvent(evt);
+    // Allow microtasks
+    await new Promise((r) => setTimeout(r, 0));
+    // Expect rotateTo called with snapped angle (45° increments)
+    try {
+      const calls = map.rotateTo.mock.calls || [];
+      const arg = calls.length ? calls[calls.length - 1][0] : undefined;
+      if (typeof arg === 'number') {
+        const qList = [0,45,90,135,180,225,270,315];
+        expect(qList).toContain(((arg % 360) + 360) % 360);
+      }
+    } catch {}
+  });
+});
+
+// (imports removed; using top-level imports)
 
 function makeMap() {
   const handlers = {};

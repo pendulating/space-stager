@@ -276,7 +276,14 @@ export const INITIAL_LAYERS = {
     name: 'Trash Baskets',
     color: '#374151',
     loading: false,
-    loaded: false
+    loaded: false,
+    enhancedRendering: {
+      enabled: true,
+      spriteBase: 'trash-can',
+      publicDir: '/static/trash-can/isometric/renders',
+      desiredParallelTo: 'cscl',
+      angles: [0, 45, 90, 135, 180, 225, 270, 315]
+    }
   },
   stationEnvelopes: {
     visible: false,

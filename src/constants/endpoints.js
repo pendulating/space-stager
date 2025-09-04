@@ -143,7 +143,7 @@ export const INFRASTRUCTURE_ENDPOINTS = {
   trashBaskets: {
     // Docs: https://dev.socrata.com/foundry/data.cityofnewyork.us/8znf-7b2c
     baseUrl: 'https://data.cityofnewyork.us/resource/8znf-7b2c.geojson',
-    geoField: 'the_geom',
+    geoField: 'point',
     isLocal: false
   },
 

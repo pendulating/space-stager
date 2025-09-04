@@ -17,7 +17,7 @@ import { prefetchView } from '../utils/spriteResolver';
 
 // NOTE: Enhanced infra sprites: use flat /static/{base}/{base|base_TOP} paths for both views
 // because our public assets are deployed in flat layout. The spriteResolver handles nested fallbacks.
-export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
+export const useInfrastructure = (map, focusedArea, layers, setLayers, options = {}) => {
   const view = useMapViewState(map);
   if (DEBUG_INFRA) console.log('[DEBUG] useInfrastructure hook called with map:', !!map);
   const DEFAULT_ZERO_OFFSET_BY_VIEW = { 'isometric': -90, 'top-down': 0 };
@@ -157,6 +157,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
     if (!map) return;
 
     // When focused area changes, clear all infrastructure layers and reset their state
+    // Skip during plan rehydration to preserve imported visibility toggles
+    if (options?.rehydratingImport) return;
     Object.keys(layers).forEach(layerId => {
       if (layerId !== 'permitAreas') {
         // Thoroughly clear the layer from the map (points, lines, polygons, sources)
@@ -226,7 +228,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers) => {
 
     // Clear loading states
     loadingLayersRef.current.clear();
-  }, [focusedAreaId, map]); // Trigger when focused area ID changes
+  }, [focusedAreaId, map, options?.rehydratingImport]); // Trigger when focused area ID changes
 
   // Load infrastructure icons lazily when style is ready
   useEffect(() => {

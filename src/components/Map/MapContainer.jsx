@@ -13,7 +13,7 @@ import ActiveToolIndicator from './ActiveToolIndicator';
 import LoadingOverlay from './LoadingOverlay';
 import PlacementPreview from './PlacementPreview';
 import { useMemo } from 'react';
-import TextAnnotationEditor from './TextAnnotationEditor';
+import TextAnnotationEditor, { AnnotationActionPill } from './TextAnnotationEditor';
 import { useMapViewState } from '../../hooks/useMapViewState';
 import { useRotationControls } from '../../hooks/useRotationControls';
 import { useSelectionController } from '../../hooks/useSelectionController';
@@ -59,6 +59,10 @@ const MapContainer = forwardRef(({
   const derivedSourceId = 'annotations-derived';
   const arrowIconId = 'annotation-arrowhead';
   const { selectedObjectId, selectedKind, select, clearSelection } = useDroppedObjects();
+  // Track current arrow overlay so we can reliably close it on key/delete or draw events
+  const arrowOverlayRef = useRef(null);
+  // Track current annotations popup (MapLibre Popup) so global handlers can close it
+  const annotationPopupRef = useRef(null);
 
   // Map view state (single source of truth for pitch/bearing/zoom/viewType)
   const view = useMapViewState(map);
@@ -300,7 +304,9 @@ const MapContainer = forwardRef(({
             paint: {
               'text-color': ['coalesce', ['get', 'textColor'], '#111827'],
               'text-halo-color': '#ffffff',
-              'text-halo-width': 1.0
+              'text-halo-width': 1.0,
+              // Hide map-canvas text; we'll draw DOM overlay labels above all layers to fix z-order
+              'text-opacity': 0
             }
           });
         } else {
@@ -311,6 +317,7 @@ const MapContainer = forwardRef(({
           try { map.setLayoutProperty('annotation-text', 'text-keep-upright', true); } catch (_) {}
           try { map.setLayoutProperty('annotation-text', 'text-allow-overlap', true); } catch (_) {}
           try { map.setLayoutProperty('annotation-text', 'text-ignore-placement', true); } catch (_) {}
+          try { map.setPaintProperty('annotation-text', 'text-opacity', 0); } catch (_) {}
         }
         // Arrow lines layer (black)
         if (!map.getLayer('annotation-arrows')) {
@@ -361,6 +368,23 @@ const MapContainer = forwardRef(({
     try { setTimeout(() => { try { ensure(); } catch (_) {} }, 100); } catch (_) {}
   }, [map, derivedAnnotations]);
 
+  // Build DOM overlay labels from derived annotations so they can render above all map layers and SVG overlays
+  const domAnnotationLabels = useMemo(() => {
+    try {
+      if (!map || !derivedAnnotations || !Array.isArray(derivedAnnotations.features)) return [];
+      // Only points with a label
+      const feats = derivedAnnotations.features.filter(f => f && f.geometry && f.geometry.type === 'Point' && f.properties && typeof f.properties.label === 'string' && f.properties.label.trim());
+      return feats.map((f, idx) => {
+        const [lng, lat] = f.geometry.coordinates || [];
+        const pt = map.project([lng, lat]);
+        const size = Number(f.properties?.textSize || 14);
+        const color = f.properties?.textColor || '#111827';
+        const halo = f.properties?.halo !== false;
+        return { id: `${f.properties?.sourceId || 'lbl'}-${idx}`, x: pt.x, y: pt.y, label: f.properties.label, size, color, halo };
+      });
+    } catch (_) { return []; }
+  }, [map, derivedAnnotations, view?.renderTick]);
+
   // Keep annotation layers above MapboxDraw layers (which may be added later)
   useEffect(() => {
     if (!map) return;
@@ -388,7 +412,8 @@ const MapContainer = forwardRef(({
               }
             } else if (l.type === 'line') {
               const base = existing || ['==', ['geometry-type'], 'LineString'];
-              const next = ['all', base, ['!=', ['get', 'type'], 'arrow']];
+              // Keep active/hot features visible to ensure selection/deletion works repeatedly
+              const next = ['all', base, ['any', ['!=', ['get', 'type'], 'arrow'], ['==', ['get', 'active'], 'true']]];
               map.setFilter(l.id, next);
             }
           } catch (_) {}
@@ -411,9 +436,10 @@ const MapContainer = forwardRef(({
     let suppressSequence = false;
     const Ctor = (typeof window !== 'undefined' && (window.maplibregl || window.mapboxgl) && (window.maplibregl.Popup || window.mapboxgl.Popup)) || null;
     const ensurePopup = () => {
-      if (popup) return popup;
+      if (popup) { annotationPopupRef.current = popup; return popup; }
       if (!Ctor) return null;
       try { popup = new Ctor({ closeButton: false, closeOnClick: false, offset: [0, -12] }); } catch (_) { popup = null; }
+      annotationPopupRef.current = popup;
       return popup;
     };
     const openAt = (lngLat, el) => {
@@ -422,6 +448,7 @@ const MapContainer = forwardRef(({
       p.setDOMContent(el);
       p.setLngLat(lngLat);
       p.addTo(map);
+      annotationPopupRef.current = p;
       try { console.debug('ANNOT: popup opened', { lngLat }); } catch (_) {}
       try {
         const root = p.getElement && p.getElement();
@@ -461,21 +488,47 @@ const MapContainer = forwardRef(({
       return wrap;
     };
 
+    const closeArrowOverlay = () => {
+      try {
+        const ref = arrowOverlayRef.current;
+        if (ref && ref.root && ref.mount) {
+          try { ref.root.unmount(); } catch (_) {}
+          try { if (ref.mount.parentNode) ref.mount.parentNode.removeChild(ref.mount); } catch (_) {}
+        }
+      } catch (_) {}
+      arrowOverlayRef.current = null;
+    };
+
     const openForFeature = (feature, lngLat) => {
       try {
         try { console.debug('ANNOT: openForFeature', { id: feature?.properties?.sourceId, geomType: feature?.geometry?.type }); } catch (_) {}
         const srcId = feature?.properties?.sourceId;
         if (!srcId) return;
-        const isArrow = feature && feature.geometry && feature.geometry.type !== 'Point';
+        // Treat both line and arrowhead point as arrow features if they carry a sourceId
+        const isArrow = !!srcId && ((feature && feature.geometry && feature.geometry.type !== 'Point') || (feature && feature.properties && typeof feature.properties.bearing !== 'undefined'));
         const getDraw = () => (drawTools && drawTools.draw && drawTools.draw.current) ? drawTools.draw.current : (map && map.getControl ? map.getControl('MapboxDraw') : null);
         const drawCtrl = getDraw();
         if (isArrow) {
+          // Use MapLibre popup just like DroppedObjects for reliability
+          try { if (popup) popup.remove(); } catch (_) {}
           const el = buildPill([
             { label: 'Label…', onClick: () => {
+              try {
                 const val = typeof window !== 'undefined' ? window.prompt('Arrow label') : null;
-                if (val != null) { try { drawCtrl && drawCtrl.setFeatureProperty && drawCtrl.setFeatureProperty(srcId, 'label', String(val)); console.debug('ANNOT: set arrow label via draw.setFeatureProperty'); } catch (_) {} setAnnotationsTrigger(v => v + 1); }
-              } },
-            { label: 'Remove', className: 'text-white rounded-full px-2 py-0.5 bg-red-500 hover:bg-red-600', onClick: () => { try { console.debug('ANNOT: remove clicked for arrow', { srcId, hasDraw: !!drawCtrl }); drawCtrl && drawCtrl.delete && drawCtrl.delete(srcId); } catch (_) {} setAnnotationsTrigger(v => v + 1); } }
+                if (val != null && drawCtrl) {
+                  if (drawCtrl.setFeatureProperty) drawCtrl.setFeatureProperty(srcId, 'label', String(val));
+                  else {
+                    try { const f = drawCtrl.get(srcId); if (f) { f.properties = Object.assign({}, f.properties || {}, { label: String(val) }); drawCtrl.add(f); } } catch (_) {}
+                  }
+                  try { window.dispatchEvent(new Event('annotations:changed')); } catch (_) {}
+                  setAnnotationsTrigger(v => v + 1);
+                }
+              } catch (_) {}
+            } },
+            { label: 'Remove', className: 'text-white rounded-full px-2 py-0.5 bg-red-500 hover:bg-red-600', onClick: () => {
+              try { drawCtrl && drawCtrl.delete && drawCtrl.delete(srcId); } catch (_) {}
+              setAnnotationsTrigger(v => v + 1);
+            } }
           ]);
           openAt(lngLat, el);
         } else {
@@ -487,6 +540,39 @@ const MapContainer = forwardRef(({
         }
       } catch (_) {}
     };
+
+    // Direct layer-bound handlers mirroring DroppedObjects approach (more reliable than canvas capture)
+    const onArrowClick = (e) => {
+      try {
+        if (!e || !e.features || !e.features[0]) return;
+        const f = e.features[0];
+        if (e && e.preventDefault) e.preventDefault();
+        const oe = e && (e.originalEvent || e.point && e.point.originalEvent);
+        if (oe && typeof oe.stopPropagation === 'function') oe.stopPropagation();
+        openForFeature(f, e.lngLat);
+      } catch (_) {}
+    };
+    const cursorPointerOn = () => { try { map && map.getCanvas && (map.getCanvas().style.cursor = 'pointer'); } catch (_) {} };
+    const cursorPointerOff = () => { try { map && map.getCanvas && (map.getCanvas().style.cursor = ''); } catch (_) {} };
+    const bindAnnotationLayerHandlers = () => {
+      try {
+        if (map.getLayer && map.getLayer('annotation-arrows')) {
+          map.on('click', 'annotation-arrows', onArrowClick);
+          map.on('mouseenter', 'annotation-arrows', cursorPointerOn);
+          map.on('mouseleave', 'annotation-arrows', cursorPointerOff);
+        }
+      } catch (_) {}
+      try {
+        if (map.getLayer && map.getLayer('annotation-arrowheads')) {
+          map.on('click', 'annotation-arrowheads', onArrowClick);
+          map.on('mouseenter', 'annotation-arrowheads', cursorPointerOn);
+          map.on('mouseleave', 'annotation-arrowheads', cursorPointerOff);
+        }
+      } catch (_) {}
+    };
+    bindAnnotationLayerHandlers();
+    const onStyleLoadRebindAnnots = () => bindAnnotationLayerHandlers();
+    try { map.on('style.load', onStyleLoadRebindAnnots); } catch (_) {}
 
     const canvas = map && map.getCanvas ? map.getCanvas() : null;
     if (!canvas) return;
@@ -563,6 +649,7 @@ const MapContainer = forwardRef(({
         if (!root.contains(ev.target)) {
           try { console.debug('ANNOT: document outside pointerdown; closing popup'); } catch (_) {}
           try { popup.remove(); } catch (_) {}
+          annotationPopupRef.current = null;
         }
       } catch (_) {}
     };
@@ -573,6 +660,16 @@ const MapContainer = forwardRef(({
           try { console.debug('ANNOT: draw.update -> closing popup'); } catch (_) {}
           popup.remove();
         }
+        try { if (arrowOverlayRef.current) { console.debug('ANNOT: draw.update -> closing arrow overlay'); } } catch (_) {}
+        try {
+          const ref = arrowOverlayRef.current;
+          if (ref && ref.root && ref.mount) {
+            try { ref.root.unmount(); } catch (_) {}
+            try { if (ref.mount.parentNode) ref.mount.parentNode.removeChild(ref.mount); } catch (_) {}
+          }
+        } catch (_) {}
+        arrowOverlayRef.current = null;
+        annotationPopupRef.current = null;
       } catch (_) {}
     };
 
@@ -585,6 +682,10 @@ const MapContainer = forwardRef(({
     try { document.addEventListener('pointerdown', onDocPointerDownCapture, true); } catch (_) {}
     // Close on Draw updates (moving annotations)
     try { map.on('draw.update', onDrawUpdateClose); } catch (_) {}
+    // Also close on feature deletion and selection changes
+    try { map.on('draw.delete', onDrawUpdateClose); } catch (_) {}
+    try { map.on('draw.selectionchange', onDrawUpdateClose); } catch (_) {}
+    try { map.on('draw.modechange', onDrawUpdateClose); } catch (_) {}
 
     return () => {
       try { canvas.removeEventListener('mousedown', onMouseDownCapture, true); } catch (_) {}
@@ -593,7 +694,19 @@ const MapContainer = forwardRef(({
       try { canvas.removeEventListener('dblclick', onDblClickCapture, true); } catch (_) {}
       try { document.removeEventListener('pointerdown', onDocPointerDownCapture, true); } catch (_) {}
       try { map.off('draw.update', onDrawUpdateClose); } catch (_) {}
+      try { map.off('draw.delete', onDrawUpdateClose); } catch (_) {}
+      try { map.off('draw.selectionchange', onDrawUpdateClose); } catch (_) {}
+      try { map.off('draw.modechange', onDrawUpdateClose); } catch (_) {}
       try { if (popup) { console.debug('ANNOT: cleanup removing popup'); popup.remove(); } } catch (_) {}
+      try {
+        const ref = arrowOverlayRef.current;
+        if (ref && ref.root && ref.mount) {
+          try { ref.root.unmount(); } catch (_) {}
+          try { if (ref.mount.parentNode) ref.mount.parentNode.removeChild(ref.mount); } catch (_) {}
+        }
+      } catch (_) {}
+      arrowOverlayRef.current = null;
+      annotationPopupRef.current = null;
     };
   }, [map]);
 
@@ -680,7 +793,7 @@ const MapContainer = forwardRef(({
     }
   };
 
-  // Delete selected dropped object with Delete/Backspace (select mode only)
+  // Delete selected dropped object or selected annotation with Delete/Backspace (select mode only)
   useEffect(() => {
     const onKeyDown = (e) => {
       try {
@@ -696,20 +809,37 @@ const MapContainer = forwardRef(({
         e.preventDefault();
         // Delete whichever kind is selected
         const id = selectedObjectId;
-        if (!id) return;
-        if (selectedKind === 'rect') {
-          // Remove rectangle by deleting the corresponding dropped object
-          try { clickToPlace.removeDroppedObject(id); } catch (_) {}
-          try { clearSelection(); } catch (_) {}
-        } else if (selectedKind === 'point') {
-          try { clickToPlace.removeDroppedObject(id); } catch (_) {}
-          try { clearSelection(); } catch (_) {}
+        if (id) {
+          if (selectedKind === 'rect') {
+            // Remove rectangle by deleting the corresponding dropped object
+            try { clickToPlace.removeDroppedObject(id); } catch (_) {}
+            try { clearSelection(); } catch (_) {}
+            // Close any annotations popup immediately
+            try { if (annotationPopupRef.current) { annotationPopupRef.current.remove(); annotationPopupRef.current = null; } } catch (_) {}
+            return;
+          }
+          if (selectedKind === 'point') {
+            try { clickToPlace.removeDroppedObject(id); } catch (_) {}
+            try { clearSelection(); } catch (_) {}
+            try { if (annotationPopupRef.current) { annotationPopupRef.current.remove(); annotationPopupRef.current = null; } } catch (_) {}
+            return;
+          }
         }
+        // If no dropped object is selected, remove selected Draw annotation if any
+        try {
+          const selId = drawTools && drawTools.selectedShape;
+          if (selId && drawTools && typeof drawTools.deleteSelectedShape === 'function') {
+            drawTools.deleteSelectedShape();
+          }
+        } catch (_) {}
+        // Regardless, close any active annotation popup immediately (MapLibre) and arrow overlay (React)
+        try { if (annotationPopupRef.current) { annotationPopupRef.current.remove(); annotationPopupRef.current = null; } } catch (_) {}
+        try { if (arrowOverlayRef.current) { const ref = arrowOverlayRef.current; ref.root.unmount(); if (ref.mount.parentNode) ref.mount.parentNode.removeChild(ref.mount); arrowOverlayRef.current = null; } } catch (_) {}
       } catch (_) {}
     };
     window.addEventListener('keydown', onKeyDown, { passive: false });
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [placementMode, selectedObjectId, selectedKind, clickToPlace, clearSelection]);
+  }, [placementMode, selectedObjectId, selectedKind, clickToPlace, clearSelection, drawTools]);
 
   // Disable double-click zoom when map is loaded to prevent conflicts with permit area selection
   React.useEffect(() => {
@@ -961,6 +1091,29 @@ const MapContainer = forwardRef(({
           } catch (_) {}
         }}
       />
+
+      {/* DOM overlay text labels to ensure highest z-order over map and SVG overlays */}
+      <div className="pointer-events-none absolute inset-0" style={{ zIndex: 60 }}>
+        {domAnnotationLabels.map((l) => (
+          <div
+            key={l.id}
+            style={{
+              position: 'absolute',
+              left: l.x,
+              top: l.y,
+              transform: 'translate(-50%, -100%)',
+              fontSize: `${l.size}px`,
+              color: l.color,
+              textShadow: l.halo ? '0 0 2px #fff, 0 0 2px #fff' : undefined,
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+              pointerEvents: 'none'
+            }}
+          >
+            {l.label}
+          </div>
+        ))}
+      </div>
 
 
       {noteEditingObject && (

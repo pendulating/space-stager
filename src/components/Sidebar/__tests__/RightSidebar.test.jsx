@@ -38,18 +38,16 @@ describe('RightSidebar (right)', () => {
     const props = makeProps();
     render(<RightSidebar {...props} />);
     // Export buttons
-    fireEvent.click(screen.getByText('Save Draft'));
+    fireEvent.click(screen.getByText(/Save Digital Plan/));
     expect(props.onExport).toHaveBeenCalled();
 
-    // Open export menu and select PNG
+    // Open export menu and select PDF
     fireEvent.click(screen.getByText('Export Site Plan'));
-    fireEvent.click(screen.getByText('PNG Image'));
-    expect(props.onExportSiteplan).toHaveBeenCalledWith('png');
+    fireEvent.click(screen.getByText('PDF Document'));
+    expect(props.onExportSiteplan).toHaveBeenCalledWith('pdf');
 
-    // Event Info and Export Options fire custom events (smoke test presence)
+    // Event Info button present
     expect(screen.getByText('Event Information')).toBeInTheDocument();
-    // There is a header and a button with the same text; just assert presence
-    expect(screen.getAllByText('Export Options').length).toBeGreaterThan(0);
   });
 
   it('disables siteplan export when no focused area', () => {

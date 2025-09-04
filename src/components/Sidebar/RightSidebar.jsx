@@ -127,30 +127,6 @@ const RightSidebar = ({
                   <button
                     type="button"
                     onClick={() => {
-                      console.log('Exporting PNG...', { focusedArea, onExportSiteplan });
-                      onExportSiteplan('png');
-                      setShowExportMenu(false);
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded flex items-center space-x-2 cursor-pointer"
-                  >
-                    <FileImage className="w-4 h-4" />
-                    <span>PNG Image</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      console.log('Exporting JPG...', { focusedArea, onExportSiteplan });
-                      onExportSiteplan('jpg');
-                      setShowExportMenu(false);
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded flex items-center space-x-2 cursor-pointer"
-                  >
-                    <FileImage className="w-4 h-4" />
-                    <span>JPG Image</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
                       console.log('Exporting PDF...', { focusedArea, onExportSiteplan });
                       onExportSiteplan('pdf');
                       setShowExportMenu(false);

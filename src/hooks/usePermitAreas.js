@@ -7,6 +7,7 @@ import { ensureBaseLayers as ensureGeoBaseLayers, setBaseVisibility as setGeoBas
 import { GEOGRAPHIES } from '../constants/geographies';
 import { useZoneCreatorContext } from '../contexts/ZoneCreatorContext.jsx';
 import bbox from '@turf/bbox';
+import { snapToNearest } from '../utils/enhancedRenderingUtils';
 import { intersect as turfIntersect, booleanIntersects as turfBooleanIntersects } from '@turf/turf';
 
 // Minimal oriented minimum bounding box (rotating calipers) implementation
@@ -471,7 +472,10 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         // Smoothly move to the point at a sensible zoom
         const targetZoom = 18;
         try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
-        map.easeTo({ center: geom.coordinates, zoom: targetZoom, duration: 1100, essential: true, easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) });
+        const snapStep = Number(options.bearingSnapStep || 45);
+        const currentBearing = (typeof map.getBearing === 'function') ? map.getBearing() : 0;
+        const snappedBearing = snapToNearest(currentBearing, snapStep);
+        map.easeTo({ center: geom.coordinates, zoom: targetZoom, bearing: snappedBearing, duration: 1100, essential: true, easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) });
         // Apply constraints when camera settles, but preserve visual end-center to avoid a jarring jump
         map.once('idle', () => {
           try {
@@ -511,18 +515,18 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       // Prefer cameraForBounds if available to compute a single smooth camera
       try {
         const padding = options.focusPadding || 20;
+        const snapStep = Number(options.bearingSnapStep || 45);
+        const targetBearing = snapToNearest(-angle, snapStep);
         if (typeof map.cameraForBounds === 'function') {
           const camera = map.cameraForBounds(orientedBbox, { padding });
-          const finalCamera = { ...camera, bearing: -angle, duration: 1200, essential: true, easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) };
+          const finalCamera = { ...camera, bearing: targetBearing, duration: 1200, essential: true, easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) };
           try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
           map.easeTo(finalCamera);
         } else {
           try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
           map.fitBounds(orientedBbox, { padding, duration: 1200 });
           // Follow with a single rotate to target bearing if needed
-          if (map.getBearing && map.getBearing() !== -angle) {
-            map.rotateTo(-angle, { duration: 400 });
-          }
+          try { if (map.rotateTo) map.rotateTo(targetBearing, { duration: 400 }); } catch (_) {}
         }
       } catch (_) {
         // Fallback to basic fitBounds
@@ -607,6 +611,13 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
           const padding = 20;
           try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
           try { map.fitBounds(bounds, { padding, duration: 800 }); } catch (_) {}
+          // Snap bearing after fit
+          try {
+            const snapStep = Number(options.bearingSnapStep || 45);
+            const currentBearing = (typeof map.getBearing === 'function') ? map.getBearing() : 0;
+            const snappedBearing = snapToNearest(currentBearing, snapStep);
+            if (map.rotateTo) map.rotateTo(snappedBearing, { duration: 300 });
+          } catch (_) {}
           const onMoveEnd = () => {
             try {
               const finalZoom = map.getZoom ? map.getZoom() : 16;

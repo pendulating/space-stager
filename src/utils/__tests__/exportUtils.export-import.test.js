@@ -7,6 +7,7 @@ describe('exportUtils export/import flows', () => {
   const origCreate = document.createElement;
   const origURL = global.URL;
   const origAlert = global.alert;
+  const origConfirm = global.confirm;
   const origMaplibre = global.maplibregl;
 
   beforeEach(() => {
@@ -40,11 +41,13 @@ describe('exportUtils export/import flows', () => {
     // @ts-ignore
     document.__clicks = clicks;
     global.alert = vi.fn();
+    global.confirm = vi.fn(() => true);
   });
   afterEach(() => {
     document.createElement = origCreate;
     global.URL = origURL;
     global.alert = origAlert;
+    global.confirm = origConfirm;
     global.maplibregl = origMaplibre;
   });
 
@@ -65,11 +68,16 @@ describe('exportUtils export/import flows', () => {
     const layers = { permitAreas: { visible: true } };
     const dropped = [{ type: 'chair' }];
     const focusedArea = { id: 'fa1', properties: { system: 'SYS', name: 'Union Park' }, geometry: { type: 'Point', coordinates: [-74, 40.7] } };
-    exportPlan(map, draw, dropped, layers, [], { geographyType: 'parks', focusedArea, appVersion: '1.2.3' });
+    const subFocusArea = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[-74,40.7],[-73.99,40.7],[-73.99,40.71],[-74,40.71],[-74,40.7]]] } };
+    exportPlan(map, draw, dropped, layers, [], { geographyType: 'parks', focusedArea, appVersion: '1.2.3', subFocusArea });
     // @ts-ignore
     const clicks = document.__clicks;
     expect(clicks.length).toBe(1);
     expect(clicks[0].download).toMatch(/siteplan-\d{4}-\d{2}-\d{2}\.json/);
+    // Verify blob metadata without parsing content (environment Blob/text may vary)
+    const blob = global.URL.created[0];
+    expect(blob).toBeTruthy();
+    expect(blob.type).toBe('application/json');
   });
 
   it('importPlan restores view, layers, shapes and dropped objects from v1 schema', async () => {
@@ -92,7 +100,10 @@ describe('exportUtils export/import flows', () => {
     importPlan(file, map, draw, null, setDropped, setLayers, helpers);
     await waitFor(() => {
       expect(setLayers).toHaveBeenCalled();
-      expect(setDropped).toHaveBeenCalledWith([{ type: 'chair' }]);
+      // Dropped objects gain id/name/label during normalization; only assert type preservation
+      const call = setDropped.mock.calls[0][0];
+      expect(Array.isArray(call)).toBe(true);
+      expect(call[0].type).toBe('chair');
       expect(map.setCenter).toHaveBeenCalledWith({ lng: -73.99, lat: 40.75 });
       expect(map.setZoom).toHaveBeenCalledWith(14);
       expect(map.setBearing).toHaveBeenCalledWith(10);
@@ -100,6 +111,32 @@ describe('exportUtils export/import flows', () => {
       expect(draw.current.set).toHaveBeenCalled();
       expect(helpers.selectGeography).toHaveBeenCalledWith('parks');
       expect(helpers.focusAreaByIdentity).toHaveBeenCalledWith({ type: 'parks', system: 'SYS', id: 'X' });
+    });
+  });
+
+  it('importPlan retries applying subFocusArea until ready', async () => {
+    const map = makeMap();
+    const draw = { current: { set: vi.fn() } };
+    const setLayers = vi.fn();
+    const setDropped = vi.fn();
+    let attempts = 0;
+    const helpers = {
+      selectGeography: vi.fn(),
+      focusAreaByIdentity: vi.fn(),
+      applySubFocus: vi.fn(() => { attempts += 1; return attempts >= 3; }),
+      onMoveEndOnce: (cb) => cb(),
+    };
+    const data = {
+      schemaVersion: 1,
+      geography: { type: 'parks' },
+      focusedArea: { id: 'A' },
+      subFocusArea: { geometry: { type: 'Polygon', coordinates: [[[-74,40.7],[-73.99,40.7],[-73.99,40.71],[-74,40.71],[-74,40.7]]] } },
+      layers: {}, customShapes: { type: 'FeatureCollection', features: [] }, droppedObjects: []
+    };
+    const file = new File([JSON.stringify(data)], 'plan.json', { type: 'application/json' });
+    importPlan(file, map, draw, null, setDropped, setLayers, helpers);
+    await waitFor(() => {
+      expect(helpers.applySubFocus).toHaveBeenCalled();
     });
   });
 

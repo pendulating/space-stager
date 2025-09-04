@@ -31,6 +31,17 @@ export const quantizeAngleTo90 = (angleDeg) => {
 };
 
 /**
+ * Snap an angle to the nearest increment step (default 45°).
+ * Returns a normalized angle in [0, 360).
+ */
+export const snapToNearest = (angleDeg, step = 45) => {
+  const a = ((Number(angleDeg) % 360) + 360) % 360;
+  const s = Math.max(1, Math.abs(Number(step) || 45));
+  const q = Math.round(a / s) * s;
+  return ((q % 360) + 360) % 360;
+};
+
+/**
  * Compute rhumb bearing from p1 -> p2 in degrees (0=N, 90=E).
  * Uses simple approximation suitable for small distances in NYC.
  */

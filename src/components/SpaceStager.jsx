@@ -98,6 +98,9 @@ const SpaceStager = () => {
     mapProjectionMode: 'topDown'
   });
   const [areaWarning, setAreaWarning] = useState(null);
+  // Import rehydration guard: skip auto layer resets while importing a plan
+  const rehydratingImportRef = useRef(false);
+  const [isImportingPlan, setIsImportingPlan] = useState(false);
   useEffect(() => {
     const handler = () => setShowGeoSelectorOverride(true);
     window.addEventListener('ui:show-geography-selector', handler);
@@ -117,7 +120,7 @@ const SpaceStager = () => {
   const focusPadding = { top: 20, right: 20, bottom: 20, left: isLeftSidebarOpen ? 360 : 20 };
   const permitAreas = usePermitAreas(map, mapLoaded, { mode: geographyType, focusPadding });
   const drawTools = useDrawTools(map, permitAreas.focusedArea);
-  const infrastructure = useInfrastructure(map, permitAreas.focusedArea, layers, setLayers);
+  const infrastructure = useInfrastructure(map, permitAreas.focusedArea, layers, setLayers, { rehydratingImport: isImportingPlan });
   const clickToPlace = useClickToPlace(map);
   const { isSitePlanMode, updateSitePlanMode } = useSitePlan();
   // Future: const dprMode = useDprMode(map, permitAreas.mode, drawTools);
@@ -205,7 +208,8 @@ const SpaceStager = () => {
       {
         geographyType,
         focusedArea: permitAreas.focusedArea,
-        eventInfo
+        eventInfo,
+        subFocusArea: permitAreas.hasSubFocus ? permitAreas.subFocusArea : null
       }
     );
   };
@@ -219,6 +223,20 @@ const SpaceStager = () => {
       clickToPlace.setDroppedObjects,
       setLayers,
       {
+        // Import orchestration helpers
+        setRehydratingImport: (v) => { try { rehydratingImportRef.current = !!v; setIsImportingPlan(!!v); } catch (_) {} },
+        wipeSlate: () => {
+          try { permitAreas.clearFocus(); } catch (_) {}
+          try { infrastructure.clearFocus(); } catch (_) {}
+          try { clickToPlace.clearDroppedObjects(); } catch (_) {}
+          try { drawTools.clearCustomShapes(); } catch (_) {}
+          try {
+            setLayers(prev => ({
+              ...INITIAL_LAYERS,
+              permitAreas: { ...prev.permitAreas }
+            }));
+          } catch (_) {}
+        },
         selectGeography: (type) => {
           try { if (type && type !== geographyType) selectGeography(type); } catch (_) {}
         },
@@ -244,6 +262,19 @@ const SpaceStager = () => {
           };
           tryFocus();
         },
+        focusAreaByGeometry: (geometry) => {
+          try {
+            if (!geometry) return false;
+            const feature = { type: 'Feature', properties: { name: 'Imported Area' }, geometry };
+            permitAreas.focusOnPermitArea(feature);
+            return true;
+          } catch (_) { return false; }
+        },
+        applySubFocus: (geometry) => {
+          try { return permitAreas.setSubFocusPolygon({ type: 'Feature', properties: {}, geometry }); } catch (_) { return false; }
+        },
+        onMoveEndOnce: (cb) => { try { map && map.once && map.once('moveend', cb); } catch (_) {} },
+        reloadVisibleInfra: () => { try { infrastructure.reloadVisibleLayers && infrastructure.reloadVisibleLayers(); } catch (_) {} },
         setEventInfo: (info) => setEventInfo(info || {})
       }
     );
@@ -310,8 +341,9 @@ const SpaceStager = () => {
   }, [map, infrastructure, geographyType]);
 
   // When the focusedArea changes, reset infrastructure layer states in the sidebar
-  // (The actual clearing is handled by useInfrastructure hook to avoid race conditions)
+  // Skip during rehydrating imports to preserve saved toggles
   useEffect(() => {
+    if (rehydratingImportRef.current) return;
     setLayers(prev => {
       const newLayers = { ...prev };
       Object.keys(newLayers).forEach(layerId => {

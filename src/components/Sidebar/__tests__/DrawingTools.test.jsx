@@ -21,8 +21,8 @@ describe('DrawingTools', () => {
     fireEvent.click(pointBtn);
     expect(onToolSelect).toHaveBeenCalled();
 
-    const delBtn = screen.getByTitle('Delete Selected');
-    expect(delBtn).toBeDisabled();
+    // Component no longer renders a delete button; ensure onToolSelect was called
+    expect(onToolSelect).toHaveBeenCalledTimes(1);
   });
 
   it('shows retry when draw unavailable', () => {

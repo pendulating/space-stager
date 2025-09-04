@@ -560,10 +560,13 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       if (hasIconDef) {
         const base = 0.7 * sizeScale;
         const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
+        const iconImage = (layerConfig?.enhancedRendering?.enabled)
+          ? ['coalesce', ['get', 'icon_image'], 'trash-basket-icon']
+          : 'trash-basket-icon';
         return {
           type: 'symbol',
           layout: {
-            'icon-image': 'trash-basket-icon',
+            'icon-image': iconImage,
             'icon-size': iconSize,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,

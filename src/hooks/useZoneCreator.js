@@ -87,6 +87,16 @@ export function useZoneCreator(map, geographyType) {
         const bb = turf.bbox(buffered);
         console.log('[ZoneCreator] Fitting bounds', { bbox: bb });
         try { map.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 30, duration: 600, maxZoom: 20 }); } catch (_) {}
+        // Snap bearing after fit to nearest 45° for design consistency
+        try {
+          const currentBearing = (typeof map.getBearing === 'function') ? map.getBearing() : 0;
+          const snapped = (() => {
+            const d = ((currentBearing % 360) + 360) % 360;
+            const step = 45;
+            return Math.round(d / step) * step;
+          })();
+          if (map.rotateTo) map.rotateTo(snapped, { duration: 300 });
+        } catch (_) {}
 
         // Mark preview as active to show Exit button/UI
         try { setPreviewActive(true); } catch(_) {}

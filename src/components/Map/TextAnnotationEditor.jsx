@@ -28,6 +28,29 @@ const TextAnnotationEditor = ({ map, featureId, drawRef, onSave, onCancel }) => 
     });
   }, [feature]);
 
+  // Close editor if the underlying feature is deleted or no longer exists (e.g., Backspace)
+  useEffect(() => {
+    if (!map || !featureId) return;
+    const closeIfMissing = () => {
+      try {
+        const f = drawRef?.current?.get ? drawRef.current.get(featureId) : null;
+        if (!f && typeof onCancel === 'function') onCancel();
+      } catch (_) {}
+    };
+    const onDelete = () => closeIfMissing();
+    const onSelectionChange = () => closeIfMissing();
+    try { map.on('draw.delete', onDelete); } catch (_) {}
+    try { map.on('draw.update', onDelete); } catch (_) {}
+    try { map.on('draw.selectionchange', onSelectionChange); } catch (_) {}
+    try { map.on('draw.render', onSelectionChange); } catch (_) {}
+    return () => {
+      try { map.off('draw.delete', onDelete); } catch (_) {}
+      try { map.off('draw.update', onDelete); } catch (_) {}
+      try { map.off('draw.selectionchange', onSelectionChange); } catch (_) {}
+      try { map.off('draw.render', onSelectionChange); } catch (_) {}
+    };
+  }, [map, drawRef, featureId, onCancel]);
+
   if (!feature) return null;
 
   const handleSave = () => {
@@ -87,3 +110,125 @@ const TextAnnotationEditor = ({ map, featureId, drawRef, onSave, onCancel }) => 
 export default TextAnnotationEditor;
 
 
+
+// Lightweight action pill overlay for annotations (e.g., arrows)
+// Renders near the feature and provides Label / Remove actions.
+export const AnnotationActionPill = ({ map, drawRef, featureId, onClose }) => {
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const updatePos = () => {
+    try {
+      const f = drawRef?.current?.get ? drawRef.current.get(featureId) : null;
+      if (!f || !f.geometry) return;
+      const g = f.geometry;
+      let anchor = null;
+      if (g.type === 'LineString') {
+        const coords = g.coordinates || [];
+        anchor = coords[coords.length - 1] || coords[0] || null; // tip/end
+      } else if (g.type === 'Point') {
+        anchor = g.coordinates || null;
+      } else if (g.type === 'Polygon') {
+        const ring = (g.coordinates || [])[0] || [];
+        anchor = ring[0] || null;
+      }
+      if (anchor) {
+        const p = map.project(anchor);
+        setPos({ x: p.x, y: p.y });
+      }
+    } catch (_) {}
+  };
+
+  useEffect(() => {
+    updatePos();
+    if (!map) return;
+    const onMove = () => updatePos();
+    try { map.on('move', onMove); } catch (_) {}
+    try { map.on('zoom', onMove); } catch (_) {}
+    try { map.on('resize', onMove); } catch (_) {}
+    return () => {
+      try { map.off('move', onMove); } catch (_) {}
+      try { map.off('zoom', onMove); } catch (_) {}
+      try { map.off('resize', onMove); } catch (_) {}
+    };
+  }, [map, drawRef, featureId]);
+
+  // Auto-close when feature disappears
+  useEffect(() => {
+    if (!map || !featureId) return;
+    const closeIfMissing = () => {
+      try {
+        const f = drawRef?.current?.get ? drawRef.current.get(featureId) : null;
+        if (!f && typeof onClose === 'function') onClose();
+      } catch (_) {}
+    };
+    const onDelete = () => closeIfMissing();
+    const onSelectionChange = () => closeIfMissing();
+    try { map.on('draw.delete', onDelete); } catch (_) {}
+    try { map.on('draw.update', onDelete); } catch (_) {}
+    try { map.on('draw.selectionchange', onSelectionChange); } catch (_) {}
+    try { map.on('draw.render', onSelectionChange); } catch (_) {}
+    // Safety: also close immediately on Delete/Backspace so repeated attempts don't linger
+    const onKeyDown = (e) => {
+      try {
+        const isDel = e.key === 'Delete' || e.key === 'Backspace';
+        if (!isDel) return;
+        // Defer slightly to allow draw.delete to fire; then close if still mounted
+        setTimeout(() => closeIfMissing(), 0);
+      } catch (_) {}
+    };
+    try { window.addEventListener('keydown', onKeyDown, { passive: true }); } catch (_) {}
+    return () => {
+      try { map.off('draw.delete', onDelete); } catch (_) {}
+      try { map.off('draw.update', onDelete); } catch (_) {}
+      try { map.off('draw.selectionchange', onSelectionChange); } catch (_) {}
+      try { map.off('draw.render', onSelectionChange); } catch (_) {}
+      try { window.removeEventListener('keydown', onKeyDown); } catch (_) {}
+    };
+  }, [map, drawRef, featureId, onClose]);
+
+  const handleLabel = () => {
+    try {
+      const f = drawRef?.current?.get ? drawRef.current.get(featureId) : null;
+      if (!f) return;
+      const val = typeof window !== 'undefined' ? window.prompt('Arrow label') : null;
+      if (val != null) {
+        const next = { ...f, properties: Object.assign({}, f.properties || {}, { label: String(val) }) };
+        // draw.replace specific method may vary; add() will duplicate, so prefer setFeatureProperty if available
+        if (drawRef?.current?.setFeatureProperty) {
+          drawRef.current.setFeatureProperty(featureId, 'label', String(val));
+        } else if (drawRef?.current?.add) {
+          drawRef.current.add(next);
+        }
+        try { if (map && map.triggerRepaint) map.triggerRepaint(); } catch (_) {}
+      }
+    } catch (_) {}
+    if (typeof onClose === 'function') onClose();
+  };
+
+  const handleRemove = () => {
+    try { drawRef?.current?.delete && drawRef.current.delete(featureId); } catch (_) {}
+    if (typeof onClose === 'function') onClose();
+  };
+
+  return (
+    <div className="absolute" style={{ left: pos.x, top: pos.y, transform: 'translate(-50%, -100%)', zIndex: 2000, pointerEvents: 'auto' }}>
+      <div className="rounded-full px-2 py-1 text-[11px] shadow-sm flex gap-1 bg-white/90 dark:bg-gray-900/80 border border-gray-200/60 dark:border-gray-700/60">
+        <button
+          type="button"
+          title="Label"
+          onClick={handleLabel}
+          className="px-2 py-0.5 rounded-full border border-gray-300/70 dark:border-gray-700 text-gray-700 dark:text-gray-200 bg-white/70 dark:bg-gray-800/50 hover:bg-white/90"
+        >
+          Label…
+        </button>
+        <button
+          type="button"
+          title="Remove"
+          onClick={handleRemove}
+          className="text-white rounded-full px-2 py-0.5 bg-red-500 hover:bg-red-600"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  );
+};

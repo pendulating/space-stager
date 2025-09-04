@@ -98,7 +98,7 @@ const DroppedRectangles = ({ objects = [], placeableObjects = [], map, objectUpd
   if (!rects.length) return null;
 
   return (
-    <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 1500 }}>
+    <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 5 }}>
       <svg className="w-full h-full">
         <defs>
           {rects.map((r) => (

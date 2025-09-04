@@ -79,7 +79,7 @@ const detectBasemapKey = (map) => {
 export const exportPlan = (map, draw, droppedObjects, layers, customShapes, options = {}) => {
   if (!map || !draw) return;
 
-  const { geographyType = 'parks', focusedArea = null, appVersion = undefined, eventInfo = undefined } = options || {};
+  const { geographyType = 'parks', focusedArea = null, appVersion = undefined, eventInfo = undefined, subFocusArea = undefined } = options || {};
 
   const nowIso = new Date().toISOString();
   const center = map.getCenter();
@@ -103,6 +103,7 @@ export const exportPlan = (map, draw, droppedObjects, layers, customShapes, opti
       bearing: typeof map.getBearing === 'function' ? map.getBearing() : 0,
       pitch: typeof map.getPitch === 'function' ? map.getPitch() : 0
     },
+    subFocusArea: subFocusArea ? { geometry: subFocusArea.geometry ?? subFocusArea } : undefined,
     layers: layers,
     customShapes: draw.current ? draw.current.getAll() : { type: 'FeatureCollection', features: [] },
     droppedObjects: droppedObjects,
@@ -367,6 +368,9 @@ export const exportPermitAreaSiteplanV2 = async (
         drawBusStopFeatureLabelsOnCanvas(ctx, offscreen, { x: 0, y: 0 }, busStopsVisible, 'B');
       }
 
+      // Repaint custom text annotations at the very top
+      try { drawCustomTextLabelsOnCanvas(ctx, { x: 0, y: 0, width: mapPx.width, height: mapPx.height }, offscreen, customShapes); } catch (_) {}
+
       if (!noLegend) {
         const legendPx = { x: mapPx.width, y: 0, width: canvas.width - mapPx.width, height: canvas.height };
         const numbered = numberCustomShapes(customShapes || []);
@@ -436,7 +440,7 @@ export const exportPermitAreaSiteplanV2 = async (
       try { drawObjectDimensionsOnPdf(pdf, droppedObjects, project, toMm, dimensionUnits); } catch (_) {}
     }
     drawDroppedObjectsOnPdf(pdf, droppedObjects, project, toMm, droppedObjectPngs, bearingAdjustDeg);
-    drawDroppedObjectNotesOnPdf(pdf, droppedObjects, project, toMm);
+    // Notes will be drawn at topmost layer later
     drawCustomShapesOnPdf(pdf, numberedShapes, project, toMm);
     drawInfrastructureOnPdf(pdf, layers, ensuredInfra, project, toMm, mmFromPx, pngIcons, enhancedVariantPngs);
     // Labels last so they overlay icons/lines
@@ -527,6 +531,13 @@ export const exportPermitAreaSiteplanV2 = async (
       const metersAcross = turfDistance([bbox.getWest(), centerLat], [bbox.getEast(), centerLat], { units: 'meters' });
       const metersPerMm = metersAcross / mapMm.width;
       drawScaleBar(pdf, inner + 26, mapMm.height - inner - 2, 45, metersPerMm);
+    } catch (_) {}
+
+    // Absolutely topmost text: custom text annotations and dropped-object notes
+    try {
+      if (typeof pdf.setPage === 'function') pdf.setPage(1);
+      drawCustomTextLabelsOnPdf(pdf, customShapes, project, toMm);
+      drawDroppedObjectNotesOnPdf(pdf, droppedObjects, project, toMm);
     } catch (_) {}
 
     pdf.save(`siteplan-${getSafeFilename(areaForExport)}.pdf`);
@@ -1437,18 +1448,7 @@ const drawCustomShapesOnPdf = (pdf, shapes, project, toMm) => {
     if (g.type === 'Point') {
       const p = toMm(project(g.coordinates[0], g.coordinates[1]));
       if (kind === 'text') {
-        // Render text label directly at the point (with halo)
-        const label = String(shape.properties?.label || '').trim();
-        if (label) {
-          const x = p.x, y = p.y;
-          // White wipe box behind text for contrast
-          const pad = 0.8;
-          const w = pdf.getTextWidth(label) + pad * 2;
-          pdf.setFillColor(255, 255, 255);
-          pdf.rect(x - w / 2, y - 2.6, w, 5.2, 'F');
-          pdf.setTextColor(17, 24, 39);
-          pdf.text(label, x, y, { align: 'center', baseline: 'middle' });
-        }
+        // Defer actual text draw to topmost pass
       } else {
         // Default point marker + numbered badge
         pdf.circle(p.x, p.y, 1.2, 'S');
@@ -1523,6 +1523,31 @@ const drawCustomShapesOnPdf = (pdf, shapes, project, toMm) => {
     }
     if (labelPoint) drawBadge(pdf, labelPoint.x, labelPoint.y, String(shape.properties?.__number || '?'));
   });
+};
+
+// Topmost-only text labels for custom annotation points (type==='text')
+const drawCustomTextLabelsOnPdf = (pdf, shapes, project, toMm) => {
+  try {
+    if (!Array.isArray(shapes) || shapes.length === 0) return;
+    shapes.forEach((shape) => {
+      try {
+        const g = shape && shape.geometry;
+        const props = shape && shape.properties;
+        if (!g || g.type !== 'Point') return;
+        if (!props || props.type !== 'text') return;
+        const label = String(props.label || '').trim();
+        if (!label) return;
+        const p = toMm(project(g.coordinates[0], g.coordinates[1]));
+        const x = p.x, y = p.y;
+        const pad = 0.8;
+        const w = pdf.getTextWidth(label) + pad * 2;
+        pdf.setFillColor(255, 255, 255);
+        pdf.rect(x - w / 2, y - 2.6, w, 5.2, 'F');
+        pdf.setTextColor(17, 24, 39);
+        pdf.text(label, x, y, { align: 'center', baseline: 'middle' });
+      } catch (_) {}
+    });
+  } catch (_) {}
 };
 
 // Render dropped object notes next to their numbered markers on PDF
@@ -2091,17 +2116,7 @@ const drawCustomShapesOnCanvas = (ctx, mapArea, map, customShapes) => {
         const mapPixelY = mapArea.y + pixel.y;
         const isText = props.type === 'text';
         if (isText) {
-          const label = String(props.label || '').trim();
-          if (label) {
-            ctx.font = 'bold 14px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            const w = ctx.measureText(label).width + 8;
-            ctx.fillStyle = 'rgba(255,255,255,0.9)';
-            ctx.fillRect(mapPixelX - w / 2, mapPixelY - 10, w, 20);
-            ctx.fillStyle = props.textColor || '#111827';
-            ctx.fillText(label, mapPixelX, mapPixelY);
-          }
+          // Defer actual text draw to topmost pass
         } else {
           // Default point annotation
           ctx.fillStyle = '#3b82f6';
@@ -2257,6 +2272,33 @@ const drawCustomShapesOnCanvas = (ctx, mapArea, map, customShapes) => {
       console.error('Error drawing custom shape:', error, shape);
     }
   });
+};
+
+// Paint only text labels from custom shapes at the very top of the canvas stack
+const drawCustomTextLabelsOnCanvas = (ctx, mapArea, map, customShapes) => {
+  try {
+    if (!customShapes || customShapes.length === 0) return;
+    customShapes.forEach(shape => {
+      try {
+        if (shape.geometry.type !== 'Point') return;
+        const props = shape.properties || {};
+        if (props.type !== 'text') return;
+        const label = String(props.label || '').trim();
+        if (!label) return;
+        const pixel = map.project([shape.geometry.coordinates[0], shape.geometry.coordinates[1]]);
+        const x = mapArea.x + pixel.x;
+        const y = mapArea.y + pixel.y;
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const w = ctx.measureText(label).width + 8;
+        ctx.fillStyle = 'rgba(255,255,255,0.95)';
+        ctx.fillRect(x - w / 2, y - 10, w, 20);
+        ctx.fillStyle = props.textColor || '#111827';
+        ctx.fillText(label, x, y);
+      } catch (_) {}
+    });
+  } catch (_) {}
 };
 
 // Draw dropped objects on the export canvas

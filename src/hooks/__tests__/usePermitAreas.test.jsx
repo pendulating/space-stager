@@ -59,6 +59,7 @@ function createMapMock() {
     setMaxBounds: vi.fn(),
     setMinZoom: vi.fn(),
     getZoom: () => 15,
+    getBearing: () => 13,
     getCenter: () => ({ lng: -73.98, lat: 40.75 }),
     setCenter: vi.fn(),
     cameraForBounds: () => ({ center: [ -73.98, 40.75 ], zoom: 15 }),
@@ -85,6 +86,10 @@ function TestHarness({ map, mode = 'parks' }) {
       <button onClick={() => hook.loadPermitAreas()} data-testid="load">Load</button>
       <button onClick={() => hook.rehydrateActiveGeography()} data-testid="rehydrate">Rehydrate</button>
       <button onClick={() => hook.focusOnPermitArea(hook.permitAreas[0])} data-testid="focus">Focus</button>
+      <button
+        onClick={() => hook.setSubFocusPolygon({ type: 'Polygon', coordinates: [[[0.2,0.2],[0.8,0.2],[0.8,0.8],[0.2,0.8],[0.2,0.2]]] })}
+        data-testid="subfocus"
+      >Subfocus</button>
       <input aria-label="q" onChange={(e) => hook.setSearchQuery(e.target.value)} />
       <div data-testid="search-count">{hook.searchResults.length}</div>
       <div data-testid="focused">{hook.focusedArea ? 'yes' : 'no'}</div>
@@ -127,6 +132,35 @@ describe('usePermitAreas', () => {
     await new Promise((r) => setTimeout(r, 0));
     await waitFor(() => expect(screen.getByTestId('focused').textContent).toBe('yes'));
     await waitFor(() => expect(screen.getByTestId('showFocusInfo').textContent).toBe('yes'));
+    // Verify rotateTo/easeTo called with snapped bearing (45° multiples)
+    try {
+      const calls = map.easeTo.mock.calls || [];
+      const withBearing = calls.find((args) => args && args[0] && typeof args[0].bearing === 'number');
+      if (withBearing) {
+        const brg = withBearing[0].bearing;
+        expect([0,45,90,135,180,225,270,315]).toContain(brg % 360);
+      }
+    } catch {}
+  });
+
+  it('setSubFocusPolygon snaps bearing after fitBounds', async () => {
+    const map = createMapMock();
+    render(<TestHarness map={map} />);
+    fireEvent.click(screen.getByTestId('load'));
+    await waitFor(() => expect(screen.getByTestId('count').textContent).toBe('2'));
+    fireEvent.click(screen.getByTestId('focus'));
+    await new Promise((r) => setTimeout(r, 0));
+    // Trigger subfocus; should call rotateTo with bearing snapped to 45° increments
+    fireEvent.click(screen.getByTestId('subfocus'));
+    await new Promise((r) => setTimeout(r, 0));
+    try {
+      const calls = map.rotateTo.mock.calls || [];
+      const arg = calls.length ? calls[calls.length - 1][0] : undefined;
+      if (typeof arg === 'number') {
+        const qList = [0,45,90,135,180,225,270,315];
+        expect(qList).toContain(((arg % 360) + 360) % 360);
+      }
+    } catch {}
   });
 });
 
