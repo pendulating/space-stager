@@ -264,3 +264,111 @@ export const buildSpriteFallbacks = (baseName, angle, viewType = VIEW_TYPES.ISOM
 export const chooseAngleQuantizer = (preferRightAngles = false) => (preferRightAngles ? quantizeAngleTo90 : quantizeAngleTo45);
 
 
+
+/**
+ * Quantize a map bearing to the appropriate step for sprite families.
+ * When layers prefer parallel/perpendicular alignment, snap to 90°; otherwise 45°.
+ */
+export const quantizeBearingForSprites = (bearingDeg, preferRightAngles = false) => {
+  const a = ((Number(bearingDeg) % 360) + 360) % 360;
+  const q = (preferRightAngles ? quantizeAngleTo90 : quantizeAngleTo45)(a);
+  return ((q % 360) + 360) % 360;
+};
+
+/**
+ * Compute the dominant orientation (bearing) of a Polygon/MultiPolygon geometry.
+ * Uses length-weighted average of doubled-angle vectors so direction (0/180) is treated the same.
+ * Returns degrees in [0, 360). When invalid, returns 0.
+ */
+export const computeDominantBearingFromPolygon = (geometry) => {
+  try {
+    if (!geometry || !geometry.type) return 0;
+    const addSegments = (coords) => {
+      if (!Array.isArray(coords) || coords.length < 2) return;
+      for (let i = 0; i < coords.length - 1; i++) {
+        const [ax, ay] = coords[i];
+        const [bx, by] = coords[i + 1];
+        const metersPerDegLat = 111132;
+        const metersPerDegLon = 111320 * Math.cos(((ay + by) / 2) * Math.PI / 180);
+        const axm = ax * metersPerDegLon;
+        const aym = ay * metersPerDegLat;
+        const bxm = bx * metersPerDegLon;
+        const bym = by * metersPerDegLat;
+        const dx = bxm - axm;
+        const dy = bym - aym;
+        const len = Math.hypot(dx, dy);
+        if (!(len > 0)) continue;
+        // Orientation with 0° pointing north, clockwise positive
+        const theta = Math.atan2(dx, dy); // radians
+        const w = len;
+        sumX += w * Math.cos(2 * theta);
+        sumY += w * Math.sin(2 * theta);
+      }
+    };
+
+    let sumX = 0;
+    let sumY = 0;
+    if (geometry.type === 'Polygon') {
+      const rings = geometry.coordinates || [];
+      rings.forEach(addSegments);
+    } else if (geometry.type === 'MultiPolygon') {
+      const polys = geometry.coordinates || [];
+      polys.forEach((poly) => {
+        (poly || []).forEach(addSegments);
+      });
+    } else {
+      return 0;
+    }
+    if (sumX === 0 && sumY === 0) return 0;
+    const angle = 0.5 * Math.atan2(sumY, sumX); // radians
+    let deg = (angle * 180) / Math.PI;
+    // Normalize to [0, 360)
+    deg = ((deg % 360) + 360) % 360;
+    return deg;
+  } catch (_) {
+    return 0;
+  }
+};
+
+/**
+ * Compute dominant orientation (bearing) in VIEWPORT space for a Polygon/MultiPolygon.
+ * 0° = up (toward top of screen), positive clockwise. Requires map.project.
+ */
+export const computeDominantViewportBearing = (map, geometry) => {
+  try {
+    if (!map || typeof map.project !== 'function' || !geometry || !geometry.type) return 0;
+    const addSegments = (coords) => {
+      if (!Array.isArray(coords) || coords.length < 2) return;
+      for (let i = 0; i < coords.length - 1; i++) {
+        const a = coords[i];
+        const b = coords[i + 1];
+        const pa = map.project({ lng: a[0], lat: a[1] });
+        const pb = map.project({ lng: b[0], lat: b[1] });
+        const dx = pb.x - pa.x;
+        const dy = pb.y - pa.y;
+        const len = Math.hypot(dx, dy);
+        if (!(len > 0)) continue;
+        // 0° up (negative y), clockwise positive
+        const theta = Math.atan2(dx, -dy);
+        sumX += len * Math.cos(2 * theta);
+        sumY += len * Math.sin(2 * theta);
+      }
+    };
+    let sumX = 0;
+    let sumY = 0;
+    if (geometry.type === 'Polygon') {
+      (geometry.coordinates || []).forEach(addSegments);
+    } else if (geometry.type === 'MultiPolygon') {
+      (geometry.coordinates || []).forEach((poly) => (poly || []).forEach(addSegments));
+    } else {
+      return 0;
+    }
+    if (sumX === 0 && sumY === 0) return 0;
+    const angle = 0.5 * Math.atan2(sumY, sumX);
+    let deg = (angle * 180) / Math.PI;
+    return ((deg % 360) + 360) % 360;
+  } catch (_) {
+    return 0;
+  }
+};
+

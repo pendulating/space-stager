@@ -33,6 +33,7 @@ import '../styles/eventStager.css';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { switchBasemap } from '../utils/mapUtils';
 import { distance as turfDistance } from '@turf/turf';
+import { computeDominantBearingFromPolygon, computeDominantViewportBearing } from '../utils/enhancedRenderingUtils';
 
 const SpaceStager = () => {
   const mapContainerRef = useRef(null);
@@ -527,15 +528,31 @@ const SpaceStager = () => {
       }
 
       const rotationAmount = 45; // degrees per key press
-      
+      const step = 45;
+      const snap = (deg) => {
+        const d = ((deg % 360) + 360) % 360;
+        return Math.round(d / step) * step;
+      };
+      const areaBearing = (() => {
+        try {
+          const g = (permitAreas?.hasSubFocus ? permitAreas?.subFocusArea?.geometry : permitAreas?.focusedArea?.geometry);
+          if (!g) return 0;
+          const isIso = (map?.getPitch ? map.getPitch() : 0) > 15;
+          if (isIso && map) return computeDominantViewportBearing(map, g) || 0;
+          return computeDominantBearingFromPolygon(g) || 0;
+        } catch (_) { return 0; }
+      })();
+
       if (e.key.toLowerCase() === 'q') {
         e.preventDefault();
         const currentBearing = map.getBearing();
-        map.rotateTo(currentBearing - rotationAmount, { duration: 300 });
+        const base = areaBearing + snap(currentBearing - areaBearing);
+        map.rotateTo(base - rotationAmount, { duration: 300 });
       } else if (e.key.toLowerCase() === 'e') {
         e.preventDefault();
         const currentBearing = map.getBearing();
-        map.rotateTo(currentBearing + rotationAmount, { duration: 300 });
+        const base = areaBearing + snap(currentBearing - areaBearing);
+        map.rotateTo(base + rotationAmount, { duration: 300 });
       }
     };
 
@@ -546,6 +563,42 @@ const SpaceStager = () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [map]);
+
+  // Snap bearing to nearest 45° on rotate end in site plan mode to avoid drift
+  useEffect(() => {
+    if (!map) return;
+    let snapping = false;
+    const step = 45;
+    const snap = (deg) => {
+      const d = ((deg % 360) + 360) % 360;
+      return Math.round(d / step) * step;
+    };
+    const onRotateEnd = () => {
+      try {
+        if (!isSitePlanMode) return;
+        if (snapping) return;
+        const cur = map.getBearing();
+        const areaBearing = (() => {
+          try {
+            const g = (permitAreas?.hasSubFocus ? permitAreas?.subFocusArea?.geometry : permitAreas?.focusedArea?.geometry);
+            if (!g) return 0;
+            const isIso = (map?.getPitch ? map.getPitch() : 0) > 15;
+            if (isIso && map) return computeDominantViewportBearing(map, g) || 0;
+            return computeDominantBearingFromPolygon(g) || 0;
+          } catch (_) { return 0; }
+        })();
+        const target = areaBearing + snap(cur - areaBearing);
+        const diff = Math.abs(((cur - target + 540) % 360) - 180);
+        if (diff > 0.1) {
+          snapping = true;
+          map.rotateTo(target, { duration: 120 });
+          setTimeout(() => { snapping = false; }, 140);
+        }
+      } catch (_) {}
+    };
+    try { map.on('rotateend', onRotateEnd); } catch (_) {}
+    return () => { try { map.off('rotateend', onRotateEnd); } catch (_) {} };
+  }, [map, isSitePlanMode]);
 
   // Contextual nudges (evaluated only when prerequisites are visible)
   const customShapes = drawTools.draw?.current ? drawTools.draw.current.getAll().features : [];

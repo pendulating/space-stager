@@ -2,7 +2,7 @@ import React, { useMemo, useEffect } from 'react';
 import { useMapViewState } from '../../hooks/useMapViewState';
 import { useStableImageSrc } from '../../hooks/useStableImageSrc';
 import { getCandidateSrcs, prefetchView } from '../../utils/spriteResolver';
-import { buildSpriteFallbacks, quantizeAngleTo45 } from '../../utils/enhancedRenderingUtils';
+import { buildSpriteFallbacks, quantizeAngleTo45, computeDominantBearingFromPolygon, computeDominantViewportBearing } from '../../utils/enhancedRenderingUtils';
 
 const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects, map }) => {
   const view = useMapViewState(map);
@@ -34,10 +34,21 @@ const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects, map
     if (!objectType) return [];
     // Compensate for map bearing so the preview doesn't appear to rotate when the map rotates
     const bearing = typeof view?.bearing === 'number' ? view.bearing : 0;
+    const areaBearing = (() => {
+      try {
+        const g = (window?.__app?.permitAreas?.hasSubFocus ? window?.__app?.permitAreas?.subFocusArea?.geometry : window?.__app?.permitAreas?.focusedArea?.geometry) || null; // fallback if accessible
+        // Prefer map-linked context when available (MapContainer passes via global __app)
+        if (g) {
+          const isIso = (map?.getPitch ? map.getPitch() : 0) > 15;
+          return (isIso && map) ? (computeDominantViewportBearing(map, g) || 0) : (computeDominantBearingFromPolygon(g) || 0);
+        }
+      } catch (_) {}
+      return 0;
+    })();
     const zeroOffset = (objectType?.enhancedRendering?.zeroOffsetDegByView?.[view?.viewType])
       ?? (objectType?.enhancedRendering?.zeroOffsetDeg)
       ?? (view?.viewType === 'isometric' ? -90 : 0);
-    const angleForSprite = (((angle - bearing + zeroOffset) % 360 + 360) % 360);
+    const angleForSprite = (((angle - (bearing - areaBearing) + zeroOffset) % 360 + 360) % 360);
     const primary = getCandidateSrcs(objectType, angleForSprite, view?.viewType) || [];
     if (primary.length > 0) return primary;
     // Fallback: assume public/static/{id} structure when spriteBase missing

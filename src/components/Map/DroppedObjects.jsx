@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useEffect, useState } from 'react';
 import { Popup as MapLibrePopup } from 'maplibre-gl';
-import { quantizeAngleTo45, addEnhancedSpritesToMap, buildSpriteImageId, getMapViewType, buildFlatSpriteUrl } from '../../utils/enhancedRenderingUtils';
+import { quantizeAngleTo45, addEnhancedSpritesToMap, buildSpriteImageId, getMapViewType, buildFlatSpriteUrl, quantizeBearingForSprites } from '../../utils/enhancedRenderingUtils';
 import { useMapViewState } from '../../hooks/useMapViewState';
 import { useStableImageSrc } from '../../hooks/useStableImageSrc';
 import { getCandidateSrcs, prefetchView } from '../../utils/spriteResolver';
@@ -69,7 +69,8 @@ const DroppedObjects = ({
   isNoteEditing,
   selectedId,
   onSelectObject,
-  onMoveObject
+  onMoveObject,
+  areaBearingDeg
 }) => {
   if (shouldDebug()) {
     // Light-weight render marker; disable by default
@@ -219,7 +220,7 @@ const DroppedObjects = ({
     if (!src || typeof src.setData !== 'function') return;
     try {
       const vt = view?.viewType || getMapViewType(map);
-      const bearing = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
+      const bearingRaw = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
       const feats = [];
       const byId = new Map();
       const idToIndex = new Map();
@@ -237,8 +238,10 @@ const DroppedObjects = ({
             ?? (t?.enhancedRendering?.zeroOffsetDeg)
             ?? DEFAULT_ZERO_OFFSET_BY_VIEW[vt] ?? 0;
           const baseAngle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
+          // Snap camera bearing to the same step as our sprite families to avoid drift
+          const snappedBearing = quantizeBearingForSprites(bearingRaw - (areaBearingDeg || 0), false) + (areaBearingDeg || 0);
           // Compensate for map bearing in both views so icons remain visually stationary while rotating the map
-          const eff = (((baseAngle - bearing + zeroOffset) % 360 + 360) % 360);
+          const eff = (((baseAngle - snappedBearing + zeroOffset) % 360 + 360) % 360);
           const q = quantizeAngleTo45(eff);
           const imgId = buildSpriteImageId(t.enhancedRendering.spriteBase, q);
           // Set icon id and readiness flag (so circle fallback can show until sprite registers)

@@ -9,7 +9,7 @@ import { calculateGeometryBounds, expandBounds } from '../utils/geometryUtils';
 import { createInfrastructureTooltipContent } from '../utils/tooltipUtils';
 import { addIconsToMap, retryLoadIcons, INFRASTRUCTURE_ICONS } from '../utils/iconUtils';
 import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
-import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId, getMapViewType, buildSpriteUrl, buildFlatSpriteUrl } from '../utils/enhancedRenderingUtils';
+import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId, getMapViewType, buildSpriteUrl, buildFlatSpriteUrl, quantizeBearingForSprites, computeDominantBearingFromPolygon, computeDominantViewportBearing } from '../utils/enhancedRenderingUtils';
 import { useMapViewState } from './useMapViewState';
 import { DISABLED_INFRASTRUCTURE_LAYERS } from '../constants/layers';
 const DEBUG_INFRA = false;
@@ -295,20 +295,27 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
         const data = infrastructureData?.[layerId];
         if (!data || !Array.isArray(data.features) || data.features.length === 0) return;
         const viewType = view?.viewType || getMapViewType(map);
-        const bearingNow = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
+        const bearingNowRaw = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
+        const areaBearing = (() => { try {
+          const g = (focusedArea?.properties?.__subFocus ? focusedArea : null)?.geometry || (focusedArea?.geometry);
+          if (!g) return 0;
+          const isIso = (map?.getPitch ? map.getPitch() : 0) > 15;
+          return (isIso && map) ? (computeDominantViewportBearing(map, g) || 0) : (computeDominantBearingFromPolygon(g) || 0);
+        } catch (_) { return 0; } })();
         const zeroOffset = (cfg?.enhancedRendering?.zeroOffsetDegByView?.[viewType])
           ?? (cfg?.enhancedRendering?.zeroOffsetDeg)
           ?? DEFAULT_ZERO_OFFSET_BY_VIEW[viewType]
           ?? 0;
         const preferRightAngles = cfg?.enhancedRendering?.desiredParallelTo === 'cscl';
         const quantize = preferRightAngles ? quantizeAngleTo90 : quantizeAngleTo45;
+        const bearingNow = quantizeBearingForSprites(bearingNowRaw - areaBearing, preferRightAngles) + areaBearing;
 
         let changed = false;
         const newFeatures = data.features.map((f) => {
           if (!f || f.geometry?.type !== 'Point') return f;
           const p = f.properties || {};
           const baseAngle = (typeof p.icon_base_bearing === 'number') ? p.icon_base_bearing : 0;
-          // Unify perception across views: compensate for map bearing in both modes
+          // Unify perception across views: compensate for map bearing in both modes using snapped camera bearing
           const eff = (((baseAngle - bearingNow + zeroOffset) % 360 + 360) % 360);
           const q = quantize(eff);
           const img = buildSpriteImageId(cfg.enhancedRendering.spriteBase, q);
@@ -600,13 +607,20 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
               // Compute sprite variant; compensate for map bearing in both views for consistent perception
               try {
                 const viewType = view?.viewType || getMapViewType(map);
-                const bearingNow = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
+                const bearingNowRaw = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
+                const areaBearing = (() => { try {
+                  const g = focusedArea?.geometry;
+                  if (!g) return 0;
+                  const isIso = (map?.getPitch ? map.getPitch() : 0) > 15;
+                  return (isIso && map) ? (computeDominantViewportBearing(map, g) || 0) : (computeDominantBearingFromPolygon(g) || 0);
+                } catch (_) { return 0; } })();
                 const zeroOffset = (cfg?.enhancedRendering?.zeroOffsetDegByView?.[viewType])
                   ?? (cfg?.enhancedRendering?.zeroOffsetDeg)
                   ?? DEFAULT_ZERO_OFFSET_BY_VIEW[viewType]
                   ?? 0;
                 const preferRightAngles = cfg?.enhancedRendering?.desiredParallelTo === 'cscl';
                 const quantize = preferRightAngles ? quantizeAngleTo90 : quantizeAngleTo45;
+                const bearingNow = quantizeBearingForSprites(bearingNowRaw - areaBearing, preferRightAngles) + areaBearing;
                 const baseAngle = (baseBearing != null ? baseBearing : 0);
                 const eff = (((baseAngle - bearingNow + zeroOffset) % 360 + 360) % 360);
                 const q = quantize(eff);

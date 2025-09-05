@@ -5,6 +5,7 @@ import ClickPopover from './ClickPopover';
 import { useZoneCreator } from '../../hooks/useZoneCreator';
 import OverlapSelector from './OverlapSelector';
 import DroppedObjects from './DroppedObjects';
+import { computeDominantBearingFromPolygon, computeDominantViewportBearing } from '../../utils/enhancedRenderingUtils';
 import DroppedRectangles from './DroppedRectangles';
 import DroppedObjectNoteEditor from './DroppedObjectNoteEditor';
 import CustomShapeLabels from './CustomShapeLabels';
@@ -66,6 +67,19 @@ const MapContainer = forwardRef(({
 
   // Map view state (single source of truth for pitch/bearing/zoom/viewType)
   const view = useMapViewState(map);
+  // Compute a stable area-bearing from the focused area for alignment
+  const areaBearingDeg = useMemo(() => {
+    try {
+      const g = (permitAreas?.hasSubFocus ? permitAreas?.subFocusArea?.geometry : permitAreas?.focusedArea?.geometry);
+      if (!g) return 0;
+      // Use viewport-based dominant orientation when in isometric view, so alignment matches perceived axes
+      const isIso = (view?.pitch || 0) > 15;
+      if (isIso && map) {
+        return computeDominantViewportBearing(map, g) || 0;
+      }
+      return computeDominantBearingFromPolygon(g) || 0;
+    } catch (_) { return 0; }
+  }, [permitAreas?.focusedArea?.geometry, permitAreas?.subFocusArea?.geometry, permitAreas?.hasSubFocus, view?.pitch, map]);
 
   // Compass / camera state
   const [bearing, setBearing] = useState(0);
@@ -1090,6 +1104,7 @@ const MapContainer = forwardRef(({
             });
           } catch (_) {}
         }}
+        areaBearingDeg={areaBearingDeg}
       />
 
       {/* DOM overlay text labels to ensure highest z-order over map and SVG overlays */}
