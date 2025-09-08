@@ -8,6 +8,7 @@ import { GEOGRAPHIES } from '../constants/geographies';
 import { useZoneCreatorContext } from '../contexts/ZoneCreatorContext.jsx';
 import bbox from '@turf/bbox';
 import { snapToNearest } from '../utils/enhancedRenderingUtils';
+import { computeAreaOrientation, snapCameraBearingToArea } from '../utils/bearingUtils';
 import { intersect as turfIntersect, booleanIntersects as turfBooleanIntersects } from '@turf/turf';
 
 // Minimal oriented minimum bounding box (rotating calipers) implementation
@@ -516,7 +517,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       try {
         const padding = options.focusPadding || 20;
         const snapStep = Number(options.bearingSnapStep || 45);
-        const targetBearing = snapToNearest(-angle, snapStep);
+        const targetBearing = snapCameraBearingToArea(-angle, { map, areaGeom: { type: 'Polygon', coordinates: [rect] }, pitch: map?.getPitch ? map.getPitch() : 0, enforceAbsolute45: true });
         if (typeof map.cameraForBounds === 'function') {
           const camera = map.cameraForBounds(orientedBbox, { padding });
           const finalCamera = { ...camera, bearing: targetBearing, duration: 1200, essential: true, easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) };
@@ -604,25 +605,36 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         geometry: subGeom
       };
       setSubFocusArea(sub);
-      // Fit/constraint camera to the sub-scope bounds
+      // Fit/constraint camera to the sub-scope using oriented bbox like main focus
       try {
-        const bounds = calculateGeometryBounds(sub.geometry);
-        if (bounds) {
+        const g = sub.geometry;
+        let coords = [];
+        if (g.type === 'Polygon') coords = g.coordinates;
+        else if (g.type === 'MultiPolygon') coords = g.coordinates.flat();
+        if (coords.length > 0) {
+          const { rect, angle } = getOrientedMinBBox(coords);
+          const xs = rect.map(([x, y]) => x);
+          const ys = rect.map(([x, y]) => y);
+          const minX = Math.min(...xs), maxX = Math.max(...xs);
+          const minY = Math.min(...ys), maxY = Math.max(...ys);
+          const orientedBbox = [[minX, minY], [maxX, maxY]];
           const padding = 20;
+          const snapStep = Number(options.bearingSnapStep || 45);
+          const targetBearing = snapCameraBearingToArea(-angle, { map, areaGeom: { type: 'Polygon', coordinates: [rect] }, pitch: map?.getPitch ? map.getPitch() : 0, enforceAbsolute45: true });
           try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
-          try { map.fitBounds(bounds, { padding, duration: 800 }); } catch (_) {}
-          // Snap bearing after fit
-          try {
-            const snapStep = Number(options.bearingSnapStep || 45);
-            const currentBearing = (typeof map.getBearing === 'function') ? map.getBearing() : 0;
-            const snappedBearing = snapToNearest(currentBearing, snapStep);
-            if (map.rotateTo) map.rotateTo(snappedBearing, { duration: 300 });
-          } catch (_) {}
+          if (typeof map.cameraForBounds === 'function') {
+            const camera = map.cameraForBounds(orientedBbox, { padding });
+            const finalCamera = { ...camera, bearing: targetBearing, duration: 800, essential: true, easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) };
+            map.easeTo(finalCamera);
+          } else {
+            map.fitBounds(orientedBbox, { padding, duration: 800 });
+            try { if (map.rotateTo) map.rotateTo(targetBearing, { duration: 300 }); } catch (_) {}
+          }
           const onMoveEnd = () => {
             try {
               const finalZoom = map.getZoom ? map.getZoom() : 16;
               const finalCenter = map.getCenter ? map.getCenter() : null;
-              applyFocusConstraints(bounds, finalZoom);
+              applyFocusConstraints([[minX, minY], [maxX, maxY]], finalZoom);
               try { if (finalCenter && map.setCenter) map.setCenter(finalCenter); } catch (_) {}
             } catch (_) {}
             try { map.off('moveend', onMoveEnd); } catch (_) {}

@@ -1,6 +1,8 @@
 // utils/importUtils.js
 import { switchBasemap } from './mapUtils';
 import { INITIAL_LAYERS } from '../constants/layers';
+import { computeDominantBearingFromPolygon, computeDominantViewportBearing, quantizeBearingForSprites, quantizeAngleTo45 } from './enhancedRenderingUtils';
+import { snapCameraBearingToArea } from './bearingUtils';
 
 // Import siteplan/event plan from JSON (supports v0 legacy and v1 schema)
 // helpers: { selectGeography?: (type) => void, focusAreaByIdentity?: ({ type, system, id }) => void }
@@ -19,6 +21,7 @@ export const importPlan = (eOrFile, map, draw, setCustomShapes, setDroppedObject
 
       // Optional destructive confirmation (helpers can override; otherwise prompt)
       try {
+        try { helpers.setImportProgress && helpers.setImportProgress('confirm', 'Confirming import…'); } catch (_) {}
         const ok = (typeof helpers.confirmDestructive === 'function')
           ? await helpers.confirmDestructive()
           : (typeof window !== 'undefined' ? window.confirm('Import will discard current work. Continue?') : true);
@@ -26,6 +29,7 @@ export const importPlan = (eOrFile, map, draw, setCustomShapes, setDroppedObject
       } catch (_) {}
 
       // Begin rehydration guard and wipe slate clean (optional helper impls)
+      try { helpers.setImportProgress && helpers.setImportProgress('confirm', 'Preparing import…'); } catch (_) {}
       try { helpers.setRehydratingImport && helpers.setRehydratingImport(true); } catch (_) {}
       try { helpers.wipeSlate && helpers.wipeSlate(); } catch (_) {}
 
@@ -39,24 +43,47 @@ export const importPlan = (eOrFile, map, draw, setCustomShapes, setDroppedObject
 
       // Restore basemap (best-effort)
       try {
+        try { helpers.setImportProgress && helpers.setImportProgress('basemap', 'Switching basemap…'); } catch (_) {}
         const key = isV1 ? (data.basemap?.key || 'carto') : 'carto';
         await switchBasemap(map, key);
       } catch (_) {}
 
-      // Restore geography and focus
+      // Restore geography and focus (awaited for determinism)
+      let parentFocused = false;
       try {
+        try { helpers.setImportProgress && helpers.setImportProgress('geography', 'Loading geography…'); } catch (_) {}
         if (isV1 && data.geography?.type && typeof helpers.selectGeography === 'function') {
           helpers.selectGeography(data.geography.type);
         }
       } catch (_) {}
       try {
+        try { helpers.setImportProgress && helpers.setImportProgress('focus', 'Focusing permit area…'); } catch (_) {}
+        // Ensure permit areas dataset is loaded before identity lookup
+        try { if (typeof helpers.waitForPermitAreasLoaded === 'function') await helpers.waitForPermitAreasLoaded(); } catch (_) {}
         if (isV1 && data.focusedArea) {
           const hasIdentity = (data.focusedArea.system != null) || (data.focusedArea.id != null);
           if (hasIdentity && typeof helpers.focusAreaByIdentity === 'function') {
             const ident = { type: data.geography?.type, system: data.focusedArea.system, id: data.focusedArea.id };
-            helpers.focusAreaByIdentity(ident);
+            try { parentFocused = (await helpers.focusAreaByIdentity(ident)) === true; } catch (_) { parentFocused = false; }
+            // If identity exists, prefer waiting longer rather than falling back immediately,
+            // to ensure we restore the exact canonical feature
+            if (!parentFocused && typeof helpers.waitForFocus === 'function') {
+              try { parentFocused = (await helpers.waitForFocus({ system: data.focusedArea.system, id: data.focusedArea.id })) === true; } catch (_) {}
+            }
+            // Final fallback: use geometry with the original exported name (if provided)
+            if (!parentFocused && data.focusedArea.geometry) {
+              // Try to match against canonical dataset via geometry intersection score before synthetic focus
+              if (typeof helpers.focusAreaFromGeometryCanonical === 'function') {
+                try { parentFocused = (await helpers.focusAreaFromGeometryCanonical(data.focusedArea.geometry)) === true; } catch (_) { parentFocused = false; }
+              }
+              if (!parentFocused && typeof helpers.focusAreaByGeometry === 'function') {
+                const name = data.focusedArea.name || (data.focusedArea.properties && data.focusedArea.properties.name) || undefined;
+                try { parentFocused = (await helpers.focusAreaByGeometry(data.focusedArea.geometry, name)) === true; } catch (_) { parentFocused = false; }
+              }
+            }
           } else if (data.focusedArea.geometry && typeof helpers.focusAreaByGeometry === 'function') {
-            helpers.focusAreaByGeometry(data.focusedArea.geometry);
+            const name = data.focusedArea.name || (data.focusedArea.properties && data.focusedArea.properties.name) || undefined;
+            try { parentFocused = (await helpers.focusAreaByGeometry(data.focusedArea.geometry, name)) === true; } catch (_) { parentFocused = false; }
           }
         }
       } catch (_) {}
@@ -66,47 +93,83 @@ export const importPlan = (eOrFile, map, draw, setCustomShapes, setDroppedObject
 
       // Apply sub-focus if provided; else fall back to saved view
       try {
-        if (isV1 && data.subFocusArea?.geometry && typeof helpers.applySubFocus === 'function') {
-          // The subfocus relies on a focused area; retry briefly until focus is ready
+        if (isV1 && data.subFocusArea?.geometry && (typeof helpers.applySubFocus === 'function' || typeof helpers.applySubFocusAsync === 'function')) {
+          try { helpers.setImportProgress && helpers.setImportProgress('subfocus', 'Applying sub-area focus…'); } catch (_) {}
           let ok = false;
-          const maxAttempts = 25; // ~5s at 200ms
-          let attempts = 0;
-          await new Promise((resolve) => {
-            const attempt = () => {
+          if (typeof helpers.applySubFocusAsync === 'function') {
+            try { ok = (await helpers.applySubFocusAsync(data.subFocusArea.geometry)) === true; } catch (_) { ok = false; }
+            if (ok) {
+              appliedSubFocus = true;
               try {
-                ok = helpers.applySubFocus(data.subFocusArea.geometry) === true;
-                if (ok) {
-                  appliedSubFocus = true;
-                  if (typeof helpers.onMoveEndOnce === 'function') {
-                    helpers.onMoveEndOnce(() => resolve());
-                  } else {
-                    resolve();
-                  }
-                  return;
+                if (typeof helpers.ensureMinZoom === 'function') {
+                  if (typeof helpers.onMoveEndOnce === 'function') helpers.onMoveEndOnce(() => {});
+                  helpers.ensureMinZoom(14);
                 }
               } catch (_) {}
-              attempts += 1;
-              if (attempts < maxAttempts) {
-                setTimeout(attempt, 200);
-              } else {
-                resolve();
-              }
-            };
-            attempt();
-          });
+            }
+          } else {
+            // The subfocus relies on a focused area; retry briefly until focus is ready
+            const maxAttempts = 25; // ~5s at 200ms
+            let attempts = 0;
+            await new Promise((resolve) => {
+              const attempt = () => {
+                try {
+                  ok = helpers.applySubFocus(data.subFocusArea.geometry) === true;
+                  if (ok) {
+                    appliedSubFocus = true;
+                    try {
+                      if (typeof helpers.ensureMinZoom === 'function') {
+                        if (typeof helpers.onMoveEndOnce === 'function') helpers.onMoveEndOnce(() => {});
+                        helpers.ensureMinZoom(14);
+                      }
+                    } catch (_) {}
+                    if (typeof helpers.onMoveEndOnce === 'function') {
+                      helpers.onMoveEndOnce(() => resolve());
+                    } else {
+                      resolve();
+                    }
+                    return;
+                  }
+                } catch (_) {}
+                attempts += 1;
+                if (attempts < maxAttempts) {
+                  setTimeout(attempt, 200);
+                } else {
+                  resolve();
+                }
+              };
+              attempt();
+            });
+          }
         } else if (isV1 && data.view) {
           try {
+            // Defer view application slightly until focus is ready when possible
+            try {
+              if (isV1 && data.focusedArea && typeof helpers.waitForFocus === 'function') {
+                const sys = (data.focusedArea.system != null) ? data.focusedArea.system : null;
+                const id = (data.focusedArea.id != null) ? data.focusedArea.id : null;
+                await helpers.waitForFocus({ system: sys, id });
+              }
+            } catch (_) {}
             appliedView = true;
             if (data.view.center) map.setCenter(data.view.center);
             if (typeof data.view.zoom === 'number') map.setZoom(data.view.zoom);
-            if (typeof data.view.bearing === 'number' && map.setBearing) map.setBearing(data.view.bearing);
+            // Apply pitch early so it is set even if focus wait is long
             if (typeof data.view.pitch === 'number' && map.setPitch) map.setPitch(data.view.pitch);
+            // Defer bearing until focus is confirmed (ensures correct area orientation source)
+            if (typeof data.view.bearing === 'number' && map.setBearing) {
+              const desiredPitch = (typeof data.view.pitch === 'number') ? data.view.pitch : (typeof map.getPitch === 'function' ? map.getPitch() : 0);
+              const areaGeom = (data?.subFocusArea?.geometry) || (data?.focusedArea?.geometry) || null;
+              const snapped = snapCameraBearingToArea(data.view.bearing, { map, areaGeom, pitch: desiredPitch, preferRightAngles: false, enforceAbsolute45: true });
+              map.setBearing(snapped);
+            }
           } catch (_) {}
         }
       } catch (_) {}
 
       // Restore layers
       try {
+        try { helpers.setImportProgress && helpers.setImportProgress('layers', 'Restoring layers…'); } catch (_) {}
         if (setLayers && (isV1 ? data.layers : data.layers)) {
           // Sanitize imported layers against known INITIAL_LAYERS
           const importedLayers = data.layers || {};
@@ -147,6 +210,7 @@ export const importPlan = (eOrFile, map, draw, setCustomShapes, setDroppedObject
 
       // Restore shapes
       try {
+        try { helpers.setImportProgress && helpers.setImportProgress('shapes', 'Restoring annotations…'); } catch (_) {}
         const shapes = isV1 ? data.customShapes : (data.customShapes || { type: 'FeatureCollection', features: [] });
         if (shapes && draw?.current?.set) {
           draw.current.set(shapes);
@@ -195,6 +259,7 @@ export const importPlan = (eOrFile, map, draw, setCustomShapes, setDroppedObject
 
       // Restore dropped objects (fallback generic type for unknowns)
       try {
+        try { helpers.setImportProgress && helpers.setImportProgress('objects', 'Restoring objects…'); } catch (_) {}
         if (setDroppedObjects && (isV1 ? data.droppedObjects : data.droppedObjects)) {
           const list = Array.isArray(data.droppedObjects) ? data.droppedObjects : [];
           const normalized = list.map((o, idx) => {
@@ -232,8 +297,15 @@ export const importPlan = (eOrFile, map, draw, setCustomShapes, setDroppedObject
           if (isV1 && data.view) {
             if (data.view.center) map.setCenter(data.view.center);
             if (typeof data.view.zoom === 'number') map.setZoom(data.view.zoom);
-            if (typeof data.view.bearing === 'number' && map.setBearing) map.setBearing(data.view.bearing);
+            // Apply pitch first
             if (typeof data.view.pitch === 'number' && map.setPitch) map.setPitch(data.view.pitch);
+            // Snap imported bearing relative to area orientation and quantize to 45°
+            if (typeof data.view.bearing === 'number' && map.setBearing) {
+              const desiredPitch = (typeof data.view.pitch === 'number') ? data.view.pitch : (typeof map.getPitch === 'function' ? map.getPitch() : 0);
+              const areaGeom = (data?.subFocusArea?.geometry) || (data?.focusedArea?.geometry) || null;
+              const snapped = snapCameraBearingToArea(data.view.bearing, { map, areaGeom, pitch: desiredPitch, preferRightAngles: false, enforceAbsolute45: true });
+              map.setBearing(snapped);
+            }
           } else if (data.metadata) {
             if (data.metadata.center) map.setCenter(data.metadata.center);
             if (typeof data.metadata.zoom === 'number') map.setZoom(data.metadata.zoom);
@@ -243,12 +315,14 @@ export const importPlan = (eOrFile, map, draw, setCustomShapes, setDroppedObject
 
       // Final nudge: ensure all derived overlays recompute and the map repaints
       try {
+        try { helpers.setImportProgress && helpers.setImportProgress('finalize', 'Finalizing…'); } catch (_) {}
         if (typeof window !== 'undefined') window.dispatchEvent(new Event('annotations:changed'));
       } catch (_) {}
       try { if (map && typeof map.triggerRepaint === 'function') map.triggerRepaint(); } catch (_) {}
 
       // End rehydration guard
       try { helpers.setRehydratingImport && helpers.setRehydratingImport(false); } catch (_) {}
+      try { if (typeof window !== 'undefined') window.dispatchEvent(new Event('rehydrating-import:end')); } catch (_) {}
 
       // Re-enable interactions
       try { if (map && map.scrollZoom && map.scrollZoom.enable) map.scrollZoom.enable(); } catch (_) {}
@@ -257,6 +331,7 @@ export const importPlan = (eOrFile, map, draw, setCustomShapes, setDroppedObject
       try { if (map && map.dragRotate && map.dragRotate.enable) map.dragRotate.enable(); } catch (_) {}
       try { if (map && map.keyboard && map.keyboard.enable) map.keyboard.enable(); } catch (_) {}
       try { if (map && map.doubleClickZoom && map.doubleClickZoom.enable) map.doubleClickZoom.enable(); } catch (_) {}
+      try { helpers.closeImportProgress && helpers.closeImportProgress(); } catch (_) {}
     } catch (error) {
       console.error('Error importing plan:', error);
       alert('Error importing plan. Please check the file format.');
@@ -268,6 +343,7 @@ export const importPlan = (eOrFile, map, draw, setCustomShapes, setDroppedObject
       try { if (map && map.dragRotate && map.dragRotate.enable) map.dragRotate.enable(); } catch (_) {}
       try { if (map && map.keyboard && map.keyboard.enable) map.keyboard.enable(); } catch (_) {}
       try { if (map && map.doubleClickZoom && map.doubleClickZoom.enable) map.doubleClickZoom.enable(); } catch (_) {}
+      try { helpers.closeImportProgress && helpers.closeImportProgress(); } catch (_) {}
     }
   };
   reader.readAsText(file);

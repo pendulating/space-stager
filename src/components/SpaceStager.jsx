@@ -28,11 +28,12 @@ import { useTutorial } from '../contexts/TutorialContext';
 import GeographySelector from './Modals/GeographySelector';
 import EventInfoModal from './Modals/EventInfoModal';
 import ExportOptionsModal from './Modals/ExportOptionsModal';
+import ImportProgressModal from './Modals/ImportProgressModal';
 import '../styles/eventStager-dpr.css';
 import '../styles/eventStager.css';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { switchBasemap } from '../utils/mapUtils';
-import { distance as turfDistance } from '@turf/turf';
+import { distance as turfDistance, booleanPointInPolygon as turfBooleanPointInPolygon, centroid as turfCentroid } from '@turf/turf';
 import { computeDominantBearingFromPolygon, computeDominantViewportBearing } from '../utils/enhancedRenderingUtils';
 
 const SpaceStager = () => {
@@ -89,6 +90,7 @@ const SpaceStager = () => {
   const [showGeoSelectorOverride, setShowGeoSelectorOverride] = useState(false);
   const [showEventInfo, setShowEventInfo] = useState(false);
   const [showExportOptions, setShowExportOptions] = useState(false);
+  const [importProgress, setImportProgress] = useState({ open: false, step: 'confirm', message: '' });
   const [eventInfo, setEventInfo] = useState({});
   const [exportOptions, setExportOptions] = useState({
     dimensionUnits: 'ft',
@@ -226,6 +228,10 @@ const SpaceStager = () => {
       {
         // Import orchestration helpers
         setRehydratingImport: (v) => { try { rehydratingImportRef.current = !!v; setIsImportingPlan(!!v); } catch (_) {} },
+        setImportProgress: (step, message = '') => {
+          try { setImportProgress(prev => ({ open: true, step: step || prev.step, message })); } catch (_) {}
+        },
+        closeImportProgress: () => { try { setImportProgress(prev => ({ ...prev, open: false })); } catch (_) {} },
         wipeSlate: () => {
           try { permitAreas.clearFocus(); } catch (_) {}
           try { infrastructure.clearFocus(); } catch (_) {}
@@ -241,42 +247,131 @@ const SpaceStager = () => {
         selectGeography: (type) => {
           try { if (type && type !== geographyType) selectGeography(type); } catch (_) {}
         },
-        focusAreaByIdentity: ({ type, system, id }) => {
+        focusAreaByIdentity: ({ type, system, id }) => new Promise((resolve) => {
           let attempts = 0;
-          const maxAttempts = 25; // ~5s at 200ms intervals
+          const maxAttempts = 30; // ~6s at 200ms intervals
+          const sysStr = (system !== undefined && system !== null) ? String(system) : null;
+          const idStr = (id !== undefined && id !== null) ? String(id) : null;
           const tryFocus = () => {
             attempts += 1;
             try {
               const list = permitAreas.permitAreas || [];
               let found = null;
-              if (type === 'parks' && system) {
-                found = list.find(f => f?.properties?.system === system);
-              } else if (id !== undefined && id !== null) {
-                found = list.find(f => f?.id === id);
+              if (type === 'parks' && sysStr != null) {
+                found = list.find(f => String(f?.properties?.system) === sysStr);
+              } else if (idStr != null) {
+                found = list.find(f => String(f?.id) === idStr);
               }
               if (found) {
                 try { permitAreas.focusOnPermitArea(found); } catch (_) {}
-                return; // done
+                resolve(true);
+                return;
               }
             } catch (_) {}
-            if (attempts < maxAttempts) setTimeout(tryFocus, 200);
+            if (attempts < maxAttempts) setTimeout(tryFocus, 200); else resolve(false);
           };
           tryFocus();
-        },
-        focusAreaByGeometry: (geometry) => {
+        }),
+        focusAreaByGeometry: (geometry, name) => new Promise((resolve) => {
           try {
-            if (!geometry) return false;
-            const feature = { type: 'Feature', properties: { name: 'Imported Area' }, geometry };
+            if (!geometry) { resolve(false); return; }
+            const feature = { type: 'Feature', properties: { name: name || 'Imported Area' }, geometry };
             permitAreas.focusOnPermitArea(feature);
-            return true;
-          } catch (_) { return false; }
-        },
+            // Wait until focus is reflected in state
+            let attempts = 0; const maxAttempts = 25;
+            const poll = () => {
+              attempts += 1;
+              try { if (permitAreas.focusedArea) { resolve(true); return; } } catch (_) {}
+              if (attempts < maxAttempts) setTimeout(poll, 100); else resolve(false);
+            };
+            poll();
+          } catch (_) { resolve(false); }
+        }),
+        waitForFocus: (match) => new Promise((resolve) => {
+          let attempts = 0; const maxAttempts = 50;
+          const sysStr = match && match.system != null ? String(match.system) : null;
+          const idStr = match && match.id != null ? String(match.id) : null;
+          const poll = () => {
+            attempts += 1;
+            try {
+              const fa = permitAreas.focusedArea;
+              if (fa && (!sysStr && !idStr || (sysStr && String(fa?.properties?.system) === sysStr) || (idStr && String(fa?.id) === idStr))) {
+                resolve(true);
+                return;
+              }
+            } catch (_) {}
+            if (attempts < maxAttempts) setTimeout(poll, 200); else resolve(false);
+          };
+          poll();
+        }),
+        waitForPermitAreasLoaded: () => new Promise((resolve) => {
+          let attempts = 0; const maxAttempts = 100; // up to ~20s
+          const poll = () => {
+            attempts += 1;
+            try {
+              const list = permitAreas.permitAreas || [];
+              if (Array.isArray(list) && list.length > 0) { resolve(true); return; }
+            } catch (_) {}
+            if (attempts < maxAttempts) setTimeout(poll, 200); else resolve(false);
+          };
+          poll();
+        }),
+        focusAreaFromGeometryCanonical: (geometry, name) => new Promise((resolve) => {
+          try {
+            const list = permitAreas.permitAreas || [];
+            if (!geometry || !Array.isArray(list) || list.length === 0) { resolve(false); return; }
+            const target = { type: 'Feature', properties: {}, geometry };
+            const targetCentroid = (() => { try { return turfCentroid(target); } catch (_) { return null; } })();
+            const exportedName = (typeof name === 'string' && name.trim()) ? name.trim() : null;
+            // 1) Exact name match first, if available (normalized in loader)
+            if (exportedName) {
+              const matches = list.filter(f => (f?.properties?.name || '').toString().trim() === exportedName);
+              if (matches.length === 1) {
+                try { permitAreas.focusOnPermitArea(matches[0]); } catch (_) {}
+                resolve(true);
+                return;
+              }
+              if (matches.length > 1 && targetCentroid) {
+                const found = matches.find(f => { try { return turfBooleanPointInPolygon(targetCentroid, f); } catch (_) { return false; } });
+                if (found) {
+                  try { permitAreas.focusOnPermitArea(found); } catch (_) {}
+                  resolve(true);
+                  return;
+                }
+              }
+            }
+            // 2) Centroid containment heuristic
+            if (targetCentroid) {
+              const found = list.find(f => { try { return turfBooleanPointInPolygon(targetCentroid, f); } catch (_) { return false; } });
+              if (found) {
+                try { permitAreas.focusOnPermitArea(found); } catch (_) {}
+                resolve(true);
+                return;
+              }
+            }
+            // 3) Give up (fall back to geometry focus upstream)
+            resolve(false);
+          } catch (_) { resolve(false); }
+        }),
         applySubFocus: (geometry) => {
           try { return permitAreas.setSubFocusPolygon({ type: 'Feature', properties: {}, geometry }); } catch (_) { return false; }
         },
+        applySubFocusAsync: (geometry) => new Promise((resolve) => {
+          let attempts = 0; const maxAttempts = 50;
+          const tryApply = () => {
+            attempts += 1;
+            let ok = false;
+            try { ok = permitAreas.setSubFocusPolygon({ type: 'Feature', properties: {}, geometry }); } catch (_) { ok = false; }
+            if (ok) resolve(true);
+            else if (attempts < maxAttempts) setTimeout(tryApply, 200);
+            else resolve(false);
+          };
+          tryApply();
+        }),
         onMoveEndOnce: (cb) => { try { map && map.once && map.once('moveend', cb); } catch (_) {} },
         reloadVisibleInfra: () => { try { infrastructure.reloadVisibleLayers && infrastructure.reloadVisibleLayers(); } catch (_) {} },
-        setEventInfo: (info) => setEventInfo(info || {})
+        setEventInfo: (info) => setEventInfo(info || {}),
+        ensureMinZoom: (minZoom = 14) => { try { const z = map && map.getZoom ? map.getZoom() : 0; if (z < minZoom && map && map.easeTo) map.easeTo({ zoom: minZoom, duration: 400 }); } catch (_) {} }
       }
     );
     // Force immediate annotation recompute after import
@@ -543,17 +638,9 @@ const SpaceStager = () => {
         } catch (_) { return 0; }
       })();
 
-      if (e.key.toLowerCase() === 'q') {
-        e.preventDefault();
-        const currentBearing = map.getBearing();
-        const base = areaBearing + snap(currentBearing - areaBearing);
-        map.rotateTo(base - rotationAmount, { duration: 300 });
-      } else if (e.key.toLowerCase() === 'e') {
-        e.preventDefault();
-        const currentBearing = map.getBearing();
-        const base = areaBearing + snap(currentBearing - areaBearing);
-        map.rotateTo(base + rotationAmount, { duration: 300 });
-      }
+      // Map rotation via Q/E is now centralized in MapContainer with bearingUtils snapping.
+      // Intentionally no-op here to avoid duplicate handlers and snap loops.
+      return;
     };
 
     // Add event listener to the document to capture all key events
@@ -564,41 +651,7 @@ const SpaceStager = () => {
     };
   }, [map]);
 
-  // Snap bearing to nearest 45° on rotate end in site plan mode to avoid drift
-  useEffect(() => {
-    if (!map) return;
-    let snapping = false;
-    const step = 45;
-    const snap = (deg) => {
-      const d = ((deg % 360) + 360) % 360;
-      return Math.round(d / step) * step;
-    };
-    const onRotateEnd = () => {
-      try {
-        if (!isSitePlanMode) return;
-        if (snapping) return;
-        const cur = map.getBearing();
-        const areaBearing = (() => {
-          try {
-            const g = (permitAreas?.hasSubFocus ? permitAreas?.subFocusArea?.geometry : permitAreas?.focusedArea?.geometry);
-            if (!g) return 0;
-            const isIso = (map?.getPitch ? map.getPitch() : 0) > 15;
-            if (isIso && map) return computeDominantViewportBearing(map, g) || 0;
-            return computeDominantBearingFromPolygon(g) || 0;
-          } catch (_) { return 0; }
-        })();
-        const target = areaBearing + snap(cur - areaBearing);
-        const diff = Math.abs(((cur - target + 540) % 360) - 180);
-        if (diff > 0.1) {
-          snapping = true;
-          map.rotateTo(target, { duration: 120 });
-          setTimeout(() => { snapping = false; }, 140);
-        }
-      } catch (_) {}
-    };
-    try { map.on('rotateend', onRotateEnd); } catch (_) {}
-    return () => { try { map.off('rotateend', onRotateEnd); } catch (_) {} };
-  }, [map, isSitePlanMode]);
+  // Rotate-end snapping is centralized in MapContainer; avoid duplicate snap logic here.
 
   // Contextual nudges (evaluated only when prerequisites are visible)
   const customShapes = drawTools.draw?.current ? drawTools.draw.current.getAll().features : [];
@@ -650,6 +703,9 @@ const SpaceStager = () => {
         {
           selectGeography: (type) => {
             try { if (type && type !== geographyType) selectGeography(type); } catch (_) {}
+          },
+          setImportProgress: (step, message = '') => {
+            try { setImportProgress(prev => ({ open: true, step: step || prev.step, message })); } catch (_) {}
           },
           focusAreaByIdentity: ({ type, system, id }) => {
             let attempts = 0;
@@ -750,6 +806,17 @@ const SpaceStager = () => {
         isOpen={showExamples}
         onClose={() => setShowExamples(false)}
         onOpenInEditor={openExampleInEditor}
+      />
+
+      {/* Import progress modal */}
+      <ImportProgressModal
+        isOpen={importProgress.open}
+        currentStepKey={importProgress.step}
+        message={importProgress.message}
+        onCancel={() => {
+          // Soft-cancel: hide modal; actual file import cannot be aborted here
+          try { setImportProgress({ open: false, step: 'finalize', message: '' }); } catch (_) {}
+        }}
       />
 
       {/* Site Plan Mode Indicator */}

@@ -6,6 +6,7 @@ import { useZoneCreator } from '../../hooks/useZoneCreator';
 import OverlapSelector from './OverlapSelector';
 import DroppedObjects from './DroppedObjects';
 import { computeDominantBearingFromPolygon, computeDominantViewportBearing } from '../../utils/enhancedRenderingUtils';
+import { computeAreaOrientation, snapBearingRelativeToArea, quantizeAbsolute45 } from '../../utils/bearingUtils';
 import DroppedRectangles from './DroppedRectangles';
 import DroppedObjectNoteEditor from './DroppedObjectNoteEditor';
 import CustomShapeLabels from './CustomShapeLabels';
@@ -67,17 +68,14 @@ const MapContainer = forwardRef(({
 
   // Map view state (single source of truth for pitch/bearing/zoom/viewType)
   const view = useMapViewState(map);
+  const suppressRotateSnapRef = useRef(false);
+  const lastDiscreteBearingRef = useRef(null);
   // Compute a stable area-bearing from the focused area for alignment
   const areaBearingDeg = useMemo(() => {
     try {
       const g = (permitAreas?.hasSubFocus ? permitAreas?.subFocusArea?.geometry : permitAreas?.focusedArea?.geometry);
       if (!g) return 0;
-      // Use viewport-based dominant orientation when in isometric view, so alignment matches perceived axes
-      const isIso = (view?.pitch || 0) > 15;
-      if (isIso && map) {
-        return computeDominantViewportBearing(map, g) || 0;
-      }
-      return computeDominantBearingFromPolygon(g) || 0;
+      return computeAreaOrientation({ map, geometry: g, pitch: view?.pitch || 0 });
     } catch (_) { return 0; }
   }, [permitAreas?.focusedArea?.geometry, permitAreas?.subFocusArea?.geometry, permitAreas?.hasSubFocus, view?.pitch, map]);
 
@@ -806,6 +804,67 @@ const MapContainer = forwardRef(({
       } catch (_) {}
     }
   };
+
+  // Keyboard map rotation (Q/E) with snapping relative to area orientation
+  useEffect(() => {
+    if (!map) return;
+    const onKeyDown = (e) => {
+      try {
+        const t = e.target;
+        const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+        if (typing) return;
+        // Ignore key repeats to enforce exactly one 45° step per press
+        if (e.repeat) return;
+        // Only rotate map when not in placement mode and no selected object rotation keys pressed
+        const key = (e.key || '').toLowerCase();
+        if (key !== 'q' && key !== 'e') return;
+        e.preventDefault();
+        const dir = key === 'e' ? 1 : -1; // CW for E, CCW for Q
+        const current = (typeof map.getBearing === 'function') ? map.getBearing() : 0;
+        const areaGeom = (permitAreas?.hasSubFocus ? permitAreas?.subFocusArea?.geometry : permitAreas?.focusedArea?.geometry) || null;
+        const theta = areaGeom ? computeAreaOrientation({ map, geometry: areaGeom, pitch: (map.getPitch ? map.getPitch() : 0) }) : 0;
+        const snapToGrid = (bear) => ((theta + quantizeAbsolute45(bear - theta)) % 360 + 360) % 360;
+        let base = lastDiscreteBearingRef.current;
+        // Re-anchor to current grid if no baseline yet or user rotated away from last discrete bearing
+        const diffFromLast = (base == null) ? Infinity : Math.abs((((current - base) % 360) + 540) % 360 - 180);
+        if (base == null || diffFromLast > 2) {
+          base = snapToGrid(current);
+        }
+        const target = ((base + dir * 45) % 360 + 360) % 360;
+        try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
+        try {
+          suppressRotateSnapRef.current = true;
+          lastDiscreteBearingRef.current = target;
+          map.easeTo({ bearing: target, duration: 180, essential: true });
+        } catch (_) {
+          suppressRotateSnapRef.current = false;
+        }
+      } catch (_) {}
+    };
+    window.addEventListener('keydown', onKeyDown, { passive: false });
+    return () => { window.removeEventListener('keydown', onKeyDown); };
+  }, [map, permitAreas?.hasSubFocus, permitAreas?.subFocusArea?.geometry, permitAreas?.focusedArea?.geometry]);
+
+  // Snap free-rotate interactions on rotateend to nearest 45° relative to area orientation
+  useEffect(() => {
+    if (!map) return;
+    const onRotateEnd = () => {
+      try {
+        if (suppressRotateSnapRef.current) { suppressRotateSnapRef.current = false; return; }
+        const current = (typeof map.getBearing === 'function') ? map.getBearing() : 0;
+        const areaGeom = (permitAreas?.hasSubFocus ? permitAreas?.subFocusArea?.geometry : permitAreas?.focusedArea?.geometry) || null;
+        const theta = areaGeom ? computeAreaOrientation({ map, geometry: areaGeom, pitch: (map.getPitch ? map.getPitch() : 0) }) : 0;
+        const snapped = snapBearingRelativeToArea(current, theta, false);
+        const absQ = quantizeAbsolute45(snapped);
+        const delta = Math.abs((((absQ - current) % 360) + 540) % 360 - 180);
+        if (delta > 0.5) {
+          try { lastDiscreteBearingRef.current = absQ; map.rotateTo(absQ, { duration: 120 }); } catch (_) {}
+        }
+      } catch (_) {}
+    };
+    try { map.on('rotateend', onRotateEnd); } catch (_) {}
+    return () => { try { map.off('rotateend', onRotateEnd); } catch (_) {} };
+  }, [map, permitAreas?.hasSubFocus, permitAreas?.subFocusArea?.geometry, permitAreas?.focusedArea?.geometry]);
 
   // Delete selected dropped object or selected annotation with Delete/Backspace (select mode only)
   useEffect(() => {

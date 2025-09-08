@@ -10,6 +10,7 @@ import { createInfrastructureTooltipContent } from '../utils/tooltipUtils';
 import { addIconsToMap, retryLoadIcons, INFRASTRUCTURE_ICONS } from '../utils/iconUtils';
 import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
 import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId, getMapViewType, buildSpriteUrl, buildFlatSpriteUrl, quantizeBearingForSprites, computeDominantBearingFromPolygon, computeDominantViewportBearing } from '../utils/enhancedRenderingUtils';
+import { snapBearingRelativeToArea } from '../utils/bearingUtils';
 import { useMapViewState } from './useMapViewState';
 import { DISABLED_INFRASTRUCTURE_LAYERS } from '../constants/layers';
 const DEBUG_INFRA = false;
@@ -308,7 +309,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
           ?? 0;
         const preferRightAngles = cfg?.enhancedRendering?.desiredParallelTo === 'cscl';
         const quantize = preferRightAngles ? quantizeAngleTo90 : quantizeAngleTo45;
-        const bearingNow = quantizeBearingForSprites(bearingNowRaw - areaBearing, preferRightAngles) + areaBearing;
+        const bearingNow = snapBearingRelativeToArea(bearingNowRaw, areaBearing, preferRightAngles);
 
         let changed = false;
         const newFeatures = data.features.map((f) => {
@@ -620,7 +621,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
                   ?? 0;
                 const preferRightAngles = cfg?.enhancedRendering?.desiredParallelTo === 'cscl';
                 const quantize = preferRightAngles ? quantizeAngleTo90 : quantizeAngleTo45;
-                const bearingNow = quantizeBearingForSprites(bearingNowRaw - areaBearing, preferRightAngles) + areaBearing;
+                const bearingNow = snapBearingRelativeToArea(bearingNowRaw, areaBearing, preferRightAngles);
                 const baseAngle = (baseBearing != null ? baseBearing : 0);
                 const eff = (((baseAngle - bearingNow + zeroOffset) % 360 + 360) % 360);
                 const q = quantize(eff);

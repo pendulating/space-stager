@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useEffect, useState } from 'react';
 import { Popup as MapLibrePopup } from 'maplibre-gl';
-import { quantizeAngleTo45, addEnhancedSpritesToMap, buildSpriteImageId, getMapViewType, buildFlatSpriteUrl, quantizeBearingForSprites } from '../../utils/enhancedRenderingUtils';
+import { quantizeAngleTo45, addEnhancedSpritesToMap, buildSpriteImageId, getMapViewType, buildFlatSpriteUrl } from '../../utils/enhancedRenderingUtils';
+import { snapBearingRelativeToArea } from '../../utils/bearingUtils';
 import { useMapViewState } from '../../hooks/useMapViewState';
 import { useStableImageSrc } from '../../hooks/useStableImageSrc';
 import { getCandidateSrcs, prefetchView } from '../../utils/spriteResolver';
@@ -184,34 +185,51 @@ const DroppedObjects = ({
     } catch (_) {}
   }, [objects, placeableObjects, view?.viewType]);
 
-  // Ensure enhanced sprites for present object types are registered for current view
+  
+
+  const [spritesReadyNonce, setSpritesReadyNonce] = useState(0);
+  // Preload only the exact angles needed for current view and objects, then rebuild
   useEffect(() => {
     if (!map || !objects?.length || !placeableObjects?.length) return;
-    try {
-      const bases = new Map();
-      for (let i = 0; i < objects.length; i++) {
-        const obj = objects[i];
-        const t = placeableObjects.find(p => p.id === obj.type);
-        if (!t?.enhancedRendering?.enabled || !t.enhancedRendering?.spriteBase) continue;
-        const base = t.enhancedRendering.spriteBase;
-        const angles = t.enhancedRendering.angles || [0,45,90,135,180,225,270,315];
-        bases.set(base, angles);
-      }
-      const vt = view?.viewType || getMapViewType(map);
-      bases.forEach((angles, base) => {
-        try {
-          addEnhancedSpritesToMap(map, {
+    (async () => {
+      try {
+        const vt = view?.viewType || getMapViewType(map);
+        const bearingRaw = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
+        const baseToAngles = new Map();
+        for (let i = 0; i < objects.length; i++) {
+          const obj = objects[i];
+          const t = placeableObjects.find(p => p.id === obj.type);
+          if (!t?.enhancedRendering?.enabled || !t.enhancedRendering?.spriteBase) continue;
+          const base = t.enhancedRendering.spriteBase;
+          const zeroOffset = (t?.enhancedRendering?.zeroOffsetDegByView?.[vt])
+            ?? (t?.enhancedRendering?.zeroOffsetDeg)
+            ?? DEFAULT_ZERO_OFFSET_BY_VIEW[vt] ?? 0;
+          const baseAngle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
+          const snappedBearing = snapBearingRelativeToArea(bearingRaw, (areaBearingDeg || 0), false);
+          const eff = (((baseAngle - snappedBearing + zeroOffset) % 360) + 360) % 360;
+          const q = quantizeAngleTo45(eff);
+          if (!baseToAngles.has(base)) baseToAngles.set(base, new Set());
+          baseToAngles.get(base).add(q);
+        }
+        const promises = [];
+        baseToAngles.forEach((anglesSet, base) => {
+          const angles = Array.from(anglesSet);
+          promises.push(addEnhancedSpritesToMap(map, {
             baseName: base,
             publicDir: `/static/${base}`,
             angles,
             viewType: vt,
             urlBuilder: buildFlatSpriteUrl,
-            replaceExisting: true
-          });
-        } catch (_) {}
-      });
-    } catch (_) {}
-  }, [map, objects, placeableObjects, view?.viewType]);
+            replaceExisting: false
+          }));
+        });
+        if (promises.length) {
+          await Promise.all(promises);
+          try { setSpritesReadyNonce(n => n + 1); } catch (_) {}
+        }
+      } catch (_) {}
+    })();
+  }, [map, objects, placeableObjects, view?.viewType, view?.bearing, areaBearingDeg]);
 
   // Build and set GeoJSON data for dropped objects (define before effects that use it)
   const rebuildDroppedData = useCallback(() => {
@@ -239,23 +257,27 @@ const DroppedObjects = ({
             ?? DEFAULT_ZERO_OFFSET_BY_VIEW[vt] ?? 0;
           const baseAngle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
           // Snap camera bearing to the same step as our sprite families to avoid drift
-          const snappedBearing = quantizeBearingForSprites(bearingRaw - (areaBearingDeg || 0), false) + (areaBearingDeg || 0);
+          const snappedBearing = snapBearingRelativeToArea(bearingRaw, (areaBearingDeg || 0), false);
           // Compensate for map bearing in both views so icons remain visually stationary while rotating the map
           const eff = (((baseAngle - snappedBearing + zeroOffset) % 360 + 360) % 360);
           const q = quantizeAngleTo45(eff);
           const imgId = buildSpriteImageId(t.enhancedRendering.spriteBase, q);
-          // Set icon id and readiness flag (so circle fallback can show until sprite registers)
-          props.icon_image = imgId;
           let ready = false;
           try { ready = map && typeof map.hasImage === 'function' ? map.hasImage(imgId) : false; } catch (_) { ready = false; }
           props.icon_ready = ready ? 1 : 0;
+          if (ready) {
+            // Only assign icon when registered to avoid styleimagemissing storms
+            props.icon_image = imgId;
+          }
         } else if (t?.imageUrl) {
           // Simple (non-enhanced) static icon path: use type id as image id
           const imgId = String(t.id);
-          props.icon_image = imgId;
           let ready = false;
           try { ready = map && typeof map.hasImage === 'function' ? map.hasImage(imgId) : false; } catch (_) { ready = false; }
           props.icon_ready = ready ? 1 : 0;
+          if (ready) {
+            props.icon_image = imgId;
+          }
         }
         const feature = { type: 'Feature', geometry: { type: 'Point', coordinates: [obj.position.lng, obj.position.lat] }, properties: props };
         idToIndex.set(obj.id, feats.length);
@@ -270,6 +292,13 @@ const DroppedObjects = ({
       dataRef.current = { fc, idToIndex };
     } catch (_) {}
   }, [map, objects, placeableObjects, view?.viewType, view?.bearing]);
+
+  // After import rehydration finishes, rebuild once to ensure icons match snapped camera
+  useEffect(() => {
+    const handler = () => { try { rebuildDroppedData(); } catch (_) {} };
+    try { if (typeof window !== 'undefined') window.addEventListener('rehydrating-import:end', handler); } catch (_) {}
+    return () => { try { if (typeof window !== 'undefined') window.removeEventListener('rehydrating-import:end', handler); } catch (_) {} };
+  }, [rebuildDroppedData]);
 
   // Ensure GeoJSON source and layers exist
   useEffect(() => {
@@ -402,6 +431,8 @@ const DroppedObjects = ({
 
   // Update source data based on objects/view
   useEffect(() => { rebuildDroppedData(); }, [rebuildDroppedData]);
+  // Rebuild once sprites are registered for current view
+  useEffect(() => { if (spritesReadyNonce) rebuildDroppedData(); }, [spritesReadyNonce, rebuildDroppedData]);
   useEffect(() => {
     // Rebuild when view changes to swap icon_image for new view type/bearing
     rebuildDroppedData();

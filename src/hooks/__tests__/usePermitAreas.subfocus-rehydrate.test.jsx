@@ -80,6 +80,28 @@ describe('usePermitAreas sub-focus and rehydrate', () => {
     api.clearSubFocusPolygon();
   });
 
+  it('setSubFocusPolygon uses cameraForBounds and snaps bearing to 45° steps', async () => {
+    const map = makeMap();
+    const easeToSpy = vi.spyOn(map, 'easeTo');
+    let api;
+    function Grab(){ api = usePermitAreas(map, true, { mode: 'parks' }); return null; }
+    render(<Grab />);
+    await api.loadPermitAreas();
+    const main = { type: 'Feature', id: 'sys', properties: { system: 'S' }, geometry: { type: 'Polygon', coordinates: [[[0,0],[0,2],[2,2],[2,0],[0,0]]] } };
+    api.focusOnPermitArea(main);
+    await act(async () => {});
+    // Axis-aligned sub polygon → oriented angle ~0, target bearing snapped to 0
+    const sub = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[0.2,0.2],[0.2,0.6],[0.6,0.6],[0.6,0.2],[0.2,0.2]]] } };
+    const ok = api.setSubFocusPolygon(sub);
+    expect(ok).toBe(true);
+    expect(map.cameraForBounds).toHaveBeenCalled();
+    expect(easeToSpy).toHaveBeenCalled();
+    const cameraArg = easeToSpy.mock.calls[0][0];
+    expect(typeof cameraArg.bearing).toBe('number');
+    const b = ((cameraArg.bearing % 360) + 360) % 360;
+    expect(Math.abs(b - 0) < 1e-6 || Math.abs(b - 360) < 1e-6).toBe(true);
+  });
+
   it('rehydrateActiveGeography ensures layers visible without reloading data when cached', async () => {
     const map = makeMap();
     const { rerender } = render(<Harness map={map} />);
