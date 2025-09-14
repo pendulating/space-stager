@@ -1073,7 +1073,60 @@ const MapContainer = forwardRef(({
         });
       } catch (_) {}
     },
-    clearSelection
+    clearSelection,
+    hasSelectedAnnotation: !!drawTools.selectedShape,
+    rotateSelectedAnnotationBy: (deltaDeg) => {
+      try {
+        const id = drawTools.selectedShape;
+        const d = drawTools.draw && drawTools.draw.current; if (!d || !id) return;
+        const f = d.get(id); if (!f || !f.geometry) return;
+        const g = f.geometry;
+        // Rotate in WebMercator (map plane) for stability regardless of pitch
+        const R = 6378137; // meters
+        const toMerc = ([lng, lat]) => {
+          const x = R * (lng * Math.PI / 180);
+          const y = R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2));
+          return [x, y];
+        };
+        const toLngLat = ([x, y]) => {
+          const lng = (x / R) * 180 / Math.PI;
+          const lat = (2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * 180 / Math.PI;
+          return [lng, lat];
+        };
+        const coordsAll = (g.type === 'LineString') ? g.coordinates
+          : (g.type === 'Polygon') ? (g.coordinates[0] || []) : null;
+        if (!Array.isArray(coordsAll) || coordsAll.length < 2) return;
+        const mercPts = coordsAll.map(toMerc);
+        // Centroid in mercator
+        let cx = 0, cy = 0;
+        mercPts.forEach(([x, y]) => { cx += x; cy += y; });
+        cx /= mercPts.length; cy /= mercPts.length;
+        const rad = deltaDeg * Math.PI / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const rotateMerc = ([x, y]) => {
+          const dx = x - cx, dy = y - cy;
+          const rx = cx + dx * cos - dy * sin;
+          const ry = cy + dx * sin + dy * cos;
+          return [rx, ry];
+        };
+        let newGeom = null;
+        if (g.type === 'LineString') {
+          const rotatedLngLat = mercPts.map(rotateMerc).map(toLngLat);
+          newGeom = { type: 'LineString', coordinates: rotatedLngLat };
+        } else if (g.type === 'Polygon') {
+          const closed = mercPts.length >= 2 && (Math.abs(mercPts[0][0] - mercPts[mercPts.length - 1][0]) < 1e-6) && (Math.abs(mercPts[0][1] - mercPts[mercPts.length - 1][1]) < 1e-6);
+          let rotated = mercPts.map(rotateMerc).map(toLngLat);
+          if (closed) rotated[rotated.length - 1] = rotated[0];
+          newGeom = { type: 'Polygon', coordinates: [rotated] };
+        }
+        if (newGeom) {
+          try { d.setFeatureProperty(id, '__rot', (d.getFeatureProperty ? d.getFeatureProperty(id, '__rot') : 0) + deltaDeg); } catch (_) {}
+          d.add({ ...f, geometry: newGeom });
+          setAnnotationsTrigger(v => v + 1);
+        }
+      } catch (_) {}
+    }
   });
 
   return (

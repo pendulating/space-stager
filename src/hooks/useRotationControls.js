@@ -26,7 +26,9 @@ export const useRotationControls = (options) => {
     rotateSelectedRectBy,
     hasSelectedPoint,
     rotateSelectedPointStep,
-    clearSelection
+    clearSelection,
+    hasSelectedAnnotation,
+    rotateSelectedAnnotationBy
   } = options || {};
 
   useEffect(() => {
@@ -79,6 +81,13 @@ export const useRotationControls = (options) => {
 
       if (hasSelectedPoint && typeof rotateSelectedPointStep === 'function') {
         try { rotateSelectedPointStep(dir * 45); } catch (_) {}
+        return;
+      }
+
+      if (hasSelectedAnnotation && typeof rotateSelectedAnnotationBy === 'function') {
+        // Step rotation for annotations (lines/polygons) per keypress
+        try { rotateSelectedAnnotationBy(dir * 12); } catch (_) {}
+        return;
       }
     };
 
@@ -103,7 +112,7 @@ export const useRotationControls = (options) => {
       window.removeEventListener('keyup', onKeyUp, true);
       if (rafId != null) cancelAnimationFrame(rafId);
     };
-  }, [isPlacementActive, rotatePlacementStep, hasSelectedRect, rotateSelectedRectBy, hasSelectedPoint, rotateSelectedPointStep, clearSelection]);
+  }, [isPlacementActive, rotatePlacementStep, hasSelectedRect, rotateSelectedRectBy, hasSelectedPoint, rotateSelectedPointStep, hasSelectedAnnotation, rotateSelectedAnnotationBy, clearSelection]);
 };
 
 
