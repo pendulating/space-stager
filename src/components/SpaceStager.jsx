@@ -122,6 +122,11 @@ const SpaceStager = () => {
   // Favor UI-aware padding so fitBounds/cameraForBounds doesn't tuck the focus under the left sidebar
   const focusPadding = { top: 20, right: 20, bottom: 20, left: isLeftSidebarOpen ? 360 : 20 };
   const permitAreas = usePermitAreas(map, mapLoaded, { mode: geographyType, focusPadding });
+  // Live refs to avoid stale-closure reads inside async import helpers
+  const focusedAreaRefLive = useRef(null);
+  useEffect(() => { focusedAreaRefLive.current = permitAreas.focusedArea; }, [permitAreas.focusedArea]);
+  const permitAreasListRef = useRef([]);
+  useEffect(() => { permitAreasListRef.current = Array.isArray(permitAreas.permitAreas) ? permitAreas.permitAreas : []; }, [permitAreas.permitAreas]);
   const drawTools = useDrawTools(map, permitAreas.focusedArea);
   const infrastructure = useInfrastructure(map, permitAreas.focusedArea, layers, setLayers, { rehydratingImport: isImportingPlan });
   const clickToPlace = useClickToPlace(map);
@@ -252,10 +257,19 @@ const SpaceStager = () => {
           const maxAttempts = 30; // ~6s at 200ms intervals
           const sysStr = (system !== undefined && system !== null) ? String(system) : null;
           const idStr = (id !== undefined && id !== null) ? String(id) : null;
+          const started = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
           const tryFocus = () => {
             attempts += 1;
             try {
-              const list = permitAreas.permitAreas || [];
+              // Periodically surface progress to the import modal
+              if (attempts === 1 || attempts % 5 === 0) {
+                try {
+                  const elapsedMs = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - started;
+                  const secs = Math.max(0, Math.round(elapsedMs / 1000));
+                  setImportProgress(prev => ({ open: true, step: 'focus', message: `Locating area by identity… attempt ${attempts}/${maxAttempts} (${secs}s)` }));
+                } catch (_) {}
+              }
+              const list = permitAreasListRef.current || [];
               let found = null;
               if (type === 'parks' && sysStr != null) {
                 found = list.find(f => String(f?.properties?.system) === sysStr);
@@ -264,6 +278,11 @@ const SpaceStager = () => {
               }
               if (found) {
                 try { permitAreas.focusOnPermitArea(found); } catch (_) {}
+                try {
+                  const elapsedMs = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - started;
+                  const secs = Math.max(0, Math.round(elapsedMs / 1000));
+                  setImportProgress(prev => ({ open: true, step: 'focus', message: `Focused by identity in ${secs}s` }));
+                } catch (_) {}
                 resolve(true);
                 return;
               }
@@ -276,12 +295,22 @@ const SpaceStager = () => {
           try {
             if (!geometry) { resolve(false); return; }
             const feature = { type: 'Feature', properties: { name: name || 'Imported Area' }, geometry };
+            // Surface that we're falling back to geometry-based focus
+            try { setImportProgress(prev => ({ open: true, step: 'focus', message: 'Falling back to geometry-based focus…' })); } catch (_) {}
             permitAreas.focusOnPermitArea(feature);
             // Wait until focus is reflected in state
             let attempts = 0; const maxAttempts = 25;
+            const started = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
             const poll = () => {
               attempts += 1;
-              try { if (permitAreas.focusedArea) { resolve(true); return; } } catch (_) {}
+              try {
+                if (attempts === 1 || attempts % 5 === 0) {
+                  const elapsedMs = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - started;
+                  const secs = Math.max(0, Math.round(elapsedMs / 1000));
+                  setImportProgress(prev => ({ open: true, step: 'focus', message: `Waiting for focus state… attempt ${attempts}/${maxAttempts} (${secs}s)` }));
+                }
+              } catch (_) {}
+              try { if (focusedAreaRefLive.current) { resolve(true); return; } } catch (_) {}
               if (attempts < maxAttempts) setTimeout(poll, 100); else resolve(false);
             };
             poll();
@@ -291,11 +320,47 @@ const SpaceStager = () => {
           let attempts = 0; const maxAttempts = 50;
           const sysStr = match && match.system != null ? String(match.system) : null;
           const idStr = match && match.id != null ? String(match.id) : null;
+          const started = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+          // First, check if already focused
+          try {
+            const fa0 = focusedAreaRefLive.current;
+            if (fa0 && (!sysStr && !idStr || (sysStr && String(fa0?.properties?.system) === sysStr) || (idStr && String(fa0?.id) === idStr))) {
+              resolve(true);
+              return;
+            }
+          } catch (_) {}
+          // Prefer event-based resolution over polling when possible
+          const onReady = (e) => {
+            try {
+              const fa = focusedAreaRefLive.current;
+              if (fa && (!sysStr && !idStr || (sysStr && String(fa?.properties?.system) === sysStr) || (idStr && String(fa?.id) === idStr))) {
+                try { window.removeEventListener('permit:focus-ready', onReady); } catch (_) {}
+                try {
+                  const elapsedMs = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - started;
+                  const secs = Math.max(0, Math.round(elapsedMs / 1000));
+                  setImportProgress(prev => ({ open: true, step: 'focus', message: `Focus settled in ${secs}s` }));
+                } catch (_) {}
+                resolve(true);
+              }
+            } catch (_) {}
+          };
+          try { if (typeof window !== 'undefined') window.addEventListener('permit:focus-ready', onReady); } catch (_) {}
           const poll = () => {
             attempts += 1;
             try {
-              const fa = permitAreas.focusedArea;
+              if (attempts === 1 || attempts % 5 === 0) {
+                const elapsedMs = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - started;
+                const secs = Math.max(0, Math.round(elapsedMs / 1000));
+                setImportProgress(prev => ({ open: true, step: 'focus', message: `Waiting for focused area to settle… attempt ${attempts}/${maxAttempts} (${secs}s)` }));
+              }
+              const fa = focusedAreaRefLive.current;
               if (fa && (!sysStr && !idStr || (sysStr && String(fa?.properties?.system) === sysStr) || (idStr && String(fa?.id) === idStr))) {
+                try {
+                  const elapsedMs = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - started;
+                  const secs = Math.max(0, Math.round(elapsedMs / 1000));
+                  setImportProgress(prev => ({ open: true, step: 'focus', message: `Focus settled in ${secs}s` }));
+                } catch (_) {}
+                try { if (typeof window !== 'undefined') window.removeEventListener('permit:focus-ready', onReady); } catch (_) {}
                 resolve(true);
                 return;
               }
@@ -306,11 +371,27 @@ const SpaceStager = () => {
         }),
         waitForPermitAreasLoaded: () => new Promise((resolve) => {
           let attempts = 0; const maxAttempts = 100; // up to ~20s
+          const started = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
           const poll = () => {
             attempts += 1;
             try {
-              const list = permitAreas.permitAreas || [];
+              if (attempts === 1 || attempts % 10 === 0) {
+                const elapsedMs = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - started;
+                const secs = Math.max(0, Math.round(elapsedMs / 1000));
+                const list = permitAreasListRef.current || [];
+                const count = Array.isArray(list) ? list.length : 0;
+                setImportProgress(prev => ({ open: true, step: 'focus', message: `Loading permit areas dataset… ${count} loaded (${secs}s)` }));
+              }
+            } catch (_) {}
+            try {
+              const list = permitAreasListRef.current || [];
               if (Array.isArray(list) && list.length > 0) { resolve(true); return; }
+              // Kick off loading proactively if not already loading
+              try {
+                if (permitAreas && typeof permitAreas.loadPermitAreas === 'function') {
+                  permitAreas.loadPermitAreas();
+                }
+              } catch (_) {}
             } catch (_) {}
             if (attempts < maxAttempts) setTimeout(poll, 200); else resolve(false);
           };
@@ -867,7 +948,7 @@ const SpaceStager = () => {
             <ChevronRight className="w-4 h-4 text-gray-700 dark:text-gray-200" />
           </button>
         )}
-        
+
         <DroppedObjectsProvider>
           <MapContainer 
             ref={mapContainerRef}
@@ -882,28 +963,28 @@ const SpaceStager = () => {
             highlightedIds={highlightedIds}
             onDismissNudge={dismissNudge}
           />
-        </DroppedObjectsProvider>
 
-        {/* Center-bottom contextual nudges */}
-        <NudgeCenter
-          nudges={nudges}
-          onZoom={zoomToNudge}
-          onHighlight={highlightNudge}
-          onDismiss={dismissNudge}
-        />
-
-        {/* Right Sidebar for Site Plan Mode */}
-        {isSitePlanMode && (
-          <RightSidebar
-            drawTools={drawTools}
-            clickToPlace={clickToPlace}
-            placeableObjects={PLACEABLE_OBJECTS}
-            onExport={handleExport}
-            onImport={handleImport}
-            onExportSiteplan={handleExportSiteplan}
-            focusedArea={permitAreas.focusedArea}
+          {/* Center-bottom contextual nudges */}
+          <NudgeCenter
+            nudges={nudges}
+            onZoom={zoomToNudge}
+            onHighlight={highlightNudge}
+            onDismiss={dismissNudge}
           />
-        )}
+
+          {/* Right Sidebar for Site Plan Mode */}
+          {isSitePlanMode && (
+            <RightSidebar
+              drawTools={drawTools}
+              clickToPlace={clickToPlace}
+              placeableObjects={PLACEABLE_OBJECTS}
+              onExport={handleExport}
+              onImport={handleImport}
+              onExportSiteplan={handleExportSiteplan}
+              focusedArea={permitAreas.focusedArea}
+            />
+          )}
+        </DroppedObjectsProvider>
       </div>
       <GeographySelector
         isOpen={showGeoSelectorOverride || (!isTutorialActive && !showWelcome && !isGeographyChosen)}

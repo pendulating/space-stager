@@ -7,6 +7,7 @@ import { useStableImageSrc } from '../../hooks/useStableImageSrc';
 import { getCandidateSrcs, prefetchView } from '../../utils/spriteResolver';
 import { useMapEvents } from '../../hooks/useMapEvents';
 import { X } from 'lucide-react';
+import { useDroppedObjects } from '../../contexts/DroppedObjectsContext';
 
 const DEBUG = false; // Set to true to enable DroppedObjects debug logs
 // Dev-only, namespaced logger with dynamic switches (env/localStorage/window flag)
@@ -59,6 +60,7 @@ const DROPPED_SOURCE_ID = 'dropped-objects';
 const DROPPED_SYMBOL_LAYER_ID = 'dropped-objects-symbol';
 const DROPPED_CIRCLE_LAYER_ID = 'dropped-objects-circle';
 const DROPPED_SELECTED_LAYER_ID = 'dropped-objects-selected';
+const DROPPED_HOVERED_LAYER_ID = 'dropped-objects-hovered';
 
 const DroppedObjects = ({ 
   objects = [],
@@ -79,6 +81,7 @@ const DroppedObjects = ({
   }
 
   const view = useMapViewState(map);
+  const { hoveredObjectId } = useDroppedObjects();
 
   // Single popup instance for click-to-open action menu
   const popupRef = React.useRef(null);
@@ -279,7 +282,7 @@ const DroppedObjects = ({
             props.icon_image = imgId;
           }
         }
-        const feature = { type: 'Feature', geometry: { type: 'Point', coordinates: [obj.position.lng, obj.position.lat] }, properties: props };
+        const feature = { type: 'Feature', id: obj.id, geometry: { type: 'Point', coordinates: [obj.position.lng, obj.position.lat] }, properties: props };
         idToIndex.set(obj.id, feats.length);
         feats.push(feature);
       }
@@ -291,7 +294,7 @@ const DroppedObjects = ({
       // Cache the FC and indices for fast drag updates without triggering React state
       dataRef.current = { fc, idToIndex };
     } catch (_) {}
-  }, [map, objects, placeableObjects, view?.viewType, view?.bearing]);
+  }, [map, objects, placeableObjects, view?.viewType, view?.bearing, areaBearingDeg]);
 
   // After import rehydration finishes, rebuild once to ensure icons match snapped camera
   useEffect(() => {
@@ -392,6 +395,26 @@ const DroppedObjects = ({
             }
           });
         }
+        if (!map.getLayer(DROPPED_HOVERED_LAYER_ID)) {
+          map.addLayer({
+            id: DROPPED_HOVERED_LAYER_ID,
+            type: 'circle',
+            source: DROPPED_SOURCE_ID,
+            // Show only features whose feature-state hovered === true
+            filter: ['==', ['feature-state', 'hovered'], true],
+            paint: {
+              'circle-color': 'rgba(0,0,0,0)',
+              'circle-stroke-color': '#f59e0b',
+              'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 12, 2, 18, 3],
+              'circle-radius': [
+                'interpolate', ['linear'], ['zoom'],
+                12, ['+', 16, ['*', 4, ['coalesce', ['feature-state', 'hoverProgress'], 0]]],
+                18, ['+', 24, ['*', 6, ['coalesce', ['feature-state', 'hoverProgress'], 0]]]
+              ],
+              'circle-stroke-opacity': 1
+            }
+          });
+        }
         // Enforce filters even if layers already existed
         try { map.setFilter(DROPPED_SYMBOL_LAYER_ID, ['has', 'icon_image']); } catch (_) {}
         try { map.setFilter(DROPPED_CIRCLE_LAYER_ID, ['!', ['has', 'icon_image']]); } catch (_) {}
@@ -416,10 +439,12 @@ const DroppedObjects = ({
         // Enforce z-order: circle below symbol, selected above all
         try { if (map.getLayer(DROPPED_SYMBOL_LAYER_ID)) map.moveLayer(DROPPED_CIRCLE_LAYER_ID, DROPPED_SYMBOL_LAYER_ID); } catch (_) {}
         try { map.moveLayer(DROPPED_SELECTED_LAYER_ID); } catch (_) {}
+        try { map.moveLayer(DROPPED_HOVERED_LAYER_ID); } catch (_) {}
         // Repeat shortly after to win races with late-added layers (draw/infrastructure)
         setTimeout(() => {
           try { if (map.getLayer(DROPPED_SYMBOL_LAYER_ID)) map.moveLayer(DROPPED_CIRCLE_LAYER_ID, DROPPED_SYMBOL_LAYER_ID); } catch (_) {}
           try { map.moveLayer(DROPPED_SELECTED_LAYER_ID); } catch (_) {}
+          try { map.moveLayer(DROPPED_HOVERED_LAYER_ID); } catch (_) {}
         }, 50);
         // After ensuring layers, push current data (defer to rebuild)
         try { setTimeout(() => { try { rebuildDroppedData(); } catch (_) {} }, 0); } catch (_) {}
@@ -434,9 +459,9 @@ const DroppedObjects = ({
   // Rebuild once sprites are registered for current view
   useEffect(() => { if (spritesReadyNonce) rebuildDroppedData(); }, [spritesReadyNonce, rebuildDroppedData]);
   useEffect(() => {
-    // Rebuild when view changes to swap icon_image for new view type/bearing
+    // Rebuild when view changes (type/bearing) or area orientation changes
     rebuildDroppedData();
-  }, [view?.viewType, view?.bearing]);
+  }, [view?.viewType, view?.bearing, areaBearingDeg]);
 
   // Register on-demand missing image handler to load sprites if requested by style before preloading finishes
   useEffect(() => {
@@ -492,6 +517,62 @@ const DroppedObjects = ({
       if (map.getLayer(DROPPED_SELECTED_LAYER_ID)) map.setFilter(DROPPED_SELECTED_LAYER_ID, filter);
     } catch (_) {}
   }, [map, selectedId]);
+
+  // Hover feature-state driver with tweened hoverProgress
+  useEffect(() => {
+    if (!map) return;
+    let raf = null;
+    let start = null;
+    let prevId = null;
+    const sourceId = DROPPED_SOURCE_ID;
+    const durationMs = 150;
+    const setStateSafe = (id, kv) => {
+      try { if (!id) return; map.setFeatureState({ source: sourceId, id }, kv); } catch (_) {}
+    };
+    const animate = (from, to) => {
+      start = null;
+      const step = (t) => {
+        try {
+          if (start == null) start = t;
+          const elapsed = Math.min(durationMs, Math.max(0, t - start));
+          const p = durationMs === 0 ? to : (from + (to - from) * (elapsed / durationMs));
+          if (hoveredObjectId) setStateSafe(hoveredObjectId, { hoverProgress: p });
+          if (elapsed < durationMs) { raf = requestAnimationFrame(step); } else { raf = null; }
+        } catch (_) { raf = null; }
+      };
+      raf = requestAnimationFrame(step);
+    };
+
+    // Clear previous hovered id state
+    if (typeof hoveredObjectId !== 'string' && typeof hoveredObjectId !== 'number') {
+      // Animate any previously hovered id back to 0 then clear the flag on all features opportunistically
+      try {
+        // Best-effort: we don't track prevId across renders; do nothing
+      } catch (_) {}
+    }
+
+    // Strategy: toggle hovered flag and tween progress
+    const apply = () => {
+      // First, clear hovered flag for all by setting false on selectedId if different and previous id (best-effort)
+      if (prevId && prevId !== hoveredObjectId) {
+        setStateSafe(prevId, { hovered: false, hoverProgress: 0 });
+      }
+      if (!hoveredObjectId) { prevId = null; return; }
+      setStateSafe(hoveredObjectId, { hovered: true });
+      animate(0, 1);
+      prevId = hoveredObjectId;
+    };
+
+    apply();
+
+    const onStyleLoad = () => apply();
+    try { map.on('style.load', onStyleLoad); } catch (_) {}
+    return () => {
+      try { if (raf) cancelAnimationFrame(raf); } catch (_) {}
+      try { if (prevId) setStateSafe(prevId, { hovered: false, hoverProgress: 0 }); } catch (_) {}
+      try { map.off('style.load', onStyleLoad); } catch (_) {}
+    };
+  }, [map, hoveredObjectId]);
 
   // Close action popup when selection cleared or selected object removed
   useEffect(() => {
@@ -881,9 +962,14 @@ const DroppedObjects = ({
       }
       
       const isSelected = selectedId && obj.id === selectedId;
+      const isHovered = hoveredObjectId && obj.id === hoveredObjectId;
       if (isSelected) {
         style.border = '2px solid #2563eb';
         style.boxShadow = '0 0 0 2px rgba(37,99,235,0.35)';
+      }
+      if (isHovered) {
+        style.outline = '2px solid #f59e0b';
+        style.outlineOffset = '2px';
       }
 
       return (
@@ -908,7 +994,7 @@ const DroppedObjects = ({
         />
       );
     }).filter(Boolean);
-  }, [objects, placeableObjects, baseSizeByType, getObjectStyle, onRemoveObject, map, selectedId, onSelectObject, view?.viewType, view?.renderTick, view?.zoom]);
+  }, [objects, placeableObjects, baseSizeByType, getObjectStyle, onRemoveObject, map, selectedId, hoveredObjectId, onSelectObject, view?.viewType, view?.renderTick, view?.zoom]);
 
   // Map move-synced DOM positioning with transform-only updates (DOM overlay disabled by default)
   useEffect(() => {

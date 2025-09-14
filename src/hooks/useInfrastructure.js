@@ -9,8 +9,8 @@ import { calculateGeometryBounds, expandBounds } from '../utils/geometryUtils';
 import { createInfrastructureTooltipContent } from '../utils/tooltipUtils';
 import { addIconsToMap, retryLoadIcons, INFRASTRUCTURE_ICONS } from '../utils/iconUtils';
 import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
-import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId, getMapViewType, buildSpriteUrl, buildFlatSpriteUrl, quantizeBearingForSprites, computeDominantBearingFromPolygon, computeDominantViewportBearing } from '../utils/enhancedRenderingUtils';
-import { snapBearingRelativeToArea } from '../utils/bearingUtils';
+import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId, getMapViewType, buildSpriteUrl, buildFlatSpriteUrl, quantizeBearingForSprites } from '../utils/enhancedRenderingUtils';
+import { snapBearingRelativeToArea, computeAreaOrientation } from '../utils/bearingUtils';
 import { useMapViewState } from './useMapViewState';
 import { DISABLED_INFRASTRUCTURE_LAYERS } from '../constants/layers';
 const DEBUG_INFRA = false;
@@ -300,8 +300,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
         const areaBearing = (() => { try {
           const g = (focusedArea?.properties?.__subFocus ? focusedArea : null)?.geometry || (focusedArea?.geometry);
           if (!g) return 0;
-          const isIso = (map?.getPitch ? map.getPitch() : 0) > 15;
-          return (isIso && map) ? (computeDominantViewportBearing(map, g) || 0) : (computeDominantBearingFromPolygon(g) || 0);
+          return computeAreaOrientation({ map, geometry: g });
         } catch (_) { return 0; } })();
         const zeroOffset = (cfg?.enhancedRendering?.zeroOffsetDegByView?.[viewType])
           ?? (cfg?.enhancedRendering?.zeroOffsetDeg)
@@ -612,8 +611,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
                 const areaBearing = (() => { try {
                   const g = focusedArea?.geometry;
                   if (!g) return 0;
-                  const isIso = (map?.getPitch ? map.getPitch() : 0) > 15;
-                  return (isIso && map) ? (computeDominantViewportBearing(map, g) || 0) : (computeDominantBearingFromPolygon(g) || 0);
+                  return computeAreaOrientation({ map, geometry: g });
                 } catch (_) { return 0; } })();
                 const zeroOffset = (cfg?.enhancedRendering?.zeroOffsetDegByView?.[viewType])
                   ?? (cfg?.enhancedRendering?.zeroOffsetDeg)

@@ -65,11 +65,10 @@ export const computeAreaOrientation = ({ map = null, geometry = null, pitch = nu
   try {
     if (!geometry) return 0;
     const p = (typeof pitch === 'number') ? pitch : (map && typeof map.getPitch === 'function' ? map.getPitch() : 0);
-    const isIso = p > 15;
-    if ((preferViewport || isIso) && map && typeof map.project === 'function') {
-      return computeOrientedMinBBoxAngle(geometry, (lngLat) => map.project(lngLat));
-    }
-    return computeOrientedMinBBoxAngle(geometry, null);
+    const isIso = (p > 15) || preferViewport;
+    return isIso
+      ? (computeDominantViewportBearing(map, geometry) || 0)
+      : (computeDominantBearingFromPolygon(geometry) || 0);
   } catch (_) { return 0; }
 };
 

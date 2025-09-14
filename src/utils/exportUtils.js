@@ -39,7 +39,7 @@ import { BLUEPRINT_THEME, registerBlueprintFonts, setPdfFont, drawTextWithWipe, 
 import { loadInfrastructureData } from '../services/infrastructureService';
 import { INFRASTRUCTURE_ENDPOINTS, EXPORT_ENDPOINTS } from '../constants/endpoints';
 import { distance as turfDistance, destination as turfDestination, bearing as turfBearing, buffer as turfBuffer, booleanIntersects as turfBooleanIntersects } from '@turf/turf';
-import { computeDominantBearingFromPolygon, computeDominantViewportBearing, quantizeBearingForSprites } from './enhancedRenderingUtils';
+import { computeDominantBearingFromPolygon, computeDominantViewportBearing, quantizeBearingForSprites, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId } from './enhancedRenderingUtils';
 import { snapCameraBearingToArea, quantizeAbsolute45 } from './bearingUtils';
 import { getIconDataUrl, INFRASTRUCTURE_ICONS } from './iconUtils';
 import { switchBasemap } from './mapUtils';
@@ -189,10 +189,7 @@ export const exportPermitAreaSiteplanV2 = async (
         return computeDominantBearingFromPolygon(areaGeom) || 0;
       } catch (_) { return 0; }
     })();
-    const snappedDominant = quantizeBearingForSprites(dominantBearing, false);
-    const bearingAdjustDeg = projectionMode === 'topDown'
-      ? (((currentBearing - snappedDominant) % 360) + 360) % 360
-      : 0;
+    // Remove legacy bearingAdjustDeg logic; use unified snapped bearing downstream
     if (projectionMode === 'current') {
       try {
         const curPitch = typeof map.getPitch === 'function' ? map.getPitch() : 0;
@@ -204,10 +201,14 @@ export const exportPermitAreaSiteplanV2 = async (
         offscreen.setBearing(0);
       }
     } else {
-      // Top-down
+      // Top-down: set pitch=0 and set bearing to the same snapped camera bearing relative to area as runtime
       offscreen.setPitch(0);
-      // Snap export bearing so the area is aligned to dominant orientation at exact 45° multiples
-      try { offscreen.setBearing(quantizeAbsolute45(dominantBearing)); } catch (_) { offscreen.setBearing(0); }
+      try {
+        const target = snapCameraBearingToArea(currentBearing, { map, areaGeom, pitch: 0, preferRightAngles: false, enforceAbsolute45: true });
+        offscreen.setBearing(target);
+      } catch (_) {
+        try { offscreen.setBearing(0); } catch {} 
+      }
     }
 
     // If a sub-focus area is present in options, prefer that geometry for bounds
@@ -306,19 +307,11 @@ export const exportPermitAreaSiteplanV2 = async (
     const viewTypeForExport = (() => {
       try { return (typeof offscreen.getPitch === 'function' && offscreen.getPitch() > 15) ? 'isometric' : 'top-down'; } catch (_) { return 'top-down'; }
     })();
-    // Preload per-feature enhanced variant icons (e.g., linknyc 0..315) when available
+    // Preload per-feature enhanced variant icons (initial pass; will refresh after re-quantization)
     const enhancedVariantPngs = await collectEnhancedVariantPngs(layers, infrastructureData, viewTypeForExport);
     // Compute snapped bearing relative to area orientation to match on-map logic
-    const areaBearingDegForExport = (() => {
-      try {
-        const raw = (viewTypeForExport === 'isometric')
-          ? (computeDominantViewportBearing(offscreen, areaForExport.geometry) || 0)
-          : (computeDominantBearingFromPolygon(areaForExport.geometry) || 0);
-        return quantizeAbsolute45(raw);
-      } catch (_) { return 0; }
-    })();
     const exportOffscreenBearing = (() => { try { return offscreen.getBearing ? offscreen.getBearing() : 0; } catch (_) { return 0; } })();
-    // Snap camera bearing relative to area using centralized helper
+    // Snap camera bearing relative to area using the same helper as runtime
     const snappedBearingExport = (() => {
       try {
         const p = offscreen.getPitch ? offscreen.getPitch() : 0;
@@ -350,15 +343,54 @@ export const exportPermitAreaSiteplanV2 = async (
         }
       }
     } catch (_) {}
+    // Recompute infra point icon variants to match export snapped bearing and view type
+    const recomputeInfraVariants = (infra, layerCfgs, viewType, snappedBearing) => {
+      try {
+        if (!infra || !layerCfgs) return infra;
+        const out = { ...infra };
+        Object.entries(layerCfgs).forEach(([layerId, cfg]) => {
+          try {
+            if (layerId === 'permitAreas' || !cfg?.visible || !cfg?.enhancedRendering?.enabled) return;
+            const data = infra?.[layerId];
+            if (!data || !Array.isArray(data.features)) return;
+            const zeroOffset = (cfg?.enhancedRendering?.zeroOffsetDegByView?.[viewType])
+              ?? (cfg?.enhancedRendering?.zeroOffsetDeg)
+              ?? DEFAULT_ZERO_OFFSET_BY_VIEW[viewType]
+              ?? 0;
+            const preferRightAngles = cfg?.enhancedRendering?.desiredParallelTo === 'cscl';
+            const baseName = cfg?.enhancedRendering?.spriteBase;
+            if (!baseName) return;
+            const newFeatures = data.features.map((f) => {
+              try {
+                if (!f || f.geometry?.type !== 'Point') return f;
+                const p = f.properties || {};
+                const baseAngle = (typeof p.icon_base_bearing === 'number') ? p.icon_base_bearing : 0;
+                const eff = (((baseAngle - snappedBearing + zeroOffset) % 360) + 360) % 360;
+                const q = quantizeAbsolute45(eff);
+                const img = buildSpriteImageId(baseName, q);
+                if (p.icon_image === img) return f;
+                return { ...f, properties: { ...p, icon_image: img } };
+              } catch (_) { return f; }
+            });
+            out[layerId] = { ...data, features: newFeatures };
+          } catch (_) {}
+        });
+        return out;
+      } catch (_) { return infra; }
+    };
+
+    let exportInfra = recomputeInfraVariants(ensuredInfra, layers, viewTypeForExport, snappedBearingExport);
+    const enhancedVariantPngsExport = await collectEnhancedVariantPngs(layers, exportInfra, viewTypeForExport);
+
     // Build parking regulations, meters, and bus stops lists for labeling and summaries
     // For regulations (nfid-uabd), ensure we have Point geometry (prefer labelGeometry if present)
-    const regulationFeatures = (ensuredInfra?.streetParkingSigns?.features || [])
+    const regulationFeatures = (exportInfra?.streetParkingSigns?.features || [])
       .map(f => (f && f.labelGeometry && f.labelGeometry.type === 'Point')
         ? { type: 'Feature', geometry: f.labelGeometry, properties: f.properties }
         : f)
       .filter(f => f && f.geometry && f.geometry.type === 'Point');
-    const meterFeatures = (ensuredInfra?.parkingMeters?.features || []).filter(f => f && f.geometry && f.geometry.type === 'Point');
-    const busStopFeatures = (ensuredInfra?.busStops?.features || []).filter(f => f && f.geometry && f.geometry.type === 'Point');
+    const meterFeatures = (exportInfra?.parkingMeters?.features || []).filter(f => f && f.geometry && f.geometry.type === 'Point');
+    const busStopFeatures = (exportInfra?.busStops?.features || []).filter(f => f && f.geometry && f.geometry.type === 'Point');
     
     // Number ALL visible parking regulation signs on the exported map extent (not only those intersecting the zone)
     const regsVisible = (layers?.streetParkingSigns?.visible)
@@ -389,8 +421,8 @@ export const exportPermitAreaSiteplanV2 = async (
 
       // Draw order for clarity: shapes -> dropped objects -> infrastructure overlays -> labels
       drawCustomShapesOnCanvas(ctx, { x: 0, y: 0, width: mapPx.width, height: mapPx.height }, offscreen, customShapes);
-      await drawDroppedObjectsOnCanvas(ctx, { x: 0, y: 0, width: mapPx.width, height: mapPx.height }, offscreen, droppedObjects, snappedBearingExport, viewTypeForExport, areaBearingDegForExport);
-      await drawOverlaysOnCanvas(ctx, offscreen, mapPx, { x: 0, y: 0 }, layers, customShapes, droppedObjects, infrastructureData, focusedArea, pngIcons, enhancedVariantPngs);
+      await drawDroppedObjectsOnCanvas(ctx, { x: 0, y: 0, width: mapPx.width, height: mapPx.height }, offscreen, droppedObjects, snappedBearingExport, viewTypeForExport);
+      await drawOverlaysOnCanvas(ctx, offscreen, mapPx, { x: 0, y: 0 }, layers, customShapes, droppedObjects, exportInfra, focusedArea, pngIcons, enhancedVariantPngsExport);
       // Labels last so they sit on top of everything
       if (regsVisible.length > 0) {
         drawParkingFeatureLabelsOnCanvas(ctx, offscreen, { x: 0, y: 0 }, regsVisible, 'P');
@@ -473,10 +505,10 @@ export const exportPermitAreaSiteplanV2 = async (
     if (includeObjectDimensions) {
       try { drawObjectDimensionsOnPdf(pdf, droppedObjects, project, toMm, dimensionUnits); } catch (_) {}
     }
-    drawDroppedObjectsOnPdf(pdf, droppedObjects, project, toMm, droppedObjectPngs, snappedBearingExport, viewTypeForExport, areaBearingDegForExport);
+    drawDroppedObjectsOnPdf(pdf, droppedObjects, project, toMm, droppedObjectPngs, snappedBearingExport, viewTypeForExport);
     // Notes will be drawn at topmost layer later
     drawCustomShapesOnPdf(pdf, numberedShapes, project, toMm);
-    drawInfrastructureOnPdf(pdf, layers, ensuredInfra, project, toMm, mmFromPx, pngIcons, enhancedVariantPngs);
+    drawInfrastructureOnPdf(pdf, layers, exportInfra, project, toMm, mmFromPx, pngIcons, enhancedVariantPngsExport);
     // Labels last so they overlay icons/lines
     if (regsVisible.length > 0) {
       drawParkingFeatureLabelsOnPdf(pdf, project, toMm, regsVisible, 'P');
@@ -1383,7 +1415,7 @@ const drawInfrastructureOnPdf = (pdf, layers, infrastructureData, project, toMm,
   });
 };
 
-const drawDroppedObjectsOnPdf = (pdf, droppedObjects, project, toMm, droppedObjectPngs, snappedBearingExport = 0, exportViewType = 'top-down', areaBearingDeg = 0) => {
+const drawDroppedObjectsOnPdf = (pdf, droppedObjects, project, toMm, droppedObjectPngs, snappedBearingExport = 0, exportViewType = 'top-down') => {
   if (!droppedObjects || droppedObjects.length === 0) return;
   droppedObjects.forEach((obj) => {
     const objType = PLACEABLE_OBJECTS.find(p => p.id === obj.type);
@@ -1443,9 +1475,8 @@ const drawDroppedObjectsOnPdf = (pdf, droppedObjects, project, toMm, droppedObje
       ?? DEFAULT_ZERO_OFFSET_BY_VIEW[exportViewType]
       ?? 0;
     const baseAngle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
-    const eff = (exportViewType === 'isometric')
-      ? (((baseAngle - snappedBearingExport + zeroOffset) % 360 + 360) % 360)
-      : (((baseAngle + zeroOffset) % 360 + 360) % 360);
+    // Match on-map logic: always compensate by snapped bearing relative to area
+    const eff = (((baseAngle - snappedBearingExport + zeroOffset) % 360 + 360) % 360);
     const q = quantizeAbsolute45(eff);
     const angleStr = String(q).padStart(3, '0');
     const key = isEnhanced ? `${obj.type}::${angleStr}` : `${obj.type}`;
@@ -2040,11 +2071,6 @@ export {
 };
 
 
-
-
-
-
-
 // Debug flag helper
 const isExportDebug = () => {
   try {
@@ -2053,16 +2079,6 @@ const isExportDebug = () => {
     return false;
   }
 };
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -2333,7 +2349,7 @@ const drawCustomTextLabelsOnCanvas = (ctx, mapArea, map, customShapes) => {
 };
 
 // Draw dropped objects on the export canvas
-const drawDroppedObjectsOnCanvas = async (ctx, mapArea, map, droppedObjects, snappedBearingExport = 0, exportViewType = 'top-down', areaBearingDeg = 0) => {
+const drawDroppedObjectsOnCanvas = async (ctx, mapArea, map, droppedObjects, snappedBearingExport = 0, exportViewType = 'top-down') => {
   if (!droppedObjects || droppedObjects.length === 0) return;
   
   console.log('Drawing', droppedObjects.length, 'dropped objects on export canvas');
@@ -2488,9 +2504,8 @@ const drawDroppedObjectsOnCanvas = async (ctx, mapArea, map, droppedObjects, sna
           ?? objectType?.enhancedRendering?.zeroOffsetDeg
           ?? DEFAULT_ZERO_OFFSET_BY_VIEW[exportViewType]
           ?? 0;
-        const eff = (exportViewType === 'isometric')
-          ? (((baseAngle - snappedBearingExport + zeroOffset) % 360 + 360) % 360)
-          : (((baseAngle + zeroOffset) % 360 + 360) % 360);
+        // Match on-map logic: always compensate by snapped bearing relative to area
+        const eff = (((baseAngle - snappedBearingExport + zeroOffset) % 360 + 360) % 360);
         const q = quantizeAbsolute45(eff);
         let src;
         if (isEnhanced && base) {

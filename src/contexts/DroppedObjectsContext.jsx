@@ -5,7 +5,9 @@ const DroppedObjectsContext = createContext(null);
 const initialState = {
   droppedObjects: [],
   selectedObjectId: null,
-  selectedKind: null // 'rect' | 'point' | null
+  selectedKind: null, // 'rect' | 'point' | null
+  hoveredObjectId: null,
+  hoveredKind: null // 'rect' | 'point' | null
 };
 
 function reducer(state, action) {
@@ -35,11 +37,15 @@ function reducer(state, action) {
       return { ...state, droppedObjects: next };
     }
     case 'clearAll':
-      return { ...state, droppedObjects: [], selectedObjectId: null, selectedKind: null };
+      return { ...state, droppedObjects: [], selectedObjectId: null, selectedKind: null, hoveredObjectId: null, hoveredKind: null };
     case 'select':
       return { ...state, selectedObjectId: action.id || null, selectedKind: action.kind || null };
     case 'clearSelection':
       return { ...state, selectedObjectId: null, selectedKind: null };
+    case 'hover':
+      return { ...state, hoveredObjectId: action.id || null, hoveredKind: action.kind || null };
+    case 'clearHover':
+      return { ...state, hoveredObjectId: null, hoveredKind: null };
     default:
       return state;
   }
@@ -58,11 +64,15 @@ export const DroppedObjectsProvider = ({ children }) => {
   const clearAll = useCallback(() => dispatch({ type: 'clearAll' }), []);
   const select = useCallback((id, kind) => dispatch({ type: 'select', id, kind }), []);
   const clearSelection = useCallback(() => dispatch({ type: 'clearSelection' }), []);
+  const hover = useCallback((id, kind) => dispatch({ type: 'hover', id, kind }), []);
+  const clearHover = useCallback(() => dispatch({ type: 'clearHover' }), []);
 
   const value = useMemo(() => ({
     droppedObjects: state.droppedObjects,
     selectedObjectId: state.selectedObjectId,
     selectedKind: state.selectedKind,
+    hoveredObjectId: state.hoveredObjectId,
+    hoveredKind: state.hoveredKind,
     addObject,
     addObjects,
     setAll,
@@ -72,8 +82,10 @@ export const DroppedObjectsProvider = ({ children }) => {
     setNote,
     clearAll,
     select,
-    clearSelection
-  }), [state.droppedObjects, state.selectedObjectId, state.selectedKind, addObject, addObjects, setAll, hydrate, removeObject, updateObject, setNote, clearAll, select, clearSelection]);
+    clearSelection,
+    hover,
+    clearHover
+  }), [state.droppedObjects, state.selectedObjectId, state.selectedKind, state.hoveredObjectId, state.hoveredKind, addObject, addObjects, setAll, hydrate, removeObject, updateObject, setNote, clearAll, select, clearSelection, hover, clearHover]);
 
   return (
     <DroppedObjectsContext.Provider value={value}>

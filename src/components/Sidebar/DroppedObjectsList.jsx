@@ -1,6 +1,7 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { getCandidateSrcs } from '../../utils/spriteResolver';
+import { useDroppedObjects } from '../../contexts/DroppedObjectsContext';
 
 const DroppedObjectsList = ({ 
   objects = [],
@@ -10,6 +11,18 @@ const DroppedObjectsList = ({
   if (!objects || objects.length === 0) return null;
 
   const [hoverLabel, setHoverLabel] = React.useState('');
+  const { hover, clearHover, select, selectedObjectId, selectedKind } = useDroppedObjects();
+  const itemRefs = React.useRef(new Map());
+
+  React.useEffect(() => {
+    try {
+      if (!selectedObjectId) return;
+      const el = itemRefs.current.get(selectedObjectId);
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+      }
+    } catch (_) {}
+  }, [selectedObjectId]);
 
   return (
     <div className="p-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
@@ -33,9 +46,17 @@ const DroppedObjectsList = ({
           return (
             <div
               key={obj.id}
-              className="relative group bg-white dark:bg-gray-800 rounded-lg border border-gray-200/70 dark:border-gray-700/60 p-1.5 flex items-center justify-center hover:shadow-sm transition"
-              onMouseEnter={() => setHoverLabel(objectType?.name || obj.name || '')}
-              onMouseLeave={() => setHoverLabel('')}
+              ref={(el) => { if (el) itemRefs.current.set(obj.id, el); else itemRefs.current.delete(obj.id); }}
+              className={`relative group bg-white dark:bg-gray-800 rounded-lg border p-1.5 flex items-center justify-center hover:shadow-sm transition ${selectedObjectId === obj.id ? 'border-blue-500 ring-2 ring-blue-500' : 'border-gray-200/70 dark:border-gray-700/60'}`}
+              onMouseEnter={() => { setHoverLabel(objectType?.name || obj.name || ''); try { hover(obj.id, 'point'); } catch (_) {} }}
+              onMouseLeave={() => { setHoverLabel(''); try { clearHover(); } catch (_) {} }}
+              onClick={(e) => {
+                e.stopPropagation();
+                try {
+                  const kind = (objectType && objectType.geometryType === 'rect') ? 'rect' : 'point';
+                  select(obj.id, kind);
+                } catch (_) {}
+              }}
               title={objectType?.name || obj.name}
             >
               {src ? (

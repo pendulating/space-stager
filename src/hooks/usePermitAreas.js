@@ -494,6 +494,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
             try { if (finalCenter && map.setCenter) map.setCenter(finalCenter); } catch (_) {}
           } catch (_) {}
           setIsCameraAnimating(false);
+          try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('permit:focus-ready', { detail: { featureId: permitArea?.id || null } })); } catch (_) {}
         });
         return;
       }
@@ -548,6 +549,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
           try { if (finalCenter && map.setCenter) map.setCenter(finalCenter); } catch (_) {}
         } catch (_) {}
         setIsCameraAnimating(false);
+        try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('permit:focus-ready', { detail: { featureId: permitArea?.id || null } })); } catch (_) {}
       });
     } catch (error) {
       console.error('Error fitting oriented bounds:', error);
@@ -567,6 +569,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
             try { if (finalCenter && map.setCenter) map.setCenter(finalCenter); } catch (_) {}
           } catch (_) {}
           setIsCameraAnimating(false);
+          try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('permit:focus-ready', { detail: { featureId: permitArea?.id || null } })); } catch (_) {}
         });
       }
     }
