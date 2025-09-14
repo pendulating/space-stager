@@ -103,3 +103,18 @@ export const snapCameraBearingToArea = (bearingDeg, { map = null, areaGeom = nul
 };
 
 
+// Single source of truth for computing an absolute snapped bearing
+// relative to the area's dominant orientation (viewport when pitched > 15).
+// If baseBearing is not provided, uses current map bearing.
+export const getSnappedBearing = (map, areaGeom, pitch = null, baseBearing = null, { preferRightAngles = false } = {}) => {
+  try {
+    const cur = (baseBearing != null)
+      ? Number(baseBearing)
+      : (map && typeof map.getBearing === 'function' ? map.getBearing() : 0);
+    return snapCameraBearingToArea(cur, { map, areaGeom, pitch, preferRightAngles, enforceAbsolute45: false });
+  } catch (_) {
+    return quantizeAbsolute45(baseBearing != null ? baseBearing : 0);
+  }
+};
+
+

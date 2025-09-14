@@ -40,7 +40,7 @@ import { loadInfrastructureData } from '../services/infrastructureService';
 import { INFRASTRUCTURE_ENDPOINTS, EXPORT_ENDPOINTS } from '../constants/endpoints';
 import { distance as turfDistance, destination as turfDestination, bearing as turfBearing, buffer as turfBuffer, booleanIntersects as turfBooleanIntersects } from '@turf/turf';
 import { computeDominantBearingFromPolygon, computeDominantViewportBearing, quantizeBearingForSprites, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId } from './enhancedRenderingUtils';
-import { snapCameraBearingToArea, quantizeAbsolute45 } from './bearingUtils';
+import { snapCameraBearingToArea, quantizeAbsolute45, getSnappedBearing } from './bearingUtils';
 import { getIconDataUrl, INFRASTRUCTURE_ICONS } from './iconUtils';
 import { switchBasemap } from './mapUtils';
 
@@ -190,25 +190,32 @@ export const exportPermitAreaSiteplanV2 = async (
       } catch (_) { return 0; }
     })();
     // Remove legacy bearingAdjustDeg logic; use unified snapped bearing downstream
+    let enforcedExportBearing = 0;
     if (projectionMode === 'current') {
       try {
         const curPitch = typeof map.getPitch === 'function' ? map.getPitch() : 0;
-        const curBearing = typeof map.getBearing === 'function' ? map.getBearing() : 0;
+        const aRel = computeDominantViewportBearing(map, areaGeom) || 0;
+        // Choose the member of the A+45° grid that is closest to true north (0°)
+        const k = Math.round((-aRel) / 45);
+        const enforced = ((aRel + 45 * k) % 360 + 360) % 360;
         offscreen.setPitch(curPitch);
-        offscreen.setBearing(curBearing);
+        offscreen.setBearing(enforced);
+        enforcedExportBearing = enforced;
       } catch (_) {
         offscreen.setPitch(0);
         offscreen.setBearing(0);
+        enforcedExportBearing = 0;
       }
     } else {
       // Top-down: set pitch=0 and set bearing to the same snapped camera bearing relative to area as runtime
       offscreen.setPitch(0);
       try {
-        const target = snapCameraBearingToArea(currentBearing, { map, areaGeom, pitch: 0, preferRightAngles: false, enforceAbsolute45: true });
-        offscreen.setBearing(target);
-      } catch (_) {
-        try { offscreen.setBearing(0); } catch {} 
-      }
+        const aRel0 = computeDominantBearingFromPolygon(areaGeom) || 0;
+        const k0 = Math.round((-aRel0) / 45);
+        const enforced = ((aRel0 + 45 * k0) % 360 + 360) % 360;
+        offscreen.setBearing(enforced);
+        enforcedExportBearing = enforced;
+      } catch (_) { try { offscreen.setBearing(0); } catch {} enforcedExportBearing = 0; }
     }
 
     // If a sub-focus area is present in options, prefer that geometry for bounds
@@ -284,7 +291,13 @@ export const exportPermitAreaSiteplanV2 = async (
     } catch (_) {}
 
     // Fit bounds to the left 75% viewport without scaling the image output
-    offscreen.fitBounds(bounds, { padding: 12, duration: 0 });
+    // Explicitly preserve enforced bearing/pitch to avoid implicit resets
+    try {
+      const keepPitch = (typeof offscreen.getPitch === 'function') ? offscreen.getPitch() : 0;
+      offscreen.fitBounds(bounds, { padding: 12, duration: 0, bearing: enforcedExportBearing, pitch: keepPitch });
+    } catch (_) {
+      offscreen.fitBounds(bounds, { padding: 12, duration: 0 });
+    }
 
     await new Promise((resolve) => {
       if (offscreen.loaded() && offscreen.areTilesLoaded()) resolve();
@@ -310,14 +323,9 @@ export const exportPermitAreaSiteplanV2 = async (
     // Preload per-feature enhanced variant icons (initial pass; will refresh after re-quantization)
     const enhancedVariantPngs = await collectEnhancedVariantPngs(layers, infrastructureData, viewTypeForExport);
     // Compute snapped bearing relative to area orientation to match on-map logic
-    const exportOffscreenBearing = (() => { try { return offscreen.getBearing ? offscreen.getBearing() : 0; } catch (_) { return 0; } })();
-    // Snap camera bearing relative to area using the same helper as runtime
-    const snappedBearingExport = (() => {
-      try {
-        const p = offscreen.getPitch ? offscreen.getPitch() : 0;
-        return snapCameraBearingToArea(exportOffscreenBearing, { map: offscreen, areaGeom: areaForExport.geometry, pitch: p, preferRightAngles: false, enforceAbsolute45: true });
-      } catch (_) { return exportOffscreenBearing; }
-    })();
+    const exportOffscreenBearing = (() => { try { return offscreen.getBearing ? offscreen.getBearing() : enforcedExportBearing; } catch (_) { return enforcedExportBearing; } })();
+    // Use the same enforced Q/E-grid bearing for all sprite/label quantization
+    const snappedBearingExport = enforcedExportBearing || exportOffscreenBearing;
 
     const droppedObjectPngs = await loadDroppedObjectIconPngs(droppedObjects, snappedBearingExport, viewTypeForExport);
     // Ensure we have infra data for meters, signs, and bus stops even if not preloaded
@@ -590,7 +598,8 @@ export const exportPermitAreaSiteplanV2 = async (
       const inner = 6; // mm
       const nx = inner + 10;
       const ny = mapMm.height - inner - 14;
-      drawNorthArrow(pdf, nx, ny, 12);
+      // Pass the enforced export bearing so arrow points to true north on the page
+      drawNorthArrow(pdf, nx, ny, 12, enforcedExportBearing);
       // Estimate scale from meters per mm at map center
       const bbox = offscreen.getBounds();
       const centerLat = (bbox.getSouth() + bbox.getNorth()) / 2;

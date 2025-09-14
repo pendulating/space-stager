@@ -8,7 +8,7 @@ import { GEOGRAPHIES } from '../constants/geographies';
 import { useZoneCreatorContext } from '../contexts/ZoneCreatorContext.jsx';
 import bbox from '@turf/bbox';
 import { snapToNearest } from '../utils/enhancedRenderingUtils';
-import { computeAreaOrientation, snapCameraBearingToArea } from '../utils/bearingUtils';
+import { computeAreaOrientation, snapCameraBearingToArea, getSnappedBearing } from '../utils/bearingUtils';
 import { intersect as turfIntersect, booleanIntersects as turfBooleanIntersects } from '@turf/turf';
 
 // Minimal oriented minimum bounding box (rotating calipers) implementation
@@ -473,9 +473,11 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         // Smoothly move to the point at a sensible zoom
         const targetZoom = 18;
         try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
-        const snapStep = Number(options.bearingSnapStep || 45);
-        const currentBearing = (typeof map.getBearing === 'function') ? map.getBearing() : 0;
-        const snappedBearing = snapToNearest(currentBearing, snapStep);
+        // Enforce the same computation as a single Q/E press from the current snapped grid
+        const areaPitch = map?.getPitch ? map.getPitch() : 0;
+        const aRel = computeAreaOrientation({ map, geometry: permitArea.geometry, pitch: areaPitch });
+        const b0 = getSnappedBearing(map, permitArea.geometry, areaPitch); // current grid anchor (A-relative)
+        const snappedBearing = ((aRel + Math.round((b0 - aRel) / 45) * 45) + 360) % 360;
         map.easeTo({ center: geom.coordinates, zoom: targetZoom, bearing: snappedBearing, duration: 1100, essential: true, easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) });
         // Apply constraints when camera settles, but preserve visual end-center to avoid a jarring jump
         map.once('idle', () => {
@@ -517,8 +519,11 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       // Prefer cameraForBounds if available to compute a single smooth camera
       try {
         const padding = options.focusPadding || 20;
-        const snapStep = Number(options.bearingSnapStep || 45);
-        const targetBearing = snapCameraBearingToArea(-angle, { map, areaGeom: { type: 'Polygon', coordinates: [rect] }, pitch: map?.getPitch ? map.getPitch() : 0, enforceAbsolute45: true });
+        // Enforce same grid computation as one Q/E step from the current grid anchor
+        const areaPitch2 = map?.getPitch ? map.getPitch() : 0;
+        const aRel2 = computeAreaOrientation({ map, geometry: geom, pitch: areaPitch2 });
+        const b0_2 = getSnappedBearing(map, geom, areaPitch2, -angle);
+        const targetBearing = ((aRel2 + Math.round((b0_2 - aRel2) / 45) * 45) + 360) % 360;
         if (typeof map.cameraForBounds === 'function') {
           const camera = map.cameraForBounds(orientedBbox, { padding });
           const finalCamera = { ...camera, bearing: targetBearing, duration: 1200, essential: true, easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) };
@@ -536,7 +541,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         map.fitBounds(orientedBbox, { padding: 20, duration: 1200 });
       }
 
-      // When the camera settles, record zoom and apply constraints
+      // When the camera settles, record zoom and apply constraints, then hard-snap bearing
       map.once('idle', () => {
         try {
           const finalZoom = map.getZoom ? map.getZoom() : 16;
@@ -547,6 +552,13 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
           applyFocusConstraints([[minX, minY], [maxX, maxY]], finalZoom);
           // Preserve the exact end-center from the animation to avoid any jump when constraints engage
           try { if (finalCenter && map.setCenter) map.setCenter(finalCenter); } catch (_) {}
+          // Finalize bearing: coerce to area-relative 45° grid using actual area geometry
+          try {
+            const cur = (typeof map.getBearing === 'function') ? map.getBearing() : 0;
+            const snapped = snapCameraBearingToArea(cur, { map, areaGeom: geom, pitch: map?.getPitch ? map.getPitch() : 0, enforceAbsolute45: true });
+            const delta = Math.abs((((snapped - cur) % 360) + 540) % 360 - 180);
+            if (delta > 0.01 && map.rotateTo) map.rotateTo(snapped, { duration: 0, essential: true });
+          } catch (_) {}
         } catch (_) {}
         setIsCameraAnimating(false);
         try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('permit:focus-ready', { detail: { featureId: permitArea?.id || null } })); } catch (_) {}

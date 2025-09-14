@@ -72,13 +72,25 @@ export const drawTextWithWipe = (pdf, text, x, y, opts = {}) => {
   pdf.text(text, x, y, { align: 'center', baseline: 'middle' });
 };
 
-export const drawNorthArrow = (pdf, x, y, sizeMm = 12) => {
+export const drawNorthArrow = (pdf, x, y, sizeMm = 12, mapBearingDeg = 0) => {
   const theme = BLUEPRINT_THEME;
   const half = sizeMm / 2;
   pdf.setDrawColor(theme.colors.text.r, theme.colors.text.g, theme.colors.text.b);
   pdf.setLineWidth(BLUEPRINT_THEME.linesMm.secondary);
-  // Triangle
-  pdf.triangle(x, y - half, x - half * 0.5, y + half * 0.5, x + half * 0.5, y + half * 0.5, 'S');
+  // Oriented triangle that points to true north on the page.
+  // Map bearing is clockwise from north; to point toward true north, rotate by -bearing.
+  const ang = -Number(mapBearingDeg || 0) * Math.PI / 180;
+  const cos = Math.cos(ang), sin = Math.sin(ang);
+  const rotate = (px, py) => {
+    const dx = px - x, dy = py - y;
+    const rx = x + dx * cos - dy * sin;
+    const ry = y + dx * sin + dy * cos;
+    return [rx, ry];
+  };
+  const p1 = rotate(x, y - half); // tip
+  const p2 = rotate(x - half * 0.5, y + half * 0.5);
+  const p3 = rotate(x + half * 0.5, y + half * 0.5);
+  pdf.triangle(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1], 'S');
   // "N"
   setPdfFont(pdf, 'heading', BLUEPRINT_THEME.sizesMm.small);
   pdf.text('N', x, y + half + 3, { align: 'center' });

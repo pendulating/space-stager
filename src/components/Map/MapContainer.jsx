@@ -6,7 +6,7 @@ import { useZoneCreator } from '../../hooks/useZoneCreator';
 import OverlapSelector from './OverlapSelector';
 import DroppedObjects from './DroppedObjects';
 import { computeDominantBearingFromPolygon, computeDominantViewportBearing } from '../../utils/enhancedRenderingUtils';
-import { computeAreaOrientation, snapBearingRelativeToArea, quantizeAbsolute45 } from '../../utils/bearingUtils';
+import { computeAreaOrientation, snapBearingRelativeToArea, quantizeAbsolute45, getSnappedBearing } from '../../utils/bearingUtils';
 import DroppedRectangles from './DroppedRectangles';
 import DroppedObjectNoteEditor from './DroppedObjectNoteEditor';
 import CustomShapeLabels from './CustomShapeLabels';
@@ -853,9 +853,8 @@ const MapContainer = forwardRef(({
         if (suppressRotateSnapRef.current) { suppressRotateSnapRef.current = false; return; }
         const current = (typeof map.getBearing === 'function') ? map.getBearing() : 0;
         const areaGeom = (permitAreas?.hasSubFocus ? permitAreas?.subFocusArea?.geometry : permitAreas?.focusedArea?.geometry) || null;
-        const theta = areaGeom ? computeAreaOrientation({ map, geometry: areaGeom, pitch: (map.getPitch ? map.getPitch() : 0) }) : 0;
-        const snapped = snapBearingRelativeToArea(current, theta, false);
-        const absQ = quantizeAbsolute45(snapped);
+        // Use unified snap that enforces absolute 45° alignment relative to area
+        const absQ = getSnappedBearing(map, areaGeom, (map.getPitch ? map.getPitch() : 0), current);
         const delta = Math.abs((((absQ - current) % 360) + 540) % 360 - 180);
         if (delta > 0.5) {
           try { lastDiscreteBearingRef.current = absQ; map.rotateTo(absQ, { duration: 120 }); } catch (_) {}
