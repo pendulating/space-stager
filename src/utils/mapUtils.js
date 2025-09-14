@@ -101,7 +101,20 @@ export const initializeMap = async (container) => {
     mapInstance.on('load', () => {
       // Add controls
       mapInstance.addControl(new window.maplibregl.NavigationControl(), 'top-right');
-      mapInstance.addControl(new window.maplibregl.ScaleControl(), 'bottom-right');
+      // Ensure exactly one dynamic ScaleControl: remove any stale DOM scale remnants, then add fresh
+      try {
+        const container = mapInstance.getContainer ? mapInstance.getContainer() : null;
+        if (container) {
+          const stale = container.querySelectorAll('.maplibregl-ctrl-scale, .mapboxgl-ctrl-scale');
+          stale.forEach((el) => { try { el.parentNode && el.parentNode.removeChild(el); } catch (_) {} });
+        }
+        if (!mapInstance.__hasScaleControl) {
+          mapInstance.addControl(new window.maplibregl.ScaleControl(), 'bottom-right');
+          mapInstance.__hasScaleControl = true;
+        }
+      } catch (_) {
+        try { mapInstance.addControl(new window.maplibregl.ScaleControl(), 'bottom-right'); } catch (_) {}
+      }
 
       // Add search control if available (default placeholder)
       if (window.maplibreSearchBox) {
