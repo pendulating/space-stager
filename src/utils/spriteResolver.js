@@ -87,8 +87,9 @@ export const prefetchView = (baseName, angles = [0,45,90,135,180,225,270,315], v
   try {
     angles.forEach((angle) => {
       const chain = buildSpriteFallbacks(baseName, angle, viewType);
-      // Kick off fetch for primary candidate only; subsequent loads happen on demand
+      // Kick off fetch for primary and first fallback to reduce first-paint flicker
       if (chain[0]) preloadImage(chain[0]);
+      if (chain[1]) preloadImage(chain[1]);
     });
   } catch (_) {}
 };

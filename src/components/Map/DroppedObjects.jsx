@@ -223,7 +223,7 @@ const DroppedObjects = ({
             angles,
             viewType: vt,
             urlBuilder: buildFlatSpriteUrl,
-            replaceExisting: false
+            replaceExisting: true
           }));
         });
         if (promises.length) {
@@ -242,6 +242,19 @@ const DroppedObjects = ({
     try {
       const vt = view?.viewType || getMapViewType(map);
       const bearingRaw = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
+      // Capture previous icon assignments so we can persist the old icon until the new angle is ready
+      const prevIconById = new Map();
+      try {
+        const prev = dataRef.current && dataRef.current.fc;
+        if (prev && Array.isArray(prev.features)) {
+          for (let i = 0; i < prev.features.length; i++) {
+            const f = prev.features[i];
+            const pid = f && f.properties && f.properties.id;
+            const picon = f && f.properties && f.properties.icon_image;
+            if (pid && picon) prevIconById.set(pid, picon);
+          }
+        }
+      } catch (_) {}
       const feats = [];
       const byId = new Map();
       const idToIndex = new Map();
@@ -271,6 +284,10 @@ const DroppedObjects = ({
           if (ready) {
             // Only assign icon when registered to avoid styleimagemissing storms
             props.icon_image = imgId;
+          } else {
+            // Persist previous icon_image to avoid flicker while new angle registers
+            const prevIcon = prevIconById.get(obj.id);
+            if (prevIcon) props.icon_image = prevIcon;
           }
         } else if (t?.imageUrl) {
           // Simple (non-enhanced) static icon path: use type id as image id
@@ -280,6 +297,9 @@ const DroppedObjects = ({
           props.icon_ready = ready ? 1 : 0;
           if (ready) {
             props.icon_image = imgId;
+          } else {
+            const prevIcon = prevIconById.get(obj.id);
+            if (prevIcon) props.icon_image = prevIcon;
           }
         }
         const feature = { type: 'Feature', id: obj.id, geometry: { type: 'Point', coordinates: [obj.position.lng, obj.position.lat] }, properties: props };
@@ -483,7 +503,7 @@ const DroppedObjects = ({
             angles: [angle],
             viewType: vt,
             urlBuilder: buildFlatSpriteUrl,
-            replaceExisting: false
+            replaceExisting: true
           });
         } else {
           // Non-enhanced: id is type id; add its imageUrl
