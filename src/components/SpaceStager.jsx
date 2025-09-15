@@ -35,6 +35,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { switchBasemap } from '../utils/mapUtils';
 import { distance as turfDistance, booleanPointInPolygon as turfBooleanPointInPolygon, centroid as turfCentroid } from '@turf/turf';
 import { computeDominantBearingFromPolygon, computeDominantViewportBearing } from '../utils/enhancedRenderingUtils';
+import { BASEMAP_OPTIONS } from '../constants/mapConfig';
 
 const SpaceStager = () => {
   const mapContainerRef = useRef(null);
@@ -74,14 +75,7 @@ const SpaceStager = () => {
 
   const toggleDarkMode = useCallback(() => setIsDarkMode(v => !v), []);
   
-  // Sync Carto basemap with dark mode (only when using Carto, not satellite overlay)
-  useEffect(() => {
-    if (!map) return;
-    try {
-      const desiredKey = isDarkMode ? 'carto-dark' : 'carto-light';
-      switchBasemap(map, desiredKey, handleStyleChange).catch(() => {});
-    } catch (_) {}
-  }, [map, isDarkMode]);
+  // (moved below handleStyleChange to avoid TDZ)
   
   // Use custom hooks for different functionalities
   const { geographyType, isGeographyChosen, selectGeography } = useGeography();
@@ -692,6 +686,25 @@ const SpaceStager = () => {
       setTimeout(reinitializeLayers, 150);
     }
   }, [map, permitAreas, layers, infrastructure, drawTools.forceReinitialize]);
+
+  // Sync Carto basemap with dark mode, but do NOT disturb satellite overlay if active
+  useEffect(() => {
+    if (!map) return;
+    try {
+      // If satellite overlay is active, preserve it and skip theme-driven base style switches
+      if (typeof map.getLayer === 'function' && map.getLayer('nyc-satellite-layer')) {
+        return;
+      }
+
+      // Only adjust Carto style if it differs from the desired theme
+      const desiredUrl = isDarkMode ? BASEMAP_OPTIONS.carto.darkUrl : BASEMAP_OPTIONS.carto.url;
+      const currentUrl = map.__currentCartoStyleUrl || '';
+      if (currentUrl === desiredUrl) return;
+
+      const desiredKey = isDarkMode ? 'carto-dark' : 'carto-light';
+      switchBasemap(map, desiredKey, handleStyleChange).catch(() => {});
+    } catch (_) {}
+  }, [map, isDarkMode, handleStyleChange]);
 
   // Add keyboard controls for map rotation
   useEffect(() => {
