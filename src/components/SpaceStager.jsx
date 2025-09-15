@@ -801,6 +801,8 @@ const SpaceStager = () => {
           setImportProgress: (step, message = '') => {
             try { setImportProgress(prev => ({ open: true, step: step || prev.step, message })); } catch (_) {}
           },
+          closeImportProgress: () => { try { setImportProgress(prev => ({ ...prev, open: false })); } catch (_) {} },
+          reloadVisibleInfra: () => { try { infrastructure.reloadVisibleLayers && infrastructure.reloadVisibleLayers(); } catch (_) {} },
           focusAreaByIdentity: ({ type, system, id }) => {
             let attempts = 0;
             const maxAttempts = 25;

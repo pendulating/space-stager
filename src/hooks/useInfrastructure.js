@@ -153,7 +153,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     }
   }, [focusedAreaId, layers, map, removeInfrastructureLayer, setLayers]);
 
-  // Clear existing layers when focused area changes
+  // Clear existing layers when focused area changes (guarded during import rehydration)
   useEffect(() => {
     if (!map) return;
 
@@ -203,33 +203,12 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       iceLadders: null,
       parksSigns: null
     });
-    setInfrastructureData({
-      trees: null,
-      hydrants: null,
-      busStops: null,
-      benches: null,
-      trashBaskets: null,
-      bikeLanes: null,
-      bikeParking: null,
-      citibikeStations: null,
-      subwayEntrances: null,
-      fireLanes: null,
-      specialDisasterRoutes: null,
-      pedestrianRamps: null,
-      parkingMeters: null,
-      linknycKiosks: null,
-      publicRestrooms: null,
-      drinkingFountains: null,
-      sprayShowers: null,
-      parksTrails: null,
-      parkingLots: null,
-      iceLadders: null,
-      parksSigns: null
-    });
 
     // Clear loading states
     loadingLayersRef.current.clear();
-  }, [focusedAreaId, map, options?.rehydratingImport]); // Trigger when focused area ID changes
+  }, [focusedAreaId, map, options?.rehydratingImport]);
+
+  // (moved below reloadVisibleLayers declaration)
 
   // Load infrastructure icons lazily when style is ready
   useEffect(() => {
@@ -931,6 +910,53 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       run();
     }
   }, [map, focusedArea, layers, loadInfrastructureLayer]);
+
+  // After import rehydration completes, load any visible infrastructure layers
+  useEffect(() => {
+    const handler = () => {
+      try { reloadVisibleLayers(); } catch (_) {}
+    };
+    try {
+      if (typeof window !== 'undefined') window.addEventListener('rehydrating-import:end', handler);
+    } catch (_) {}
+    return () => {
+      try { if (typeof window !== 'undefined') window.removeEventListener('rehydrating-import:end', handler); } catch (_) {}
+    };
+  }, [reloadVisibleLayers]);
+
+  // When layer visibility state changes (e.g., after import), load any visible layers
+  // that are not yet loaded, and ensure they are visible on the map once data arrives.
+  useEffect(() => {
+    if (!map || !focusedArea) return;
+    const run = () => {
+      try {
+        Object.entries(layers || {}).forEach(([layerId, cfg]) => {
+          if (layerId === 'permitAreas') return;
+          if (cfg?.disabled || DISABLED_INFRASTRUCTURE_LAYERS.has(layerId)) return;
+
+          // If marked visible by state but not yet loaded/loading, fetch now
+          if (cfg?.visible && !cfg?.loaded && !cfg?.loading && !loadingLayersRef.current.has(layerId)) {
+            loadInfrastructureLayer(layerId);
+            return;
+          }
+
+          // If already loaded and should be visible, ensure layer visibility in style
+          if (cfg?.visible && cfg?.loaded) {
+            try { toggleInfrastructureLayerVisibility(layerId, true); } catch (_) {}
+          }
+        });
+      } catch (_) {}
+    };
+    try {
+      if (map.isStyleLoaded && !map.isStyleLoaded()) {
+        map.once('style.load', run);
+      } else {
+        run();
+      }
+    } catch (_) {
+      run();
+    }
+  }, [map, focusedArea, layers, loadInfrastructureLayer, toggleInfrastructureLayerVisibility]);
 
       // Clear focus and all infrastructure - ensure state is properly reset
   const clearFocus = useCallback(() => {
