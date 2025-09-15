@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import RightSidebar from '../RightSidebar.jsx';
+import { DroppedObjectsProvider } from '../../../contexts/DroppedObjectsContext.jsx';
 
 describe('RightSidebar (right)', () => {
   function makeProps(overrides = {}) {
@@ -36,7 +37,11 @@ describe('RightSidebar (right)', () => {
 
   it('renders drawing tools and placeable objects, and export actions', () => {
     const props = makeProps();
-    render(<RightSidebar {...props} />);
+    render(
+      <DroppedObjectsProvider>
+        <RightSidebar {...props} />
+      </DroppedObjectsProvider>
+    );
     // Export buttons
     fireEvent.click(screen.getByText(/Save Digital Plan/));
     expect(props.onExport).toHaveBeenCalled();
@@ -52,7 +57,11 @@ describe('RightSidebar (right)', () => {
 
   it('disables siteplan export when no focused area', () => {
     const props = makeProps({ focusedArea: null });
-    render(<RightSidebar {...props} />);
+    render(
+      <DroppedObjectsProvider>
+        <RightSidebar {...props} />
+      </DroppedObjectsProvider>
+    );
     const btn = screen.getByText('Export Site Plan').closest('button');
     expect(btn).toBeDisabled();
   });

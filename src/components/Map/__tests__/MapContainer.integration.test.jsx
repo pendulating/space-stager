@@ -72,7 +72,7 @@ describe('MapContainer integration', () => {
     hooks = noopHooks();
   });
 
-  it('renders compass and resets bearing to 0 on click', () => {
+  it('renders compass arrow and projection toggle (no reset north button)', () => {
     hooks.drawTools.activeTool = null;
     render(
       <DroppedObjectsProvider>
@@ -92,9 +92,8 @@ describe('MapContainer integration', () => {
         </ZoneCreatorProvider>
       </DroppedObjectsProvider>
     );
-    const resetBtn = screen.getByTitle('Reset North');
-    fireEvent.click(resetBtn);
-    expect(map.rotateTo).toHaveBeenCalledWith(0, expect.any(Object));
+    expect(screen.queryByTitle('Reset North')).not.toBeInTheDocument();
+    expect(screen.getByTitle('Toggle projection (Top-down / Isometric)')).toBeInTheDocument();
   });
 
   it('toggles projection between ISO and 2D', () => {

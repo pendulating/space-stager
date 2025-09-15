@@ -57,4 +57,43 @@ export const rotateRectanglePolygonScreen = (map, polygon, deltaDeg) => {
   }
 };
 
+// Rotate a rectangle polygon around its center in Web Mercator (map plane), then convert back to lng/lat.
+// This mirrors the annotation rotation fix so perspective/pitch do not skew rotation.
+export const rotateRectanglePolygonMercator = (polygon, deltaDeg) => {
+  try {
+    if (!polygon || polygon.type !== 'Polygon') return polygon;
+    const ring = Array.isArray(polygon.coordinates?.[0]) ? polygon.coordinates[0] : null;
+    if (!ring || ring.length < 4) return polygon;
+    const corners = ring.slice(0, 4).map(([lng, lat]) => [lng, lat]);
+    const R = 6378137;
+    const toMerc = ([lng, lat]) => {
+      const x = R * (lng * Math.PI / 180);
+      const y = R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2));
+      return [x, y];
+    };
+    const toLngLat = ([x, y]) => {
+      const lng = (x / R) * 180 / Math.PI;
+      const lat = (2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * 180 / Math.PI;
+      return [lng, lat];
+    };
+    const pts = corners.map(toMerc);
+    let cx = 0, cy = 0;
+    for (const [x, y] of pts) { cx += x; cy += y; }
+    cx /= pts.length; cy /= pts.length;
+    const rad = (deltaDeg * Math.PI) / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    const rotatePt = ([x, y]) => {
+      const dx = x - cx; const dy = y - cy;
+      const rx = cx + dx * cos - dy * sin;
+      const ry = cy + dx * sin + dy * cos;
+      return [rx, ry];
+    };
+    const rotated = pts.map(rotatePt).map(toLngLat);
+    const newRing = [...rotated, rotated[0]];
+    return { type: 'Polygon', coordinates: [newRing] };
+  } catch (_) {
+    return polygon;
+  }
+};
+
 

@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import DroppedObjects from '../DroppedObjects.jsx';
+import { DroppedObjectsProvider } from '../../../contexts/DroppedObjectsContext.jsx';
 
 function makeMap() {
   return { project: ([lng, lat]) => ({ x: lng * 10, y: -lat * 10 }), getZoom: () => 16, on: () => {}, off: () => {} };
@@ -20,15 +21,17 @@ describe('DroppedObjects', () => {
     const onRemoveObject = vi.fn();
     const onEditNote = vi.fn();
     render(
-      <DroppedObjects
-        objects={objects}
-        placeableObjects={placeable}
-        map={makeMap()}
-        objectUpdateTrigger={0}
-        onRemoveObject={onRemoveObject}
-        onEditNote={onEditNote}
-        isNoteEditing={false}
-      />
+      <DroppedObjectsProvider>
+        <DroppedObjects
+          objects={objects}
+          placeableObjects={placeable}
+          map={makeMap()}
+          objectUpdateTrigger={0}
+          onRemoveObject={onRemoveObject}
+          onEditNote={onEditNote}
+          isNoteEditing={false}
+        />
+      </DroppedObjectsProvider>
     );
     // Only non-rect renders
     expect(screen.getByTitle('Folding Chair')).toBeInTheDocument();
@@ -50,12 +53,14 @@ describe('DroppedObjects', () => {
     ];
     const map = makeMap();
     const { unmount } = render(
-      <DroppedObjects
-        objects={objects}
-        placeableObjects={placeable}
-        map={map}
-        objectUpdateTrigger={0}
-      />
+      <DroppedObjectsProvider>
+        <DroppedObjects
+          objects={objects}
+          placeableObjects={placeable}
+          map={map}
+          objectUpdateTrigger={0}
+        />
+      </DroppedObjectsProvider>
     );
     // Trigger the event and ensure no errors; behavior is to rebuild internal data
     const evt = new Event('rehydrating-import:end');

@@ -20,7 +20,7 @@ import { useMapViewState } from '../../hooks/useMapViewState';
 import { useRotationControls } from '../../hooks/useRotationControls';
 import { useSelectionController } from '../../hooks/useSelectionController';
 import { useDroppedObjects } from '../../contexts/DroppedObjectsContext';
-import { rotateRectanglePolygon, rotateRectanglePolygonScreen, normalizeAngle } from '../../utils/objectGeometry';
+import { rotateRectanglePolygonMercator, normalizeAngle } from '../../utils/objectGeometry';
 
 const DEBUG = false; // Set to true to enable MapContainer debug logs
 
@@ -1049,8 +1049,8 @@ const MapContainer = forwardRef(({
         const id = selectedObjectId;
         clickToPlace.updateDroppedObject(id, (prev) => {
           if (!prev || prev?.geometry?.type !== 'Polygon') return prev;
-          // Rotate in screen space to match current POV bearing/pitch
-          const newGeom = rotateRectanglePolygonScreen(map, prev.geometry, delta);
+          // Rotate in Web Mercator (map plane) for stability regardless of pitch
+          const newGeom = rotateRectanglePolygonMercator(prev.geometry, delta);
           const curRot = Number(prev?.properties?.rotationDeg || 0);
           let nextRot = normalizeAngle(curRot + delta);
           return { ...prev, geometry: newGeom, properties: Object.assign({}, prev.properties || {}, { rotationDeg: nextRot }) };
@@ -1135,22 +1135,21 @@ const MapContainer = forwardRef(({
         className="absolute bottom-4 left-4 z-50 flex flex-row items-end gap-2"
         style={{ pointerEvents: 'none' }}
       >
-        <button
-          className="bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 rounded-full w-12 h-12 flex items-center justify-center transition-transform hover:scale-105 active:scale-95"
+        <div
+          className="bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 rounded-full w-12 h-12 flex items-center justify-center"
           style={{
             transform: `rotate(${-bearing}deg)`,
-            pointerEvents: 'auto',
-            transition: 'transform 0.3s cubic-bezier(.4,2,.6,1)' // smooth rotation
+            pointerEvents: 'none',
+            transition: 'transform 0.3s cubic-bezier(.4,2,.6,1)'
           }}
-          title="Reset North"
-          onClick={handleCompassClick}
+          aria-hidden="true"
         >
           <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
             <circle cx="16" cy="16" r="15" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" fill="currentColor" fillOpacity="0.9" className="text-white dark:text-gray-800" />
             <polygon points="16,6 19,18 16,15 13,18" fill="#2563eb" />
             <text x="16" y="26" textAnchor="middle" fontSize="10" fill="#374151" fontWeight="bold">N</text>
           </svg>
-        </button>
+        </div>
 
         <button
           className="bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 rounded-full w-12 h-12 flex items-center justify-center hover:scale-105 active:scale-95"

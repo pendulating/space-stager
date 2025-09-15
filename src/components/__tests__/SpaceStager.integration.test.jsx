@@ -31,7 +31,7 @@ describe('SpaceStager integration', () => {
     expect(screen.getByRole('button', { name: /dark mode/i })).toBeInTheDocument();
 
     // Map UI bits
-    expect(screen.getByTitle('Reset North')).toBeInTheDocument();
+    expect(screen.queryByTitle('Reset North')).not.toBeInTheDocument();
     expect(screen.getByTitle('Toggle projection (Top-down / Isometric)')).toBeInTheDocument();
 
     // Left sidebar collapse control

@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
 import DroppedObjects from '../DroppedObjects.jsx';
+import { DroppedObjectsProvider } from '../../../contexts/DroppedObjectsContext.jsx';
 
 function makeMap(pitch = 0) {
   return {
@@ -29,12 +30,14 @@ describe('DroppedObjects view switching', () => {
 
   it('uses isometric path when pitch > 15', () => {
     const { container } = render(
-      <DroppedObjects
-        objects={objects}
-        placeableObjects={placeable}
-        map={makeMap(60)}
-        objectUpdateTrigger={0}
-      />
+      <DroppedObjectsProvider>
+        <DroppedObjects
+          objects={objects}
+          placeableObjects={placeable}
+          map={makeMap(60)}
+          objectUpdateTrigger={0}
+        />
+      </DroppedObjectsProvider>
     );
     const img = container.querySelector('img');
     // With isometric zero-offset (-90), 90° becomes 000° sprite
@@ -43,12 +46,14 @@ describe('DroppedObjects view switching', () => {
 
   it('uses top-down path when pitch <= 15', () => {
     const { container } = render(
-      <DroppedObjects
-        objects={objects}
-        placeableObjects={placeable}
-        map={makeMap(0)}
-        objectUpdateTrigger={0}
-      />
+      <DroppedObjectsProvider>
+        <DroppedObjects
+          objects={objects}
+          placeableObjects={placeable}
+          map={makeMap(0)}
+          objectUpdateTrigger={0}
+        />
+      </DroppedObjectsProvider>
     );
     const img = container.querySelector('img');
     expect(img.getAttribute('src')).toContain('/static/banner/banner_TOP_090.png');

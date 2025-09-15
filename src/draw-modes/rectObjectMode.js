@@ -19,22 +19,34 @@ function computeAxisAlignedCorners(startLngLat, endLngLat) {
   ];
 }
 
-function rotatePointAround(center, point, angleDeg) {
-  if (!angleDeg) return point;
-  const angle = (angleDeg * Math.PI) / 180;
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  const dx = point[0] - center[0];
-  const dy = point[1] - center[1];
-  return [center[0] + dx * cos - dy * sin, center[1] + dx * sin + dy * cos];
-}
-
 function computeRotatedCorners(corners, rotationDeg) {
   if (!rotationDeg) return corners;
-  const cx = (corners[0][0] + corners[2][0]) / 2;
-  const cy = (corners[0][1] + corners[2][1]) / 2;
-  const center = [cx, cy];
-  return corners.map((p) => rotatePointAround(center, p, rotationDeg));
+  // Rotate corners in Web Mercator (map plane) for stable perspective
+  const R = 6378137;
+  const toMerc = ([lng, lat]) => {
+    const x = R * (lng * Math.PI / 180);
+    const y = R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2));
+    return [x, y];
+  };
+  const toLngLat = ([x, y]) => {
+    const lng = (x / R) * 180 / Math.PI;
+    const lat = (2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * 180 / Math.PI;
+    return [lng, lat];
+  };
+  const pts = corners.map(toMerc);
+  let cx = 0, cy = 0;
+  for (const [x, y] of pts) { cx += x; cy += y; }
+  cx /= pts.length; cy /= pts.length;
+  const rad = (rotationDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const rotatePt = ([x, y]) => {
+    const dx = x - cx; const dy = y - cy;
+    const rx = cx + dx * cos - dy * sin;
+    const ry = cy + dx * sin + dy * cos;
+    return [rx, ry];
+  };
+  return pts.map(rotatePt).map(toLngLat);
 }
 
 function centroidOfCorners(corners) {
