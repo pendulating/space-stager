@@ -1,0 +1,832 @@
+{
+  "schemaVersion": 1,
+  "app": {
+    "name": "space-stager"
+  },
+  "createdAt": "2025-09-11T18:04:54.159Z",
+  "updatedAt": "2025-09-11T18:04:54.159Z",
+  "geography": {
+    "type": "parks"
+  },
+  "focusedArea": {
+    "system": "B073-EVENTAREA-3227",
+    "name": "Music Grove - Music Pagoda",
+    "geometry": {
+      "type": "MultiPolygon",
+      "coordinates": [
+        [
+          [
+            [
+              -73.96676826589668,
+              40.66204638685566
+            ],
+            [
+              -73.966851404824,
+              40.66211262580993
+            ],
+            [
+              -73.96694590022341,
+              40.66214719950978
+            ],
+            [
+              -73.96708199936052,
+              40.662147238537145
+            ],
+            [
+              -73.96720675693865,
+              40.66214439522005
+            ],
+            [
+              -73.96726348307992,
+              40.662106985919024
+            ],
+            [
+              -73.9673428870775,
+              40.662081097932614
+            ],
+            [
+              -73.96738825020248,
+              40.66208686870357
+            ],
+            [
+              -73.9674601069863,
+              40.66203218988956
+            ],
+            [
+              -73.96749038841206,
+              40.66195446858257
+            ],
+            [
+              -73.96753577248003,
+              40.66191705594047
+            ],
+            [
+              -73.9674261786706,
+              40.66183353718688
+            ],
+            [
+              -73.96729388875445,
+              40.661778800484825
+            ],
+            [
+              -73.9671880661339,
+              40.66171543523095
+            ],
+            [
+              -73.96710113259961,
+              40.6616779849403
+            ],
+            [
+              -73.96699908376826,
+              40.661629014444785
+            ],
+            [
+              -73.96697263262159,
+              40.66160309629535
+            ],
+            [
+              -73.96689701794314,
+              40.66161459036366
+            ],
+            [
+              -73.96684408116965,
+              40.661634727773674
+            ],
+            [
+              -73.96676090267874,
+              40.661649097622416
+            ],
+            [
+              -73.96670796008944,
+              40.661680750771495
+            ],
+            [
+              -73.96663611458717,
+              40.66171239751448
+            ],
+            [
+              -73.96662463145204,
+              40.66199740400885
+            ],
+            [
+              -73.9666699901425,
+              40.662011811914134
+            ],
+            [
+              -73.96671536034476,
+              40.6620031881988
+            ],
+            [
+              -73.96673803670176,
+              40.66201758951178
+            ],
+            [
+              -73.96676826589668,
+              40.66204638685566
+            ]
+          ]
+        ]
+      ]
+    }
+  },
+  "basemap": {
+    "key": "satellite"
+  },
+  "view": {
+    "center": {
+      "lng": -73.96700162151916,
+      "lat": 40.661829746176494
+    },
+    "zoom": 19.58618430042473,
+    "bearing": 6.488207703404441,
+    "pitch": 60
+  },
+  "layers": {
+    "permitAreas": {
+      "visible": true,
+      "name": "Zone",
+      "color": "#f97316",
+      "loading": false,
+      "loaded": false,
+      "id": "permit-areas"
+    },
+    "bikeLanes": {
+      "visible": true,
+      "name": "Bike Lanes",
+      "color": "#b2c5a5",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/bike-lanes",
+      "error": false
+    },
+    "bikeParking": {
+      "visible": true,
+      "name": "Bike Parking",
+      "color": "#b2c5a5",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/bike-parking",
+      "enhancedRendering": {
+        "enabled": true,
+        "spriteBase": "bike-rack",
+        "publicDir": "/static/bike-rack/isometric/renders",
+        "desiredParallelTo": "cscl",
+        "angles": [
+          0,
+          45,
+          90,
+          135,
+          180,
+          225,
+          270,
+          315
+        ]
+      },
+      "error": false
+    },
+    "citibikeStations": {
+      "visible": true,
+      "name": "Citibike Stations",
+      "color": "#0ea5e9",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/citibike-stations",
+      "error": false
+    },
+    "subwayEntrances": {
+      "visible": true,
+      "name": "Subway Entrances",
+      "color": "#dc2626",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/subway-entrances",
+      "error": false
+    },
+    "fireLanes": {
+      "visible": true,
+      "name": "Fire Lanes",
+      "color": "#ef4444",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/fire-lanes",
+      "error": false
+    },
+    "specialDisasterRoutes": {
+      "visible": true,
+      "name": "Special Disaster Routes",
+      "color": "#f59e0b",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/special-disaster-routes",
+      "error": false
+    },
+    "pedestrianRamps": {
+      "visible": false,
+      "name": "Pedestrian Ramps",
+      "color": "#8b5cf6",
+      "loading": false,
+      "loaded": false,
+      "endpoint": "/api/pedestrian-ramps",
+      "disabled": true,
+      "error": null
+    },
+    "parkingMeters": {
+      "visible": true,
+      "name": "Parking Meters",
+      "color": "#f59e0b",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/parking-meters",
+      "enhancedRendering": {
+        "enabled": true,
+        "spriteBase": "parking-meter",
+        "publicDir": "/static/parking-meter/isometric/renders",
+        "desiredParallelTo": "cscl",
+        "zeroOffsetDeg": 90,
+        "zeroOffsetDegByView": {
+          "isometric": 90,
+          "top-down": 90
+        },
+        "angles": [
+          0,
+          45,
+          90,
+          135,
+          180,
+          225,
+          270,
+          315
+        ]
+      },
+      "error": false
+    },
+    "streetParkingSigns": {
+      "visible": true,
+      "name": "Street Parking Regulations",
+      "color": "#111827",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/street-parking-signs",
+      "error": false
+    },
+    "linknycKiosks": {
+      "visible": true,
+      "name": "LinkNYC Kiosks",
+      "color": "#06b6d4",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/linknyc-kiosks",
+      "enhancedRendering": {
+        "enabled": true,
+        "spriteBase": "linknyc",
+        "publicDir": "/static/linknyc/isometric/renders",
+        "desiredParallelTo": "cscl",
+        "angles": [
+          0,
+          45,
+          90,
+          135,
+          180,
+          225,
+          270,
+          315
+        ]
+      },
+      "error": false
+    },
+    "publicRestrooms": {
+      "visible": true,
+      "name": "Public Restrooms",
+      "color": "#8b5cf6",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/public-restrooms",
+      "error": false
+    },
+    "drinkingFountains": {
+      "visible": true,
+      "name": "Drinking Fountains",
+      "color": "#0891b2",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/drinking-fountains",
+      "error": false
+    },
+    "sprayShowers": {
+      "visible": true,
+      "name": "Spray Showers",
+      "color": "#0ea5e9",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/spray-showers",
+      "error": false
+    },
+    "parksTrails": {
+      "visible": true,
+      "name": "Parks Trails",
+      "color": "#059669",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/parks-trails",
+      "error": false
+    },
+    "parkingLots": {
+      "visible": true,
+      "name": "Parking Lots",
+      "color": "#dc2626",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/parking-lots",
+      "error": false
+    },
+    "iceLadders": {
+      "visible": true,
+      "name": "Ice Ladders",
+      "color": "#0ea5e9",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/ice-ladders",
+      "error": false
+    },
+    "parksSigns": {
+      "visible": true,
+      "name": "Parks Signs",
+      "color": "#7c3aed",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/parks-signs",
+      "error": false
+    },
+    "trees": {
+      "visible": true,
+      "name": "Trees",
+      "color": "#22c55e",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/trees",
+      "enhancedRendering": {
+        "enabled": true,
+        "spriteBase": "tree_maple",
+        "publicDir": "/static/tree_maple/isometric/renders",
+        "angles": [
+          0,
+          45,
+          90,
+          135,
+          180,
+          225,
+          270,
+          315
+        ]
+      },
+      "error": false
+    },
+    "hydrants": {
+      "visible": true,
+      "name": "Fire Hydrants",
+      "color": "#ef4444",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/hydrants",
+      "enhancedRendering": {
+        "enabled": true,
+        "spriteBase": "fire-hydrant",
+        "publicDir": "/static/fire-hydrant/isometric/renders",
+        "angles": [
+          0,
+          45,
+          90,
+          135,
+          180,
+          225,
+          270,
+          315
+        ]
+      },
+      "error": false
+    },
+    "busStops": {
+      "visible": true,
+      "name": "Bus Stops",
+      "color": "#dc2626",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/bus-stops",
+      "error": false
+    },
+    "benches": {
+      "visible": true,
+      "name": "Benches",
+      "color": "#8b5cf6",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/benches",
+      "enhancedRendering": {
+        "enabled": true,
+        "spriteBase": "bench",
+        "publicDir": "/static/bench/isometric/renders",
+        "desiredParallelTo": "cscl",
+        "angles": [
+          0,
+          45,
+          90,
+          135,
+          180,
+          225,
+          270,
+          315
+        ]
+      },
+      "error": false
+    },
+    "trashBaskets": {
+      "visible": true,
+      "name": "Trash Baskets",
+      "color": "#374151",
+      "loading": false,
+      "loaded": true,
+      "enhancedRendering": {
+        "enabled": true,
+        "spriteBase": "trash-can",
+        "publicDir": "/static/trash-can/isometric/renders",
+        "desiredParallelTo": "cscl",
+        "angles": [
+          0,
+          45,
+          90,
+          135,
+          180,
+          225,
+          270,
+          315
+        ]
+      },
+      "error": false
+    },
+    "stationEnvelopes": {
+      "visible": true,
+      "name": "Transit Station Envelopes",
+      "color": "#10b981",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/station-envelopes",
+      "error": false
+    },
+    "accessiblePedSignals": {
+      "visible": true,
+      "name": "Accessible Ped Signals",
+      "color": "#eab308",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/accessible-ped-signals",
+      "error": false
+    },
+    "curbCuts": {
+      "visible": true,
+      "name": "Curb Cuts",
+      "color": "#ef4444",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/curb-cuts",
+      "error": false
+    },
+    "dcwpParkingGarages": {
+      "visible": true,
+      "name": "DCWP Parking Garages",
+      "color": "#3b82f6",
+      "loading": false,
+      "loaded": true,
+      "endpoint": "/api/dcwp-parking-garages",
+      "error": false
+    }
+  },
+  "customShapes": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "id": "31c3cd70b2be494b900238fbb863ded8",
+        "type": "Feature",
+        "properties": {
+          "label": "Tent location"
+        },
+        "geometry": {
+          "coordinates": [
+            [
+              [
+                -73.96696719942153,
+                40.66206094488078
+              ],
+              [
+                -73.96683328590105,
+                40.662002487147305
+              ],
+              [
+                -73.96689139931546,
+                40.66190952966238
+              ],
+              [
+                -73.96703415618177,
+                40.66196798747731
+              ],
+              [
+                -73.96696719942153,
+                40.66206094488078
+              ]
+            ]
+          ],
+          "type": "Polygon"
+        }
+      }
+    ]
+  },
+  "droppedObjects": [
+    {
+      "id": "plastic-table-1757613587248",
+      "type": "plastic-table",
+      "name": "Plastic Table",
+      "position": {
+        "lng": -73.96666589399969,
+        "lat": 40.66197709155679
+      },
+      "properties": {
+        "id": "plastic-table",
+        "name": "Plastic Table",
+        "category": "Furniture",
+        "icon": "🔲",
+        "imageUrl": "/data/icons/isometric-bw/folding-table_000.png",
+        "color": "#6b7280",
+        "size": {
+          "width": 36,
+          "height": 36
+        },
+        "enhancedRendering": {
+          "enabled": true,
+          "spriteBase": "folding-table",
+          "publicDir": "/data/icons/isometric-bw",
+          "angles": [
+            0,
+            45,
+            90,
+            135,
+            180,
+            225,
+            270,
+            315
+          ]
+        },
+        "label": "Plastic Table",
+        "timestamp": "2025-09-11T17:59:47.248Z",
+        "flipped": false,
+        "rotationDeg": 90
+      }
+    },
+    {
+      "id": "plastic-table-1757613596403",
+      "type": "plastic-table",
+      "name": "Plastic Table",
+      "position": {
+        "lng": -73.96666589399969,
+        "lat": 40.66193109197869
+      },
+      "properties": {
+        "id": "plastic-table",
+        "name": "Plastic Table",
+        "category": "Furniture",
+        "icon": "🔲",
+        "imageUrl": "/data/icons/isometric-bw/folding-table_000.png",
+        "color": "#6b7280",
+        "size": {
+          "width": 36,
+          "height": 36
+        },
+        "enhancedRendering": {
+          "enabled": true,
+          "spriteBase": "folding-table",
+          "publicDir": "/data/icons/isometric-bw",
+          "angles": [
+            0,
+            45,
+            90,
+            135,
+            180,
+            225,
+            270,
+            315
+          ]
+        },
+        "label": "Plastic Table",
+        "timestamp": "2025-09-11T17:59:56.403Z",
+        "flipped": false,
+        "rotationDeg": 90
+      }
+    },
+    {
+      "id": "plastic-table-1757613602619",
+      "type": "plastic-table",
+      "name": "Plastic Table",
+      "position": {
+        "lng": -73.96666210399476,
+        "lat": 40.66188413404316
+      },
+      "properties": {
+        "id": "plastic-table",
+        "name": "Plastic Table",
+        "category": "Furniture",
+        "icon": "🔲",
+        "imageUrl": "/data/icons/isometric-bw/folding-table_000.png",
+        "color": "#6b7280",
+        "size": {
+          "width": 36,
+          "height": 36
+        },
+        "enhancedRendering": {
+          "enabled": true,
+          "spriteBase": "folding-table",
+          "publicDir": "/data/icons/isometric-bw",
+          "angles": [
+            0,
+            45,
+            90,
+            135,
+            180,
+            225,
+            270,
+            315
+          ]
+        },
+        "label": "Plastic Table",
+        "timestamp": "2025-09-11T18:00:02.619Z",
+        "flipped": false,
+        "rotationDeg": 90
+      }
+    },
+    {
+      "id": "cooler-1757613636762",
+      "type": "cooler",
+      "name": "Cooler",
+      "position": {
+        "lng": -73.96666020899157,
+        "lat": 40.66184340519513
+      },
+      "properties": {
+        "id": "cooler",
+        "name": "Cooler",
+        "category": "Equipment",
+        "icon": "🧊",
+        "imageUrl": "/static/cooler/isometric/renders/cooler_000.png",
+        "color": "#0ea5e9",
+        "size": {
+          "width": 34,
+          "height": 34
+        },
+        "enhancedRendering": {
+          "enabled": true,
+          "spriteBase": "cooler",
+          "publicDir": "/static/cooler/isometric/renders",
+          "angles": [
+            0,
+            45,
+            90,
+            135,
+            180,
+            225,
+            270,
+            315
+          ]
+        },
+        "label": "Cooler",
+        "timestamp": "2025-09-11T18:00:36.762Z",
+        "flipped": false,
+        "rotationDeg": 270
+      }
+    },
+    {
+      "id": "cooler-1757613655114",
+      "type": "cooler",
+      "name": "Cooler",
+      "position": {
+        "lng": -73.96724702814602,
+        "lat": 40.66196750831418
+      },
+      "properties": {
+        "id": "cooler",
+        "name": "Cooler",
+        "category": "Equipment",
+        "icon": "🧊",
+        "imageUrl": "/static/cooler/isometric/renders/cooler_000.png",
+        "color": "#0ea5e9",
+        "size": {
+          "width": 34,
+          "height": 34
+        },
+        "enhancedRendering": {
+          "enabled": true,
+          "spriteBase": "cooler",
+          "publicDir": "/static/cooler/isometric/renders",
+          "angles": [
+            0,
+            45,
+            90,
+            135,
+            180,
+            225,
+            270,
+            315
+          ]
+        },
+        "label": "Cooler",
+        "timestamp": "2025-09-11T18:00:55.114Z",
+        "flipped": false,
+        "rotationDeg": 135
+      }
+    },
+    {
+      "id": "cooler-1757613666186",
+      "type": "cooler",
+      "name": "Cooler",
+      "position": {
+        "lng": -73.96686928716224,
+        "lat": 40.661766257027466
+      },
+      "properties": {
+        "id": "cooler",
+        "name": "Cooler",
+        "category": "Equipment",
+        "icon": "🧊",
+        "imageUrl": "/static/cooler/isometric/renders/cooler_000.png",
+        "color": "#0ea5e9",
+        "size": {
+          "width": 34,
+          "height": 34
+        },
+        "enhancedRendering": {
+          "enabled": true,
+          "spriteBase": "cooler",
+          "publicDir": "/static/cooler/isometric/renders",
+          "angles": [
+            0,
+            45,
+            90,
+            135,
+            180,
+            225,
+            270,
+            315
+          ]
+        },
+        "label": "Cooler",
+        "timestamp": "2025-09-11T18:01:06.186Z",
+        "flipped": false,
+        "rotationDeg": 0
+      }
+    },
+    {
+      "id": "grill-1757613705990",
+      "type": "grill",
+      "name": "Grill",
+      "position": {
+        "lng": -73.9669040288776,
+        "lat": 40.661776319462405
+      },
+      "properties": {
+        "id": "grill",
+        "name": "Grill",
+        "category": "Equipment",
+        "icon": "🔥",
+        "imageUrl": "/static/charcoal-grill/isometric/renders/charcoal-grill_000.png",
+        "color": "#dc2626",
+        "size": {
+          "width": 36,
+          "height": 36
+        },
+        "enhancedRendering": {
+          "enabled": true,
+          "spriteBase": "charcoal-grill",
+          "publicDir": "/static/charcoal-grill/isometric/renders",
+          "angles": [
+            0,
+            45,
+            90,
+            135,
+            180,
+            225,
+            270,
+            315
+          ]
+        },
+        "label": "Grill",
+        "timestamp": "2025-09-11T18:01:45.990Z",
+        "flipped": false,
+        "rotationDeg": 0
+      }
+    }
+  ],
+  "eventInfo": {
+    "name": "Son's 4th Birthday Party",
+    "organizer": "Mom",
+    "contact": "brooklyn.mom@email.com",
+    "date": "2026-06-13",
+    "time": "2PM-4:30PM",
+    "attendance": "40"
+  }
+}
