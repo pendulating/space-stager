@@ -45,6 +45,12 @@ jobs:
       - name: Run unit tests (Vitest) with coverage
         run: pnpm -s test:unit -- --reporter=dot
 
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: coverage/lcov.info
+
       - name: Upload coverage (LCOV)
         if: always()
         uses: actions/upload-artifact@v4
