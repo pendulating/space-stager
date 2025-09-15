@@ -272,6 +272,12 @@ def main():
 
         mesh_objects = get_main_mesh_objects()
         center, size_x, size_y = compute_world_bounds_center_and_size(mesh_objects)
+        # Prefer a stable artist-defined anchor if present; fall back to bounds center
+        try:
+            _anchor_obj = bpy.data.objects.get("SPRITE_ANCHOR")
+            anchor_loc = (_anchor_obj.matrix_world.translation.copy() if _anchor_obj else center.copy())
+        except Exception:
+            anchor_loc = center.copy()
 
         # Ensure all collections are enabled in the active view layer and renderable
         def enable_all_layer_collections(layer_collection):
@@ -669,7 +675,7 @@ def main():
             yaw_rad = math.radians(angle_deg) + base_yaw_rad
             
             # Position camera directly above the center, looking straight down
-            cam_obj.location = Vector((center.x, center.y, center.z + radius))
+            cam_obj.location = Vector((anchor_loc.x, anchor_loc.y, anchor_loc.z + radius))
             
             # Rotate camera to look down at the target
             # Camera looks along its -Z; with location above and zero X-tilt, this is top-down.
@@ -703,47 +709,43 @@ def main():
         cos_elev = math.cos(elev_rad)
         sin_elev = math.sin(elev_rad)
 
-        # Pass 1: compute max required scale across angles for isometric views
+        # Pass 1: compute max required scale across angles for isometric views (use constant margin)
         max_required_scale = cam.data.ortho_scale
+        constant_margin = 1.20
         for angle in angles:
             yaw_rad = math.radians(angle) + base_yaw_rad
             cos_yaw = math.cos(yaw_rad)
             sin_yaw = math.sin(yaw_rad)
-            x = center.x + radius * cos_yaw * cos_elev
-            y = center.y + radius * sin_yaw * cos_elev
-            z = center.z + radius * sin_elev
+            x = anchor_loc.x + radius * cos_yaw * cos_elev
+            y = anchor_loc.y + radius * sin_yaw * cos_elev
+            z = anchor_loc.z + radius * sin_elev
             cam_loc = Vector((x, y, z))
-            set_camera_look_at(cam, cam_loc, center, world_up=Vector((0, 0, 1)))
-            angle_mod = int(angle) % 360
-            is_diag = angle_mod in (45, 135, 225, 315)
-            base_margin = 1.25 if is_diag else 1.18
-            if angle_mod in (0, 360, 45):
-                base_margin = max(base_margin, 1.30)
+            set_camera_look_at(cam, cam_loc, anchor_loc, world_up=Vector((0, 0, 1)))
             world_pts = get_world_corners(mesh_objects)
-            req_geom = compute_needed_ortho_scale_for_current_pose(cam, world_pts, scene, margin=base_margin, border_px=border_px)
-            req_ndc = compute_needed_ortho_scale_ndc_for_current_pose(scene, cam, world_pts, margin=max(1.06, base_margin), border_px_local=border_px)
+            req_geom = compute_needed_ortho_scale_for_current_pose(cam, world_pts, scene, margin=constant_margin, border_px=border_px)
+            req_ndc = compute_needed_ortho_scale_ndc_for_current_pose(scene, cam, world_pts, margin=constant_margin, border_px_local=border_px)
             req = max(req_geom, req_ndc)
             if req > max_required_scale:
                 max_required_scale = req
 
         cam.data.ortho_scale = max_required_scale
 
-        # Pass 2: render isometric views with constant perceived size
+        # Pass 2: render isometric views with constant perceived size (rotation-invariant radius)
         for angle in angles:
             yaw_rad = math.radians(angle) + base_yaw_rad
             cos_yaw = math.cos(yaw_rad)
             sin_yaw = math.sin(yaw_rad)
-            x = center.x + radius * cos_yaw * cos_elev
-            y = center.y + radius * sin_yaw * cos_elev
-            z = center.z + radius * sin_elev
+            x = anchor_loc.x + radius * cos_yaw * cos_elev
+            y = anchor_loc.y + radius * sin_yaw * cos_elev
+            z = anchor_loc.z + radius * sin_elev
             cam_loc = Vector((x, y, z))
-            set_camera_look_at(cam, cam_loc, center, world_up=Vector((0, 0, 1)))
+            set_camera_look_at(cam, cam_loc, anchor_loc, world_up=Vector((0, 0, 1)))
             bpy.context.view_layer.update()
 
-            # Enforce uniform perceived size: set target NDC span
+            # Enforce uniform perceived size: set target NDC radius
             world_pts = get_world_corners(mesh_objects)
-            # Aim for ~92% of safe frame span to avoid edge touch; tweak as desired
-            set_ortho_scale_to_target_span(scene, cam, world_pts, target_span=0.92, border_px_local=border_px)
+            # Aim for a consistent radius from anchor; tweak target_radius as desired
+            set_ortho_scale_to_target_radius(scene, cam, world_pts, anchor_loc, target_radius=0.46, border_px_local=border_px)
 
             if output_format in ("PNG", "BOTH"):
                 scene.render.image_settings.file_format = 'PNG'
@@ -760,8 +762,8 @@ def main():
                 cam.rotation_euler = (0, 0, yaw_rad)
                 bpy.context.view_layer.update()
                 world_pts = get_world_corners(mesh_objects)
-                # Target a constant pixel radius from center for rotation invariance
-                set_ortho_scale_to_target_radius(scene, cam, world_pts, center, target_radius=0.46, border_px_local=border_px)
+                # Target a constant pixel radius from anchor for rotation invariance
+                set_ortho_scale_to_target_radius(scene, cam, world_pts, anchor_loc, target_radius=0.46, border_px_local=border_px)
                 render_top_down_view(cam, angle, model_stem, model_output_dir)
 
 
