@@ -458,12 +458,20 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
         }
         
         if (onStyleChange && typeof onStyleChange === 'function') {
-          setTimeout(() => {
-            onStyleChange({ type: 'overlay' });
-          }, 100);
+          setTimeout(() => { onStyleChange({ type: 'overlay' }); }, 100);
         }
-        
-        resolve();
+
+        // Wait for the map to become idle after adding raster sources/layers and hiding base layers
+        try {
+          const done = () => resolve();
+          if (typeof map.loaded === 'function' && typeof map.areTilesLoaded === 'function') {
+            if (map.loaded() && map.areTilesLoaded()) done(); else map.once('idle', done);
+          } else {
+            (map.once && map.once('idle', done)) || done();
+          }
+        } catch (_) {
+          resolve();
+        }
         
       } else if (basemapKey === 'carto') {
         // For carto, remove satellite and restore any hidden layers from snapshot; avoid style reload
@@ -524,12 +532,21 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
             map.setStyle(desiredUrl);
           }
         } else {
-          // Notify overlay change only (no full style reload)
+          // Notify overlay change only (no full style reload). Wait for idle for safety.
           if (onStyleChange && typeof onStyleChange === 'function') {
             setTimeout(() => onStyleChange({ type: 'overlay' }), 100);
           }
+          try {
+            const proceed = () => resolve();
+            if (typeof map.loaded === 'function' && typeof map.areTilesLoaded === 'function') {
+              if (map.loaded() && map.areTilesLoaded()) proceed(); else map.once('idle', proceed);
+            } else {
+              (map.once && map.once('idle', proceed)) || proceed();
+            }
+          } catch (_) {
+            resolve();
+          }
           console.log(`switchBasemap: Successfully restored carto without style reload`);
-          resolve();
         }
       }
       

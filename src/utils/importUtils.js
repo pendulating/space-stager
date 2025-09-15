@@ -46,6 +46,16 @@ export const importPlan = (eOrFile, map, draw, setCustomShapes, setDroppedObject
         try { helpers.setImportProgress && helpers.setImportProgress('basemap', 'Switching basemap…'); } catch (_) {}
         const key = isV1 ? (data.basemap?.key || 'carto') : 'carto';
         await switchBasemap(map, key);
+        // Wait for style to fully load before proceeding so subsequent layer logic attaches to the right style
+        try {
+          await new Promise((resolve) => {
+            try {
+              if (typeof map.isStyleLoaded === 'function' && map.isStyleLoaded()) resolve();
+              else if (map && typeof map.once === 'function') map.once('style.load', resolve);
+              else setTimeout(resolve, 0);
+            } catch (_) { resolve(); }
+          });
+        } catch (_) {}
       } catch (_) {}
 
       // Restore geography and focus (awaited for determinism)
@@ -167,7 +177,7 @@ export const importPlan = (eOrFile, map, draw, setCustomShapes, setDroppedObject
         }
       } catch (_) {}
 
-      // Restore layers
+      // Restore layers (after style is loaded)
       try {
         try { helpers.setImportProgress && helpers.setImportProgress('layers', 'Restoring layers…'); } catch (_) {}
         if (setLayers && (isV1 ? data.layers : data.layers)) {
@@ -188,12 +198,20 @@ export const importPlan = (eOrFile, map, draw, setCustomShapes, setDroppedObject
             return acc;
           }, {});
 
-          // Apply layer state and, after React commits, reload any visible infrastructure layers
+          // Apply layer state and, after React commits and current style settles, reload any visible infrastructure layers
           setLayers(sanitized);
           try {
             if (helpers.reloadVisibleInfra) {
+              // Ensure next microtask after React state commit and style load
               setTimeout(() => {
-                try { helpers.reloadVisibleInfra(); } catch (_) {}
+                try {
+                  const run = () => { try { helpers.reloadVisibleInfra(); } catch (_) {} };
+                  if (map && typeof map.isStyleLoaded === 'function' && !map.isStyleLoaded()) {
+                    try { map.once('style.load', run); } catch (_) { run(); }
+                  } else {
+                    run();
+                  }
+                } catch (_) {}
               }, 0);
             }
           } catch (_) {}
@@ -315,12 +333,18 @@ export const importPlan = (eOrFile, map, draw, setCustomShapes, setDroppedObject
 
       // Final nudge: ensure all derived overlays recompute and the map repaints
       try {
+        // Mark import as no longer rehydrating so hooks unblock
+        try { helpers.setRehydratingImport && helpers.setRehydratingImport(false); } catch (_) {}
+        try { if (typeof window !== 'undefined') window.dispatchEvent(new Event('rehydrating-import:end')); } catch (_) {}
+        // Surface finalize step and close modal promptly regardless of slow infra
         try { helpers.setImportProgress && helpers.setImportProgress('finalize', 'Finalizing…'); } catch (_) {}
-        if (typeof window !== 'undefined') window.dispatchEvent(new Event('annotations:changed'));
+        try { if (typeof window !== 'undefined') window.dispatchEvent(new Event('annotations:changed')); } catch (_) {}
+        // Close after a short delay to let UI repaint once; infra continues loading in background
+        try { setTimeout(() => { try { helpers.closeImportProgress && helpers.closeImportProgress(); } catch (_) {} }, 150); } catch (_) {}
       } catch (_) {}
       try { if (map && typeof map.triggerRepaint === 'function') map.triggerRepaint(); } catch (_) {}
 
-      // End rehydration guard
+      // End rehydration guard (already unset above; keep for redundancy/safety)
       try { helpers.setRehydratingImport && helpers.setRehydratingImport(false); } catch (_) {}
       try { if (typeof window !== 'undefined') window.dispatchEvent(new Event('rehydrating-import:end')); } catch (_) {}
 

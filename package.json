@@ -2,8 +2,8 @@
   "name": "nyc-event-stager",
   "version": "1.0.0",
   "description": "A client-side tool for creating enhanced siteplans of public space events in NYC for permitting purposes",
-  "author": "Your Name",
-  "license": "MIT",
+  "author": "Matthew Franchi",
+  "license": "TBD",
   "keywords": [
     "nyc",
     "urban-planning",

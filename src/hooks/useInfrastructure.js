@@ -343,6 +343,16 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
   const addInfrastructureLayerToMap = useCallback((layerId, data) => {
     if (!map) return;
     if (DEBUG_INFRA) console.log(`[DEBUG] Adding ${layerId} layer to map with ${data.features.length} features`);
+    // Ensure style is ready before manipulating sources/layers
+    try {
+      if (map.isStyleLoaded && !map.isStyleLoaded()) {
+        const run = () => {
+          try { addInfrastructureLayerToMap(layerId, data); } catch (_) {}
+        };
+        try { map.once('style.load', run); } catch (_) { setTimeout(run, 0); }
+        return;
+      }
+    } catch (_) {}
     
     removeInfrastructureLayer(layerId);
     const sourceId = `source-${layerId}`;
@@ -650,7 +660,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       // Add to map
       addInfrastructureLayerToMap(layerId, filteredData);
       
-      // Clear loading state and mark as successful
+      // Clear loading state and mark as successful; if empty, treat as hidden and flag empty
+      const isEmpty = !filteredData?.features || filteredData.features.length === 0;
       setLayers(prev => ({
         ...prev,
         [layerId]: { 
@@ -658,7 +669,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
           loading: false, 
           error: false,
           loaded: true,
-          visible: true
+          visible: isEmpty ? false : true,
+          empty: isEmpty
         }
       }));
       
@@ -671,7 +683,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
           loading: false, 
           error: true, 
           visible: false,
-          loaded: false
+          loaded: false,
+          empty: false
         }
       }));
     } finally {
@@ -901,11 +914,22 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
   // Reload any currently visible layers (useful after style changes)
   const reloadVisibleLayers = useCallback(() => {
     if (!map || !focusedArea) return;
-    Object.entries(layers).forEach(([layerId, config]) => {
-      if (layerId !== 'permitAreas' && !config?.disabled && !DISABLED_INFRASTRUCTURE_LAYERS.has(layerId) && config.visible && !loadingLayersRef.current.has(layerId)) {
-        loadInfrastructureLayer(layerId);
+    const run = () => {
+      Object.entries(layers).forEach(([layerId, config]) => {
+        if (layerId !== 'permitAreas' && !config?.disabled && !DISABLED_INFRASTRUCTURE_LAYERS.has(layerId) && config.visible && !loadingLayersRef.current.has(layerId)) {
+          loadInfrastructureLayer(layerId);
+        }
+      });
+    };
+    try {
+      if (map.isStyleLoaded && !map.isStyleLoaded()) {
+        map.once('style.load', run);
+      } else {
+        run();
       }
-    });
+    } catch (_) {
+      run();
+    }
   }, [map, focusedArea, layers, loadInfrastructureLayer]);
 
       // Clear focus and all infrastructure - ensure state is properly reset

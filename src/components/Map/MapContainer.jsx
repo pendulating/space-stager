@@ -259,8 +259,11 @@ const MapContainer = forwardRef(({
         console.warn('Failed to register arrow icon', e);
       }
     };
-    // Initial attempt
-    register();
+    // Initial attempt: prefer waiting for style load to avoid early addImage failures on basemap switches
+    try {
+      const ready = (typeof map.isStyleLoaded === 'function') ? map.isStyleLoaded() : true;
+      if (ready) register(); else map.once('style.load', register);
+    } catch (_) { register(); }
     // On style load
     const onStyleLoad = () => register();
     map.on('style.load', onStyleLoad);

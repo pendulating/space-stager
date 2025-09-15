@@ -1,6 +1,6 @@
 // components/Sidebar/LayersPanel.jsx
 import React, { useState, useMemo } from 'react';
-import { Eye, EyeOff, X, Layers, ToggleLeft, ToggleRight, ChevronDown, ChevronRight } from 'lucide-react';
+import { Eye, EyeOff, X, Layers, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Loader2, CheckCircle, AlertCircle, Circle } from 'lucide-react';
 import { LAYER_GROUPS } from '../../constants/layers';
 import { INFRASTRUCTURE_ICONS, svgToDataUrl } from '../../utils/iconUtils';
 import { getCandidateSrcs } from '../../utils/spriteResolver';
@@ -253,6 +253,18 @@ const LayersPanel = ({
     // In DPR, enable permit areas or if focused area exists
     const isEnabled = (isPermitLayer || focusedArea) && !config.disabled;
     const isLoading = config.loading || false;
+    const isVisible = !!config.visible;
+    const isLoaded = !!config.loaded;
+    const isEmpty = !!config.empty;
+    const isError = !!config.error;
+
+    const renderStatusIcon = () => {
+      if (isError) return <AlertCircle className="w-4 h-4 text-red-500" title="Error loading" />;
+      if (isLoading) return <Loader2 className="w-4 h-4 text-blue-600 animate-spin" title="Loading" />;
+      if (isLoaded && isEmpty) return <Circle className="w-4 h-4 text-gray-300" title="No data" />;
+      if (isVisible && isLoaded) return <CheckCircle className="w-4 h-4 text-emerald-600" title="Loaded" />;
+      return <Circle className="w-4 h-4 text-gray-400" title="Hidden" />;
+    };
     
     return (
       <div
@@ -280,14 +292,23 @@ const LayersPanel = ({
             config.visible && isEnabled ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'
           }`}>
             {layerId === 'permitAreas' ? (geographyType === 'plazas' ? 'Plazas' : geographyType === 'intersections' ? 'Intersections' : 'Parks') : (config.name)}
-            {isLoading && (
-              <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">(Loading...)</span>
-            )}
           </span>
         </div>
-        {config.error && (
-          <span className="text-xs text-red-500 ml-2">Error</span>
-        )}
+        <div className="flex items-center gap-2">
+          {renderStatusIcon()}
+          {isLoading && (
+            <span className="text-[11px] text-gray-500 dark:text-gray-400">Loading…</span>
+          )}
+          {isLoaded && isEmpty && (
+            <span className="text-[11px] text-gray-400">No data</span>
+          )}
+          {isVisible && isLoaded && !isEmpty && (
+            <span className="text-[11px] text-emerald-700 dark:text-emerald-400">Ready</span>
+          )}
+          {isError && (
+            <span className="text-[11px] text-red-500">Error</span>
+          )}
+        </div>
       </div>
     );
   };
