@@ -176,6 +176,112 @@ export const exportPermitAreaSiteplanV2 = async (
       attributionControl: false
     });
 
+    // Helpers to ensure the permit area fully fits within the export viewport
+    const densifyOuterRings = (geometry, samplesPerEdge = 8) => {
+      try {
+        if (!geometry) return [];
+        const addRing = (ring) => {
+          const pts = [];
+          if (!Array.isArray(ring) || ring.length < 2) return pts;
+          for (let i = 0; i < ring.length - 1; i += 1) {
+            const a = ring[i];
+            const b = ring[i + 1];
+            for (let k = 0; k <= samplesPerEdge; k += 1) {
+              const t = k / samplesPerEdge;
+              const lng = a[0] + (b[0] - a[0]) * t;
+              const lat = a[1] + (b[1] - a[1]) * t;
+              pts.push([lng, lat]);
+            }
+          }
+          return pts;
+        };
+        const out = [];
+        if (geometry.type === 'Polygon') {
+          const ring = geometry.coordinates?.[0] || [];
+          out.push(...addRing(ring));
+        } else if (geometry.type === 'MultiPolygon') {
+          (geometry.coordinates || []).forEach((poly) => {
+            const ring = Array.isArray(poly?.[0]) ? poly[0] : [];
+            out.push(...addRing(ring));
+          });
+        }
+        return out;
+      } catch (_) { return []; }
+    };
+
+    const projectGeometryScreenBBox = (offscreenMap, geometry, sizePx) => {
+      try {
+        if (!geometry) return null;
+        const samples = densifyOuterRings(geometry, 8);
+        if (!samples.length) return null;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (let i = 0; i < samples.length; i += 1) {
+          const p = offscreenMap.project(samples[i]);
+          if (!p || !isFinite(p.x) || !isFinite(p.y)) continue;
+          minX = Math.min(minX, p.x);
+          minY = Math.min(minY, p.y);
+          maxX = Math.max(maxX, p.x);
+          maxY = Math.max(maxY, p.y);
+        }
+        if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) return null;
+        const width = sizePx?.width || 0;
+        const height = sizePx?.height || 0;
+        return { minX, minY, maxX, maxY, width, height };
+      } catch (_) { return null; }
+    };
+
+    const ensureAreaFullyVisible = async (offscreenMap, geometry, sizePx, boundsArg, opts = {}) => {
+      try {
+        if (!geometry || (!geometry.type)) return;
+        const maxIters = Number.isFinite(opts.maxIters) ? opts.maxIters : 6;
+        let padding = Number.isFinite(opts.basePaddingPx) ? opts.basePaddingPx : 12;
+        const targetMarginPx = Number.isFinite(opts.targetMarginPx) ? opts.targetMarginPx : 12;
+        const bearing = Number.isFinite(opts.bearing) ? opts.bearing : undefined;
+        const pitch = Number.isFinite(opts.pitch) ? opts.pitch : undefined;
+
+        const waitIdle = () => new Promise((resolve) => {
+          try {
+            if ((typeof offscreenMap.loaded === 'function' && offscreenMap.loaded()) && (typeof offscreenMap.areTilesLoaded === 'function' && offscreenMap.areTilesLoaded())) resolve();
+            else offscreenMap.once('idle', resolve);
+          } catch (_) { resolve(); }
+        });
+
+        const checkAndAdjust = async () => {
+          const bbox = projectGeometryScreenBBox(offscreenMap, geometry, sizePx);
+          if (!bbox) return false;
+          const left = bbox.minX;
+          const right = bbox.width - bbox.maxX;
+          const top = bbox.minY;
+          const bottom = bbox.height - bbox.maxY;
+          const minClearance = Math.min(left, right, top, bottom);
+          if (isExportDebug()) {
+            try { console.log('[ExportDebug] clearances px', { left, right, top, bottom, targetMarginPx, padding }); } catch (_) {}
+          }
+          if (minClearance >= targetMarginPx) return true;
+          const deficit = targetMarginPx - minClearance;
+          const step = Math.max(8, Math.ceil(deficit));
+          padding += step;
+          try {
+            offscreenMap.fitBounds(boundsArg, { padding, duration: 0, bearing, pitch });
+          } catch (_) {
+            offscreenMap.fitBounds(boundsArg, { padding, duration: 0 });
+          }
+          await waitIdle();
+          return false;
+        };
+
+        for (let i = 0; i < maxIters; i += 1) {
+          const ok = await checkAndAdjust();
+          if (ok) return padding;
+        }
+
+        try { offscreenMap.easeTo({ zoom: offscreenMap.getZoom() - 0.25, duration: 0 }); } catch (_) {}
+        await waitIdle();
+        await checkAndAdjust();
+        return padding;
+      } catch (_) { /* noop */ }
+    };
+
     // Projection: default top-down unless explicitly set to current
     const projectionMode = exportOptions?.mapProjectionMode || 'topDown';
     // Align export with dominant area orientation for top-down, else keep current
@@ -303,6 +409,22 @@ export const exportPermitAreaSiteplanV2 = async (
       if (offscreen.loaded() && offscreen.areTilesLoaded()) resolve();
       else offscreen.once('idle', resolve);
     });
+
+    // Ensure the permit area geometry is fully inside the export viewport; if not, iteratively increase padding
+    try {
+      const keepPitch2 = (typeof offscreen.getPitch === 'function') ? offscreen.getPitch() : 0;
+      const basePaddingPx = 12;
+      const strokePadPx = 6; // room for outlines/antialiasing
+      const dimOutwardMm = (exportOptions && exportOptions.includeZoneDimensions) ? 3.0 : 0; // outward offset for dimension arrows
+      const targetMarginPx = strokePadPx + Math.round(dimOutwardMm * pxPerMm);
+      await ensureAreaFullyVisible(
+        offscreen,
+        (exportOptions && exportOptions.subFocusArea && exportOptions.subFocusArea.geometry) ? exportOptions.subFocusArea.geometry : areaForExport?.geometry || areaForExport,
+        mapPx,
+        bounds,
+        { basePaddingPx, targetMarginPx, bearing: enforcedExportBearing, pitch: keepPitch2, maxIters: 6 }
+      );
+    } catch (_) {}
 
     const baseCanvas = offscreen.getCanvas();
     if (isExportDebug()) {

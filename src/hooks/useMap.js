@@ -68,11 +68,20 @@ export const useMap = (mapContainer) => {
           initHarness(mapInstance);
         });
         
-        // Handle style changes (like basemap switching)
-        mapInstance.on('style.load', () => {
-          console.log('Style load event fired');
-          setStyleLoaded(true);
-        });
+        // Listen for pre-style change signal (emitted by switchBasemap) and debounce style.load
+        let styleLoadTimer = null;
+        const onWillChange = () => {
+          try { setStyleLoaded(false); } catch (_) {}
+        };
+        const onStyleLoad = () => {
+          if (styleLoadTimer) clearTimeout(styleLoadTimer);
+          styleLoadTimer = setTimeout(() => {
+            console.log('Style load event fired (debounced)');
+            setStyleLoaded(true);
+          }, 60);
+        };
+        try { window.addEventListener('map:style:will-change', onWillChange); } catch (_) {}
+        mapInstance.on('style.load', onStyleLoad);
         
       } catch (error) {
         console.error('Map setup failed:', error);
@@ -88,6 +97,7 @@ export const useMap = (mapContainer) => {
         mapRef.current.remove();
         mapRef.current = null;
       }
+      try { window.removeEventListener('map:style:will-change', onWillChange); } catch (_) {}
       setMap(null);
       setMapLoaded(false);
       setStyleLoaded(false);

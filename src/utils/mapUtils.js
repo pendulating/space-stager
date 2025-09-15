@@ -317,8 +317,10 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
       }, 2500);
       map.once('style.load', onStyleLoaded);
       try {
+        try { if (typeof window !== 'undefined') window.dispatchEvent(new Event('map:style:will-change')); } catch (_) {}
         map.setStyle(desiredUrl, { diff: false });
       } catch (_) {
+        try { if (typeof window !== 'undefined') window.dispatchEvent(new Event('map:style:will-change')); } catch (_) {}
         map.setStyle(desiredUrl);
       }
       return;
@@ -515,8 +517,10 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
           };
           map.once('style.load', onStyleLoaded);
           try {
+            try { if (typeof window !== 'undefined') window.dispatchEvent(new Event('map:style:will-change')); } catch (_) {}
             map.setStyle(desiredUrl, { diff: false });
           } catch (_) {
+            try { if (typeof window !== 'undefined') window.dispatchEvent(new Event('map:style:will-change')); } catch (_) {}
             map.setStyle(desiredUrl);
           }
         } else {

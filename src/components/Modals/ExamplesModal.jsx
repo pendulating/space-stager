@@ -2,6 +2,45 @@ import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { X, FileDown, FileText, FolderOpen, Search } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { examples as registryExamples } from '../../pages/examples/registry';
+import matter from 'gray-matter';
+
+// Inline fallback: discover examples directly via Vite globs if registry is empty
+const __filesRoot = import.meta.glob('/src/examples/*.md', { eager: true, query: '?raw', import: 'default' });
+const __filesRootNested = import.meta.glob('/src/examples/**/*.md', { eager: true, query: '?raw', import: 'default' });
+const __filesRel = import.meta.glob('../../examples/*.md', { eager: true, query: '?raw', import: 'default' });
+const __filesRelNested = import.meta.glob('../../examples/**/*.md', { eager: true, query: '?raw', import: 'default' });
+
+const __merged = { ...__filesRoot, ...__filesRootNested, ...__filesRel, ...__filesRelNested };
+const inlineExamples = Object.entries(__merged)
+  .map(([path, raw]) => {
+    try {
+      const text = typeof raw === 'string' ? raw : String(raw || '');
+      const { data, content } = matter(text);
+      const slug = data?.slug || path.split('/').pop().replace(/\.md$/, '');
+      return {
+        slug,
+        title: data?.title || slug,
+        summary: data?.summary || '',
+        tags: Array.isArray(data?.tags) ? data.tags : [],
+        image: data?.image || null,
+        pdf: data?.pdf || null,
+        json: data?.json || null,
+        created: data?.created || null,
+        updated: data?.updated || null,
+        body: content || ''
+      };
+    } catch (_) { return null; }
+  })
+  .filter(Boolean);
+
+// Debug logs to help diagnose why no examples show up
+try {
+  // eslint-disable-next-line no-console
+  console.debug('[ExamplesModal][debug] registryExamples length:', Array.isArray(registryExamples) ? registryExamples.length : 'n/a');
+  // eslint-disable-next-line no-console
+  console.debug('[ExamplesModal][debug] inlineExamples length:', Array.isArray(inlineExamples) ? inlineExamples.length : 'n/a');
+} catch (_) {}
 
 const Card = ({ ex, onOpen, onOpenInEditor }) => (
   <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden bg-white dark:bg-gray-900 flex flex-col">
@@ -81,39 +120,47 @@ const ExamplesModal = ({ isOpen, onClose, onOpenInEditor }) => {
     return text;
   }, []);
 
-  // Load manifest at runtime from public/ so no bundler globs are needed
+  // Use build-time registry when available; otherwise, inline glob fallback
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch('/examples/examples.json', { cache: 'no-store' });
-        if (!res.ok) throw new Error('Failed to load examples');
-        const list = await res.json();
-        if (!cancelled) setItems(Array.isArray(list) ? list : []);
-      } catch (_) {
-        if (!cancelled) setItems([]);
-      }
-    })();
+    try {
+      const primary = Array.isArray(registryExamples) ? registryExamples : [];
+      const fallback = Array.isArray(inlineExamples) ? inlineExamples : [];
+      const list = primary.length > 0 ? primary : fallback;
+      try { console.debug('[ExamplesModal][debug] isOpen, selecting examples length:', list.length); } catch (_) {}
+      if (!cancelled) setItems(list);
+    } catch (_) {
+      const list = Array.isArray(inlineExamples) ? inlineExamples : [];
+      try { console.debug('[ExamplesModal][debug] exception selecting examples, fallback length:', list.length); } catch (_) {}
+      if (!cancelled) setItems(list);
+    }
     return () => { cancelled = true; };
   }, [isOpen]);
 
-  // Load markdown for active example when selected
+  // Load markdown for active example when selected (use pre-parsed body when available)
   useEffect(() => {
     if (!isOpen || !activeSlug) { setActiveBody(''); return; }
     const ex = items.find((e) => e.slug === activeSlug);
-    if (!ex || !ex.markdown) { setActiveBody(''); return; }
+    if (!ex) { setActiveBody(''); return; }
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(ex.markdown, { cache: 'no-store' });
-        const text = await res.text();
-        const cleaned = stripFrontmatter(text || '');
-        if (!cancelled) setActiveBody(cleaned);
-      } catch (_) {
-        if (!cancelled) setActiveBody('');
-      }
-    })();
+    if (ex.body) {
+      const cleaned = stripFrontmatter(ex.body || '');
+      if (!cancelled) setActiveBody(cleaned);
+    } else if (ex.markdown) {
+      (async () => {
+        try {
+          const res = await fetch(ex.markdown, { cache: 'no-store' });
+          const text = await res.text();
+          const cleaned = stripFrontmatter(text || '');
+          if (!cancelled) setActiveBody(cleaned);
+        } catch (_) {
+          if (!cancelled) setActiveBody('');
+        }
+      })();
+    } else {
+      if (!cancelled) setActiveBody('');
+    }
     return () => { cancelled = true; };
   }, [isOpen, activeSlug, items]);
 

@@ -230,7 +230,7 @@ export const useDrawTools = (map, focusedArea = null) => {
 
   // Initialize draw controls with race condition protection
   useEffect(() => {
-    if (!map || !window.MapboxDraw) return;
+    if (!map) return;
 
     const initDraw = () => {
       // Skip if already initialized to avoid conflicts
@@ -301,21 +301,26 @@ export const useDrawTools = (map, focusedArea = null) => {
     const initializeDrawControls = () => {
       try {
         const styleReady = typeof map.isStyleLoaded === 'function' ? map.isStyleLoaded() : true;
+        let didInit = false;
+        const safelyInit = () => {
+          if (didInit) return;
+          didInit = true;
+          console.log('Proceeding with draw initialization');
+          initDraw();
+          try { window.dispatchEvent(new Event('annotations:changed')); } catch (_) {}
+        };
+
         if (styleReady) {
           console.log('Map style ready, proceeding with draw initialization');
-          initDraw();
-          // Fire an annotations change once draw layers are in place to allow derived layers to sync
-          try { window.dispatchEvent(new Event('annotations:changed')); } catch (_) {}
+          safelyInit();
         } else {
-          console.log('Map style not loaded yet, waiting for style.load event');
+          console.log('Map style not loaded yet; initializing now and also listening for style.load to rebind');
+          // Initialize immediately to make tools available; style.load listener below will rebind layers as needed
+          safelyInit();
           const onStyleLoad = () => {
-            console.log('Style load received, initializing draw controls');
-            try {
-              initDraw();
-              try { window.dispatchEvent(new Event('annotations:changed')); } catch (_) {}
-            } catch (error) {
-              console.error('Error during draw initialization after style load:', error);
-              setDrawInitialized(false);
+            console.log('Style load received, ensuring draw controls are re-bound to new style');
+            try { reinitializeDrawControls(); } catch (error) {
+              console.warn('Rebind after style.load failed', error);
             }
           };
           map.once('style.load', onStyleLoad);
@@ -328,7 +333,28 @@ export const useDrawTools = (map, focusedArea = null) => {
 
     // Initialize on mount
     console.log('useDrawTools: Starting initialization process');
-    initializeDrawControls();
+    if (!window.MapboxDraw) {
+      console.log('MapboxDraw library not yet available; waiting...');
+      let attempts = 0;
+      const waitForLib = () => {
+        attempts += 1;
+        try {
+          if (window.MapboxDraw) {
+            console.log('MapboxDraw available, continuing initialization');
+            initializeDrawControls();
+            return;
+          }
+        } catch (_) {}
+        if (attempts < 50) {
+          setTimeout(waitForLib, 100);
+        } else {
+          console.warn('MapboxDraw not available after waiting; drawing tools will remain unavailable until retry');
+        }
+      };
+      waitForLib();
+    } else {
+      initializeDrawControls();
+    }
 
     // Cleanup
     return () => {
@@ -348,24 +374,28 @@ export const useDrawTools = (map, focusedArea = null) => {
     };
   }, [map]); // Removed drawInitialized from dependencies to avoid loop
 
-  // Keep Draw resilient across style changes without flipping availability
+  // Keep Draw resilient across style changes without flipping availability (debounced)
   useEffect(() => {
     if (!map) return;
+    let debounceId = null;
     const onStyleLoad = () => {
-      if (!draw.current) return;
-      try {
-        const existing = draw.current.getAll();
-        // Re-add control to inject layers for the new style, then restore shapes
-        map.removeControl(draw.current);
-        map.addControl(draw.current);
-        if (existing && existing.features && existing.features.length > 0) {
-          draw.current.add(existing);
+      if (debounceId) clearTimeout(debounceId);
+      debounceId = setTimeout(() => {
+        if (!draw.current) return;
+        try {
+          const existing = draw.current.getAll();
+          // Re-add control to inject layers for the new style, then restore shapes
+          map.removeControl(draw.current);
+          map.addControl(draw.current);
+          if (existing && existing.features && existing.features.length > 0) {
+            draw.current.add(existing);
+          }
+          try { window.dispatchEvent(new Event('annotations:changed')); } catch (_) {}
+          // Do not change drawInitialized here; keep tools available
+        } catch (e) {
+          console.warn('Draw rebind on style.load failed', e);
         }
-        try { window.dispatchEvent(new Event('annotations:changed')); } catch (_) {}
-        // Do not change drawInitialized here; keep tools available
-      } catch (e) {
-        console.warn('Draw rebind on style.load failed', e);
-      }
+      }, 60);
     };
     map.on('style.load', onStyleLoad);
     return () => { try { map.off('style.load', onStyleLoad); } catch (_) {} };
