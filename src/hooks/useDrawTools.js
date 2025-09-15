@@ -323,7 +323,7 @@ export const useDrawTools = (map, focusedArea = null) => {
               console.warn('Rebind after style.load failed', error);
             }
           };
-          map.once('style.load', onStyleLoad);
+          map.on('style.load', onStyleLoad);
         }
       } catch (error) {
         console.error('Error in initializeDrawControls:', error);
@@ -374,32 +374,73 @@ export const useDrawTools = (map, focusedArea = null) => {
     };
   }, [map]); // Removed drawInitialized from dependencies to avoid loop
 
-  // Keep Draw resilient across style changes without flipping availability (debounced)
+  // Force re-initialization of draw controls with race condition protection
+  const reinitializeDrawControlsInternal = useCallback(() => {
+    if (!map || !window.MapboxDraw) {
+      console.warn('Cannot reinitialize: map or MapboxDraw not available');
+      return;
+    }
+    console.log('Ensuring draw controls are bound...');
+    const ensure = () => {
+      try {
+        const existingShapes = draw.current ? draw.current.getAll() : null;
+        if (draw.current) {
+          // Rebind by removing/adding control to inject layers for current style
+          try {
+            map.off('draw.create', eventHandlers.current.handleDrawCreate);
+            map.off('draw.update', eventHandlers.current.handleDrawUpdate);
+            map.off('draw.delete', eventHandlers.current.handleDrawDelete);
+            map.off('draw.selectionchange', eventHandlers.current.handleSelectionChange);
+          } catch (_) {}
+          try { map.removeControl(draw.current); } catch (_) {}
+          map.addControl(draw.current);
+          map.on('draw.create', eventHandlers.current.handleDrawCreate);
+          map.on('draw.update', eventHandlers.current.handleDrawUpdate);
+          map.on('draw.delete', eventHandlers.current.handleDrawDelete);
+          map.on('draw.selectionchange', eventHandlers.current.handleSelectionChange);
+          if (existingShapes && existingShapes.features && existingShapes.features.length > 0) {
+            try { draw.current.add(existingShapes); } catch (_) {}
+          }
+          // Keep availability true
+          setDrawInitialized(true);
+          return;
+        }
+        // No draw instance yet; create one
+        const drawInstance = new window.MapboxDraw({
+          displayControlsDefault: false,
+          controls: {},
+          defaultMode: 'simple_select',
+          userProperties: true,
+          modes: Object.assign({}, window.MapboxDraw.modes, { draw_rect_object: RectObjectMode })
+        });
+        draw.current = drawInstance;
+        map.addControl(drawInstance);
+        map.on('draw.create', eventHandlers.current.handleDrawCreate);
+        map.on('draw.update', eventHandlers.current.handleDrawUpdate);
+        map.on('draw.delete', eventHandlers.current.handleDrawDelete);
+        map.on('draw.selectionchange', eventHandlers.current.handleSelectionChange);
+        setDrawInitialized(true);
+      } catch (error) {
+        console.error('Error ensuring draw controls:', error);
+      }
+    };
+    const styleReady = typeof map.isStyleLoaded === 'function' ? map.isStyleLoaded() : true;
+    if (styleReady) ensure(); else map.once('style.load', ensure);
+  }, [map]);
+
+  // Keep Draw resilient across style changes without flipping availability
   useEffect(() => {
     if (!map) return;
-    let debounceId = null;
     const onStyleLoad = () => {
-      if (debounceId) clearTimeout(debounceId);
-      debounceId = setTimeout(() => {
-        if (!draw.current) return;
-        try {
-          const existing = draw.current.getAll();
-          // Re-add control to inject layers for the new style, then restore shapes
-          map.removeControl(draw.current);
-          map.addControl(draw.current);
-          if (existing && existing.features && existing.features.length > 0) {
-            draw.current.add(existing);
-          }
-          try { window.dispatchEvent(new Event('annotations:changed')); } catch (_) {}
-          // Do not change drawInitialized here; keep tools available
-        } catch (e) {
-          console.warn('Draw rebind on style.load failed', e);
-        }
-      }, 60);
+      try {
+        reinitializeDrawControlsInternal();
+      } catch (e) {
+        console.warn('Draw rebind on style.load failed', e);
+      }
     };
     map.on('style.load', onStyleLoad);
     return () => { try { map.off('style.load', onStyleLoad); } catch (_) {} };
-  }, [map]);
+  }, [map, reinitializeDrawControlsInternal]);
 
 
   // Activate drawing tool
