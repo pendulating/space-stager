@@ -70,6 +70,9 @@ const MapContainer = forwardRef(({
   const view = useMapViewState(map);
   const suppressRotateSnapRef = useRef(false);
   const lastDiscreteBearingRef = useRef(null);
+  // Track last area orientation and whether we were in isometric view
+  const lastThetaRef = useRef(null);
+  const lastIsoRef = useRef(null);
   // Compute a stable area-bearing from the focused area for alignment
   const areaBearingDeg = useMemo(() => {
     try {
@@ -821,15 +824,28 @@ const MapContainer = forwardRef(({
         e.preventDefault();
         const dir = key === 'e' ? 1 : -1; // CW for E, CCW for Q
         const current = (typeof map.getBearing === 'function') ? map.getBearing() : 0;
+        const p = (map.getPitch ? map.getPitch() : 0);
+        const isIso = p > 15;
         const areaGeom = (permitAreas?.hasSubFocus ? permitAreas?.subFocusArea?.geometry : permitAreas?.focusedArea?.geometry) || null;
-        const theta = areaGeom ? computeAreaOrientation({ map, geometry: areaGeom, pitch: (map.getPitch ? map.getPitch() : 0) }) : 0;
+        const theta = areaGeom ? computeAreaOrientation({ map, geometry: areaGeom, pitch: p }) : 0;
         const snapToGrid = (bear) => ((theta + quantizeAbsolute45(bear - theta)) % 360 + 360) % 360;
         let base = lastDiscreteBearingRef.current;
-        // Re-anchor to current grid if no baseline yet or user rotated away from last discrete bearing
+        // Re-anchor to current grid if:
+        // - no baseline yet
+        // - user rotated away from last discrete bearing
+        // - view type changed (e.g., toggled into/out of isometric)
+        // - dominant area orientation changed materially (>= 1°)
         const diffFromLast = (base == null) ? Infinity : Math.abs((((current - base) % 360) + 540) % 360 - 180);
-        if (base == null || diffFromLast > 2) {
+        const prevIso = lastIsoRef.current;
+        const prevTheta = lastThetaRef.current;
+        const thetaDrift = (prevTheta == null) ? 0 : Math.abs((((theta - prevTheta) % 360) + 540) % 360 - 180);
+        const needsReanchor = (base == null) || (diffFromLast > 2) || (prevIso != null && prevIso !== isIso) || (prevTheta != null && thetaDrift > 1);
+        if (needsReanchor) {
           base = snapToGrid(current);
         }
+        // Update refs for next key press
+        lastIsoRef.current = isIso;
+        lastThetaRef.current = theta;
         const target = ((base + dir * 45) % 360 + 360) % 360;
         try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
         try {
