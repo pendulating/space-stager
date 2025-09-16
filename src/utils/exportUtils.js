@@ -491,7 +491,8 @@ export const exportPermitAreaSiteplanV2 = async (
                 if (!f || f.geometry?.type !== 'Point') return f;
                 const p = f.properties || {};
                 const baseAngle = (typeof p.icon_base_bearing === 'number') ? p.icon_base_bearing : 0;
-                const eff = (((baseAngle - quantizeToSlices(snappedBearing, 8, 22.5)) % 360) + 360) % 360;
+                const centerOffset = (viewType === 'isometric') ? 22.5 : 0;
+                const eff = (((baseAngle - quantizeToSlices(snappedBearing, 8, centerOffset)) % 360) + 360) % 360;
                 const q = quantizeAngleTo45(eff);
                 const img = buildSpriteImageId(baseName, q);
                 if (p.icon_image === img) return f;

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { PLACEABLE_OBJECTS } from '../constants/placeableObjects.js';
-import { quantizeToSlices } from '../utils/enhancedRenderingUtils.js';
+import { quantizeToSlices } from '../utils/enhancedRenderingUtils';
 
 const DEBUG = false; // Set to true to enable click-to-place debug logs
 
@@ -157,7 +157,8 @@ export const useClickToPlace = (map) => {
       const cur = typeof prev.rotationDeg === 'number' ? prev.rotationDeg : 0;
       let next = (cur + delta45) % 360;
       if (next < 0) next += 360;
-      const q = ((quantizeToSlices(next, 8, 22.5)) + 360) % 360;
+      const isIso = (map?.getPitch ? map.getPitch() : 0) > 15;
+      const q = ((quantizeToSlices(next, 8, isIso ? 22.5 : 0)) + 360) % 360;
       return { ...prev, rotationDeg: q };
     });
   }, [map]);

@@ -369,8 +369,8 @@ export const computeFeatureSpriteAngle = ({
       ? view.bearing
       : (map && typeof map.getBearing === 'function' ? map.getBearing() : 0);
     const viewType = (typeof view?.viewType === 'string') ? view.viewType : getMapViewType(map);
-    // Default center offset: use 22.5° for both isometric and top-down
-    const defaultOffset = 22.5;
+    // Default center offset: 22.5° for isometric, 0° for top-down
+    const defaultOffset = (viewType === VIEW_TYPES.ISOMETRIC) ? 22.5 : 0;
     const camQ = quantizeToSlices(bearingRaw, slices, (centerOffsetDeg != null ? centerOffsetDeg : defaultOffset));
     // Effective angle measured against camera slice center
     const eff = norm(baseAngle - camQ);

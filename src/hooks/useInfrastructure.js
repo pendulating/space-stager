@@ -291,37 +291,21 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
         // Per-layer camera bucket to avoid redundant mass recompute
         const bearingRaw = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
         let areaBearing = 0;
-        try {
-          if (areaGeom) {
-            const p = (typeof view?.pitch === 'number') ? view.pitch : (map && typeof map.getPitch === 'function' ? map.getPitch() : 0);
-            areaBearing = computeAreaOrientation({ map, geometry: areaGeom, pitch: p });
-          }
-        } catch (_) { areaBearing = 0; }
+        try { if (areaGeom) areaBearing = computeAreaOrientation({ map, geometry: areaGeom }); } catch (_) { areaBearing = 0; }
         const rel = quantizeBearingForSprites((Number(bearingRaw) - Number(areaBearing)), false);
         const snappedBucket = (((Number(areaBearing) + rel) % 360) + 360) % 360;
-        const prevEntry = lastCameraBucketRef.current[layerId];
-        const prevBucket = (prevEntry && typeof prevEntry.bucket === 'number') ? prevEntry.bucket : undefined;
-        const prevArea = (prevEntry && typeof prevEntry.area === 'number') ? prevEntry.area : undefined;
-        const areaDrift = (prevArea == null) ? Infinity : Math.abs((((Number(areaBearing) - Number(prevArea)) % 360) + 540) % 360 - 180);
-        if (prevBucket === snappedBucket && areaDrift < 0.5) {
-          return; // Skip when both bucket and area orientation are effectively unchanged
+        const prevBucket = lastCameraBucketRef.current[layerId];
+        if (typeof prevBucket === 'number' && prevBucket === snappedBucket) {
+          return; // Skip when bucket unchanged
         }
-        lastCameraBucketRef.current[layerId] = { bucket: snappedBucket, area: areaBearing };
+        lastCameraBucketRef.current[layerId] = snappedBucket;
         let changed = false;
         const newFeatures = data.features.map((f) => {
           if (!f || f.geometry?.type !== 'Point') return f;
           const p = f.properties || {};
           const facingMode = cfg?.enhancedRendering?.facingMode;
           const side = p.icon_side || null;
-          let baseAngle = (typeof p.icon_base_bearing === 'number') ? p.icon_base_bearing : 0;
-          const baseSource = p.icon_base_bearing_source || null;
-          if (baseSource === 'area' || baseSource === 'fallback') {
-            try {
-              const pch = (typeof view?.pitch === 'number') ? view.pitch : (map && typeof map.getPitch === 'function' ? map.getPitch() : 0);
-              const axisNow = computeAreaOrientation({ map, geometry: areaGeom, pitch: pch });
-              if (typeof axisNow === 'number') baseAngle = axisNow;
-            } catch (_) {}
-          }
+          const baseAngle = (typeof p.icon_base_bearing === 'number') ? p.icon_base_bearing : 0;
           const { imageId: img } = computeFeatureSpriteAngle({
             map,
             view,
@@ -331,9 +315,9 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
             side,
             spriteBase: cfg.enhancedRendering.spriteBase
           }) || {};
-          if (p.icon_image !== img || p.icon_base_bearing !== baseAngle) {
+          if (p.icon_image !== img) {
             changed = true;
-            return { ...f, properties: { ...p, icon_image: img, icon_base_bearing: baseAngle } };
+            return { ...f, properties: { ...p, icon_image: img } };
           }
           return f;
         });

@@ -787,7 +787,11 @@ const MapContainer = forwardRef(({
   };
 
   // Projection toggle
-  const snapToNearest45 = (deg) => quantizeToSlices(deg, 8, 22.5);
+  const snapToNearest45 = (deg) => {
+    const isIso = (view?.pitch || 0) > 15;
+    const centerOffset = isIso ? 22.5 : 0;
+    return quantizeToSlices(deg, 8, centerOffset);
+  };
   const handleToggleProjection = () => {
     if (!map) return;
     const currentCenter = map.getCenter ? map.getCenter() : null;
@@ -826,7 +830,7 @@ const MapContainer = forwardRef(({
         const p = (map.getPitch ? map.getPitch() : 0);
         const isIso = p > 15;
         const areaGeom = (permitAreas?.hasSubFocus ? permitAreas?.subFocusArea?.geometry : permitAreas?.focusedArea?.geometry) || null;
-        const centerOffset = 22.5;
+        const centerOffset = isIso ? 22.5 : 0;
         const theta = areaGeom ? computeAreaOrientation({ map, geometry: areaGeom, pitch: p }) : 0;
         let base = lastDiscreteBearingRef.current;
         // Re-anchor to current grid if:
@@ -867,7 +871,8 @@ const MapContainer = forwardRef(({
       try {
         if (suppressRotateSnapRef.current) { suppressRotateSnapRef.current = false; return; }
         const current = (typeof map.getBearing === 'function') ? map.getBearing() : 0;
-        const absQ = quantizeToSlices(current, 8, 22.5);
+        const isIso = (map.getPitch ? map.getPitch() : 0) > 15;
+        const absQ = quantizeToSlices(current, 8, isIso ? 22.5 : 0);
         const delta = Math.abs((((absQ - current) % 360) + 540) % 360 - 180);
         if (delta > 0.5) {
           try { lastDiscreteBearingRef.current = absQ; map.rotateTo(absQ, { duration: 120 }); } catch (_) {}

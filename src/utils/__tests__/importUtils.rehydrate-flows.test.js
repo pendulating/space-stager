@@ -163,10 +163,9 @@ describe('importUtils rehydration flows', () => {
     await waitFor(() => {
       expect(waitForFocus).toHaveBeenCalled();
       expect(map.setPitch).toHaveBeenCalledWith(0);
-      // Bearing is quantized to 45° slices centered at 22.5°
+      // Bearing is quantized to 45° increments
       const b = map.setBearing.mock.calls[0][0];
-      const mod = (((b - 22.5) % 45) + 45) % 45;
-      expect(mod).toBeCloseTo(0, 5);
+      expect(((b % 45) + 45) % 45).toBe(0);
     });
   });
 });

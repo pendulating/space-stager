@@ -95,13 +95,16 @@ export const snapCameraBearingToArea = (bearingDeg, { map = null, areaGeom = nul
     // Use uniform slices centered per view for relative snapping
     let snapped = normalizeAngle(bearingDeg);
     if (areaBearing != null) {
-      const centerOffset = 22.5;
+      const isIso = p > 15;
+      const centerOffset = isIso ? 22.5 : 0;
       const rel = normalizeAngle(bearingDeg - areaBearing);
       const relQ = quantizeToSlices(rel, 8, centerOffset);
       snapped = normalizeAngle(areaBearing + relQ);
     }
     if (enforceAbsolute45) {
-      snapped = quantizeToSlices(snapped, 8, 22.5);
+      const isIso = p > 15;
+      const centerOffset = isIso ? 22.5 : 0;
+      snapped = quantizeToSlices(snapped, 8, centerOffset);
     }
     return snapped;
   } catch (_) {
