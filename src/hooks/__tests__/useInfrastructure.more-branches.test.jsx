@@ -19,6 +19,9 @@ vi.mock('../../utils/iconUtils', () => ({ addIconsToMap: vi.fn(), retryLoadIcons
 vi.mock('../../utils/enhancedRenderingUtils', () => ({
   addEnhancedSpritesToMap: vi.fn(async () => {}),
   computeNearestLineBearing: vi.fn(() => 10),
+  // New helpers used by the implementation
+  computeNearestSegmentClosestPointBearing: vi.fn(() => ({ axisBearing: 0, side: 'right' })),
+  computeFeatureSpriteAngle: vi.fn(({ spriteBase }) => ({ angle: 0, imageId: `${spriteBase || 'linknyc'}_000` })),
   quantizeAngleTo45: vi.fn(() => 0),
   buildSpriteImageId: vi.fn((base, q) => `${base}_${String(q).padStart(3,'0')}`),
   VIEW_TYPES: { ISOMETRIC: 'isometric', TOP_DOWN: 'top-down' },

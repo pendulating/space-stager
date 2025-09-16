@@ -75,7 +75,7 @@ export const INITIAL_LAYERS = {
       enabled: true,
       spriteBase: 'bike-rack',
       publicDir: '/static/bike-rack/isometric/renders',
-      desiredParallelTo: 'cscl',
+      facingMode: 'awayFromStreet',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
   },
@@ -132,10 +132,7 @@ export const INITIAL_LAYERS = {
       enabled: true,
       spriteBase: 'parking-meter',
       publicDir: '/static/parking-meter/isometric/renders',
-      desiredParallelTo: 'cscl',
-      // Rotate starting angle by +90° so meters face the street
-      zeroOffsetDeg: 90,
-      zeroOffsetDegByView: { isometric: 90, 'top-down': 90 },
+      facingMode: 'towardStreet',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
   },
@@ -267,7 +264,7 @@ export const INITIAL_LAYERS = {
       enabled: true,
       spriteBase: 'bench',
       publicDir: '/static/bench/isometric/renders',
-      desiredParallelTo: 'cscl',
+      facingMode: 'awayFromStreet',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
   },

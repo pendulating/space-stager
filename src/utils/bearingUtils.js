@@ -1,5 +1,5 @@
 // utils/bearingUtils.js
-import { quantizeAngleTo45, quantizeAngleTo90, quantizeBearingForSprites, computeDominantBearingFromPolygon, computeDominantViewportBearing } from './enhancedRenderingUtils';
+import { quantizeAngleTo45, quantizeAngleTo90, quantizeBearingForSprites, computeDominantBearingFromPolygon, computeDominantViewportBearing, quantizeToSlices, VIEW_TYPES, getMapViewType } from './enhancedRenderingUtils';
 
 export const normalizeAngle = (deg) => ((Number(deg) % 360) + 360) % 360;
 
@@ -92,13 +92,20 @@ export const snapCameraBearingToArea = (bearingDeg, { map = null, areaGeom = nul
     const p = (typeof pitch === 'number') ? pitch : (map && typeof map.getPitch === 'function' ? map.getPitch() : 0);
     let areaBearing = null;
     if (areaGeom) areaBearing = computeAreaOrientation({ map, geometry: areaGeom, pitch: p });
-    let snapped = (areaBearing != null)
-      ? snapBearingRelativeToArea(bearingDeg, areaBearing, preferRightAngles)
-      : normalizeAngle(bearingDeg);
-    if (enforceAbsolute45) snapped = quantizeAbsolute45(snapped);
+    // Use uniform slices centered per view for relative snapping
+    let snapped = normalizeAngle(bearingDeg);
+    if (areaBearing != null) {
+      const centerOffset = 22.5;
+      const rel = normalizeAngle(bearingDeg - areaBearing);
+      const relQ = quantizeToSlices(rel, 8, centerOffset);
+      snapped = normalizeAngle(areaBearing + relQ);
+    }
+    if (enforceAbsolute45) {
+      snapped = quantizeToSlices(snapped, 8, 22.5);
+    }
     return snapped;
   } catch (_) {
-    return quantizeAbsolute45(bearingDeg);
+    return quantizeToSlices(bearingDeg, 8, 0);
   }
 };
 
@@ -113,7 +120,7 @@ export const getSnappedBearing = (map, areaGeom, pitch = null, baseBearing = nul
       : (map && typeof map.getBearing === 'function' ? map.getBearing() : 0);
     return snapCameraBearingToArea(cur, { map, areaGeom, pitch, preferRightAngles, enforceAbsolute45: false });
   } catch (_) {
-    return quantizeAbsolute45(baseBearing != null ? baseBearing : 0);
+    return quantizeToSlices(baseBearing != null ? baseBearing : 0, 8, 0);
   }
 };
 

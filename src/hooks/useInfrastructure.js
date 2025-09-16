@@ -9,7 +9,7 @@ import { calculateGeometryBounds, expandBounds } from '../utils/geometryUtils';
 import { createInfrastructureTooltipContent } from '../utils/tooltipUtils';
 import { addIconsToMap, retryLoadIcons, INFRASTRUCTURE_ICONS } from '../utils/iconUtils';
 import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
-import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId, getMapViewType, buildSpriteUrl, buildFlatSpriteUrl, quantizeBearingForSprites } from '../utils/enhancedRenderingUtils';
+import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId, getMapViewType, buildSpriteUrl, buildFlatSpriteUrl, quantizeBearingForSprites, computeNearestSegmentClosestPointBearing, computeFeatureSpriteAngle } from '../utils/enhancedRenderingUtils';
 import { snapBearingRelativeToArea, computeAreaOrientation } from '../utils/bearingUtils';
 import { useMapViewState } from './useMapViewState';
 import { DISABLED_INFRASTRUCTURE_LAYERS } from '../constants/layers';
@@ -21,7 +21,8 @@ import { prefetchView } from '../utils/spriteResolver';
 export const useInfrastructure = (map, focusedArea, layers, setLayers, options = {}) => {
   const view = useMapViewState(map);
   if (DEBUG_INFRA) console.log('[DEBUG] useInfrastructure hook called with map:', !!map);
-  const DEFAULT_ZERO_OFFSET_BY_VIEW = { 'isometric': -90, 'top-down': 0 };
+  // Removed DEFAULT_ZERO_OFFSET_BY_VIEW; final sprite angle derived from
+  // base bearing + camera snapping without static zero-offset calibration.
   
   const [infrastructureData, setInfrastructureData] = useState({
     trees: null,
@@ -50,6 +51,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
   // Use refs to track state and prevent loops
   const prevFocusedAreaIdRef = useRef(null);
   const loadingLayersRef = useRef(new Set());
+  const lastCameraBucketRef = useRef({});
 
   // Get the focused area ID for comparison
   const focusedAreaId = focusedArea?.id || focusedArea?.properties?.id;
@@ -206,6 +208,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
 
     // Clear loading states
     loadingLayersRef.current.clear();
+    try { lastCameraBucketRef.current = {}; } catch (_) {}
   }, [focusedAreaId, map, options?.rehydratingImport]);
 
   // (moved below reloadVisibleLayers declaration)
@@ -214,10 +217,16 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
   useEffect(() => {
     if (!map) return;
     const onStyleLoad = () => {
-      try { setTimeout(() => addIconsToMap(map), 50); } catch (_) {}
+      try {
+        setTimeout(() => { try { if (typeof map?.hasImage === 'function') addIconsToMap(map); } catch (_) {} }, 50);
+      } catch (_) {}
     };
     // Fire once if style already loaded
-    try { if (map.isStyleLoaded && map.isStyleLoaded()) setTimeout(() => addIconsToMap(map), 50); } catch (_) {}
+    try {
+      if (map.isStyleLoaded && map.isStyleLoaded()) {
+        setTimeout(() => { try { if (typeof map?.hasImage === 'function') addIconsToMap(map); } catch (_) {} }, 50);
+      }
+    } catch (_) {}
     try { map.on('style.load', onStyleLoad); } catch (_) {}
     return () => { try { map.off('style.load', onStyleLoad); } catch (_) {} };
   }, [map]);
@@ -275,32 +284,56 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
         const data = infrastructureData?.[layerId];
         if (!data || !Array.isArray(data.features) || data.features.length === 0) return;
         const viewType = view?.viewType || getMapViewType(map);
-        const bearingNowRaw = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
-        const areaBearing = (() => { try {
-          const g = (focusedArea?.properties?.__subFocus ? focusedArea : null)?.geometry || (focusedArea?.geometry);
-          if (!g) return 0;
-          return computeAreaOrientation({ map, geometry: g });
-        } catch (_) { return 0; } })();
-        const zeroOffset = (cfg?.enhancedRendering?.zeroOffsetDegByView?.[viewType])
-          ?? (cfg?.enhancedRendering?.zeroOffsetDeg)
-          ?? DEFAULT_ZERO_OFFSET_BY_VIEW[viewType]
-          ?? 0;
-        const preferRightAngles = cfg?.enhancedRendering?.desiredParallelTo === 'cscl';
-        const quantize = preferRightAngles ? quantizeAngleTo90 : quantizeAngleTo45;
-        const bearingNow = snapBearingRelativeToArea(bearingNowRaw, areaBearing, preferRightAngles);
+        const areaGeom = (() => { try {
+          return (focusedArea?.properties?.__subFocus ? focusedArea : null)?.geometry || (focusedArea?.geometry);
+        } catch (_) { return null; } })();
 
+        // Per-layer camera bucket to avoid redundant mass recompute
+        const bearingRaw = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
+        let areaBearing = 0;
+        try {
+          if (areaGeom) {
+            const p = (typeof view?.pitch === 'number') ? view.pitch : (map && typeof map.getPitch === 'function' ? map.getPitch() : 0);
+            areaBearing = computeAreaOrientation({ map, geometry: areaGeom, pitch: p });
+          }
+        } catch (_) { areaBearing = 0; }
+        const rel = quantizeBearingForSprites((Number(bearingRaw) - Number(areaBearing)), false);
+        const snappedBucket = (((Number(areaBearing) + rel) % 360) + 360) % 360;
+        const prevEntry = lastCameraBucketRef.current[layerId];
+        const prevBucket = (prevEntry && typeof prevEntry.bucket === 'number') ? prevEntry.bucket : undefined;
+        const prevArea = (prevEntry && typeof prevEntry.area === 'number') ? prevEntry.area : undefined;
+        const areaDrift = (prevArea == null) ? Infinity : Math.abs((((Number(areaBearing) - Number(prevArea)) % 360) + 540) % 360 - 180);
+        if (prevBucket === snappedBucket && areaDrift < 0.5) {
+          return; // Skip when both bucket and area orientation are effectively unchanged
+        }
+        lastCameraBucketRef.current[layerId] = { bucket: snappedBucket, area: areaBearing };
         let changed = false;
         const newFeatures = data.features.map((f) => {
           if (!f || f.geometry?.type !== 'Point') return f;
           const p = f.properties || {};
-          const baseAngle = (typeof p.icon_base_bearing === 'number') ? p.icon_base_bearing : 0;
-          // Unify perception across views: compensate for map bearing in both modes using snapped camera bearing
-          const eff = (((baseAngle - bearingNow + zeroOffset) % 360 + 360) % 360);
-          const q = quantize(eff);
-          const img = buildSpriteImageId(cfg.enhancedRendering.spriteBase, q);
-          if (p.icon_image !== img) {
+          const facingMode = cfg?.enhancedRendering?.facingMode;
+          const side = p.icon_side || null;
+          let baseAngle = (typeof p.icon_base_bearing === 'number') ? p.icon_base_bearing : 0;
+          const baseSource = p.icon_base_bearing_source || null;
+          if (baseSource === 'area' || baseSource === 'fallback') {
+            try {
+              const pch = (typeof view?.pitch === 'number') ? view.pitch : (map && typeof map.getPitch === 'function' ? map.getPitch() : 0);
+              const axisNow = computeAreaOrientation({ map, geometry: areaGeom, pitch: pch });
+              if (typeof axisNow === 'number') baseAngle = axisNow;
+            } catch (_) {}
+          }
+          const { imageId: img } = computeFeatureSpriteAngle({
+            map,
+            view,
+            areaGeom,
+            facingMode,
+            baseAxisBearing: baseAngle,
+            side,
+            spriteBase: cfg.enhancedRendering.spriteBase
+          }) || {};
+          if (p.icon_image !== img || p.icon_base_bearing !== baseAngle) {
             changed = true;
-            return { ...f, properties: { ...p, icon_image: img } };
+            return { ...f, properties: { ...p, icon_image: img, icon_base_bearing: baseAngle } };
           }
           return f;
         });
@@ -316,7 +349,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
         }
       });
     } catch (_) {}
-  }, [map, layers, infrastructureData, view?.bearing, view?.viewType]);
+  }, [map, layers, infrastructureData, view?.bearing, view?.viewType, view?.pitch]);
 
   // Add infrastructure layer to map - move this before loadInfrastructureLayer
   const addInfrastructureLayerToMap = useCallback((layerId, data) => {
@@ -336,7 +369,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     removeInfrastructureLayer(layerId);
     const sourceId = `source-${layerId}`;
     // Lazily add only the icons needed for this specific layer
-    try { addIconsToMap(map, [layerId]); } catch (_) {}
+    try { if (typeof map?.hasImage === 'function') addIconsToMap(map, [layerId]); } catch (_) {}
     
     // Add source
     map.addSource(sourceId, {
@@ -585,39 +618,76 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
             ...filteredData,
             features: filteredData.features.map((f) => {
               if (!f || f.geometry?.type !== 'Point') return f;
-              let img = null;
+              const p = f.properties || {};
               let baseBearing = null;
+              let side = null;
+              let baseSource = null;
               if (lineFeatures && lineFeatures.length > 0) {
-                const br = computeNearestLineBearing(f, lineFeatures);
-                if (br != null) {
-                  baseBearing = br;
+                const local = computeNearestSegmentClosestPointBearing(f, lineFeatures);
+                if (local && typeof local.axisBearing === 'number') {
+                  baseBearing = local.axisBearing;
+                  side = local.side || null;
+                  baseSource = 'cscl';
+                } else {
+                  const br = computeNearestLineBearing(f, lineFeatures);
+                  if (br != null) { baseBearing = br; baseSource = 'cscl'; }
                 }
               }
-              // Compute sprite variant; compensate for map bearing in both views for consistent perception
-              try {
-                const viewType = view?.viewType || getMapViewType(map);
-                const bearingNowRaw = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
-                const areaBearing = (() => { try {
-                  const g = focusedArea?.geometry;
-                  if (!g) return 0;
-                  return computeAreaOrientation({ map, geometry: g });
-                } catch (_) { return 0; } })();
-                const zeroOffset = (cfg?.enhancedRendering?.zeroOffsetDegByView?.[viewType])
-                  ?? (cfg?.enhancedRendering?.zeroOffsetDeg)
-                  ?? DEFAULT_ZERO_OFFSET_BY_VIEW[viewType]
-                  ?? 0;
-                const preferRightAngles = cfg?.enhancedRendering?.desiredParallelTo === 'cscl';
-                const quantize = preferRightAngles ? quantizeAngleTo90 : quantizeAngleTo45;
-                const bearingNow = snapBearingRelativeToArea(bearingNowRaw, areaBearing, preferRightAngles);
-                const baseAngle = (baseBearing != null ? baseBearing : 0);
-                const eff = (((baseAngle - bearingNow + zeroOffset) % 360 + 360) % 360);
-                const q = quantize(eff);
-                img = buildSpriteImageId(cfg.enhancedRendering.spriteBase, q);
-              } catch (_) {
-                if (!img) img = buildSpriteImageId(cfg.enhancedRendering.spriteBase, 0);
+              if (baseBearing == null) {
+                // Fallback: use area orientation (viewport when pitched) and approximate side via centroid heuristic
+                try {
+                  const areaGeom = focusedArea?.geometry;
+                  const pitch = (typeof view?.pitch === 'number') ? view.pitch : (map && typeof map.getPitch === 'function' ? map.getPitch() : 0);
+                  const areaAxis = computeAreaOrientation({ map, geometry: areaGeom, pitch });
+                  baseBearing = (typeof areaAxis === 'number') ? areaAxis : 0;
+                  // centroid heuristic for side
+                  const centroid = (() => {
+                    try {
+                      if (!areaGeom || !areaGeom.type) return null;
+                      let ring = null;
+                      if (areaGeom.type === 'Polygon') {
+                        ring = Array.isArray(areaGeom.coordinates?.[0]) ? areaGeom.coordinates[0] : null;
+                      } else if (areaGeom.type === 'MultiPolygon') {
+                        ring = Array.isArray(areaGeom.coordinates?.[0]?.[0]) ? areaGeom.coordinates[0][0] : null;
+                      }
+                      if (!ring || ring.length === 0) return null;
+                      let sx = 0, sy = 0;
+                      ring.forEach(([x, y]) => { sx += x; sy += y; });
+                      const n = ring.length;
+                      return [sx / n, sy / n];
+                    } catch (_) { return null; }
+                  })();
+                  if (centroid && Array.isArray(f.geometry?.coordinates)) {
+                    const [cx, cy] = centroid;
+                    const [px, py] = f.geometry.coordinates;
+                    const rad = (Number(baseBearing) * Math.PI) / 180;
+                    const dx = Math.sin(rad) * 1e-4; // small step in lon
+                    const dy = Math.cos(rad) * 1e-4; // small step in lat
+                    const ax = cx, ay = cy;
+                    const bx = cx + dx, by = cy + dy;
+                    const abx = bx - ax, aby = by - ay;
+                    const apx = px - ax, apy = py - ay;
+                    const crossZ = abx * apy - aby * apx;
+                    side = crossZ > 0 ? 'left' : 'right';
+                  }
+                  baseSource = 'area';
+                } catch (_) {
+                  // final fallback
+                  baseBearing = 0;
+                  baseSource = 'fallback';
+                }
               }
-              const p = f.properties || {};
-              return { ...f, properties: { ...p, icon_image: img, icon_sprite_base: cfg.enhancedRendering.spriteBase, icon_base_bearing: baseBearing } };
+              const facingMode = cfg?.enhancedRendering?.facingMode;
+              const { imageId: img } = computeFeatureSpriteAngle({
+                map,
+                view,
+                areaGeom: focusedArea?.geometry,
+                facingMode,
+                baseAxisBearing: (baseBearing != null ? baseBearing : 0),
+                side,
+                spriteBase: cfg.enhancedRendering.spriteBase
+              }) || {};
+              return { ...f, properties: { ...p, icon_image: img, icon_sprite_base: cfg.enhancedRendering.spriteBase, icon_base_bearing: baseBearing, icon_side: side, icon_base_bearing_source: baseSource } };
             })
           };
         }

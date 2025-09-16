@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { padAngle, quantizeAngleTo45, computeBearingDegrees, computeNearestLineBearing, buildSpriteImageId, addEnhancedSpritesToMap } from '../enhancedRenderingUtils.js';
+import { padAngle, quantizeAngleTo45, computeBearingDegrees, computeNearestLineBearing, buildSpriteImageId, addEnhancedSpritesToMap, computeNearestSegmentClosestPointBearing, computeFeatureSpriteAngle } from '../enhancedRenderingUtils.js';
 
 describe('enhancedRenderingUtils branches', () => {
   it('padAngle/quantize/buildSpriteImageId basic cases', () => {
@@ -26,6 +26,28 @@ describe('enhancedRenderingUtils branches', () => {
     const bearing = computeNearestLineBearing(point, lines);
     expect(bearing).toBeGreaterThanOrEqual(0);
     expect(bearing).toBeLessThan(360);
+  });
+
+  it('computeNearestSegmentClosestPointBearing returns side and axis', () => {
+    const point = { type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: {} };
+    const lines = [{ type: 'Feature', geometry: { type: 'LineString', coordinates: [[-1, -1], [1, -1]] }, properties: {} }];
+    const res = computeNearestSegmentClosestPointBearing(point, lines);
+    expect(res).toBeTruthy();
+    expect(typeof res.axisBearing).toBe('number');
+    expect(res.side === 'left' || res.side === 'right').toBe(true);
+  });
+
+  it('computeFeatureSpriteAngle respects facingMode and side', () => {
+    const mockMap = { getBearing: () => 0, getPitch: () => 0 };
+    const view = { bearing: 0, pitch: 0 };
+    const areaGeom = { type: 'Polygon', coordinates: [[[0,0],[1,0],[1,1],[0,1],[0,0]]] };
+    // axis 90°, left side → towardStreet should choose right normal (axis+90) = 180
+    const toward = computeFeatureSpriteAngle({ map: mockMap, view, areaGeom, facingMode: 'towardStreet', baseAxisBearing: 90, side: 'left', spriteBase: 'bench' });
+    expect(toward).toBeTruthy();
+    expect(typeof toward.angle).toBe('number');
+    const away = computeFeatureSpriteAngle({ map: mockMap, view, areaGeom, facingMode: 'awayFromStreet', baseAxisBearing: 90, side: 'left', spriteBase: 'bench' });
+    expect(away).toBeTruthy();
+    expect(typeof away.angle).toBe('number');
   });
 
   it('addEnhancedSpritesToMap skips already-registered and registers new images', async () => {

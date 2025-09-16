@@ -298,7 +298,7 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
 
       let timeoutId;
       const onStyleLoaded = () => {
-        map.off('style.load', onStyleLoaded);
+        try { if (typeof map.off === 'function') map.off('style.load', onStyleLoaded); } catch (_) {}
         if (timeoutId) {
           clearTimeout(timeoutId);
         }
@@ -516,7 +516,7 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
           const bearing = map.getBearing();
           const pitch = map.getPitch();
           const onStyleLoaded = () => {
-            map.off('style.load', onStyleLoaded);
+            try { if (typeof map.off === 'function') map.off('style.load', onStyleLoaded); } catch (_) {}
             try { map.jumpTo({ center, zoom, bearing, pitch }); } catch (_) {}
             map.__currentCartoStyleUrl = desiredUrl;
             map.__currentBasemap = 'carto';

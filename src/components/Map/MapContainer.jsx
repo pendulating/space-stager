@@ -5,8 +5,8 @@ import ClickPopover from './ClickPopover';
 import { useZoneCreator } from '../../hooks/useZoneCreator';
 import OverlapSelector from './OverlapSelector';
 import DroppedObjects from './DroppedObjects';
-import { computeDominantBearingFromPolygon, computeDominantViewportBearing } from '../../utils/enhancedRenderingUtils';
-import { computeAreaOrientation, snapBearingRelativeToArea, quantizeAbsolute45, getSnappedBearing } from '../../utils/bearingUtils';
+import { computeDominantBearingFromPolygon, computeDominantViewportBearing, quantizeToSlices } from '../../utils/enhancedRenderingUtils';
+import { computeAreaOrientation, snapBearingRelativeToArea } from '../../utils/bearingUtils';
 import DroppedRectangles from './DroppedRectangles';
 import DroppedObjectNoteEditor from './DroppedObjectNoteEditor';
 import CustomShapeLabels from './CustomShapeLabels';
@@ -787,11 +787,7 @@ const MapContainer = forwardRef(({
   };
 
   // Projection toggle
-  const snapToNearest45 = (deg) => {
-    const d = ((deg % 360) + 360) % 360;
-    const step = 45;
-    return Math.round(d / step) * step;
-  };
+  const snapToNearest45 = (deg) => quantizeToSlices(deg, 8, 22.5);
   const handleToggleProjection = () => {
     if (!map) return;
     const currentCenter = map.getCenter ? map.getCenter() : null;
@@ -830,8 +826,8 @@ const MapContainer = forwardRef(({
         const p = (map.getPitch ? map.getPitch() : 0);
         const isIso = p > 15;
         const areaGeom = (permitAreas?.hasSubFocus ? permitAreas?.subFocusArea?.geometry : permitAreas?.focusedArea?.geometry) || null;
+        const centerOffset = 22.5;
         const theta = areaGeom ? computeAreaOrientation({ map, geometry: areaGeom, pitch: p }) : 0;
-        const snapToGrid = (bear) => ((theta + quantizeAbsolute45(bear - theta)) % 360 + 360) % 360;
         let base = lastDiscreteBearingRef.current;
         // Re-anchor to current grid if:
         // - no baseline yet
@@ -844,7 +840,7 @@ const MapContainer = forwardRef(({
         const thetaDrift = (prevTheta == null) ? 0 : Math.abs((((theta - prevTheta) % 360) + 540) % 360 - 180);
         const needsReanchor = (base == null) || (diffFromLast > 2) || (prevIso != null && prevIso !== isIso) || (prevTheta != null && thetaDrift > 1);
         if (needsReanchor) {
-          base = snapToGrid(current);
+          base = quantizeToSlices(current, 8, centerOffset);
         }
         // Update refs for next key press
         lastIsoRef.current = isIso;
@@ -871,9 +867,7 @@ const MapContainer = forwardRef(({
       try {
         if (suppressRotateSnapRef.current) { suppressRotateSnapRef.current = false; return; }
         const current = (typeof map.getBearing === 'function') ? map.getBearing() : 0;
-        const areaGeom = (permitAreas?.hasSubFocus ? permitAreas?.subFocusArea?.geometry : permitAreas?.focusedArea?.geometry) || null;
-        // Use unified snap that enforces absolute 45° alignment relative to area
-        const absQ = getSnappedBearing(map, areaGeom, (map.getPitch ? map.getPitch() : 0), current);
+        const absQ = quantizeToSlices(current, 8, 22.5);
         const delta = Math.abs((((absQ - current) % 360) + 540) % 360 - 180);
         if (delta > 0.5) {
           try { lastDiscreteBearingRef.current = absQ; map.rotateTo(absQ, { duration: 120 }); } catch (_) {}
@@ -1084,9 +1078,9 @@ const MapContainer = forwardRef(({
           if (!prev) return prev;
           const cur = Number(prev?.properties?.rotationDeg || 0);
           let next = normalizeAngle(cur + delta45);
-          const snapped = Math.round(next / 45) * 45 % 360;
+          const isIso = (map?.getPitch ? map.getPitch() : 0) > 15;
+          const snapped = ((quantizeToSlices(next, 8, isIso ? 22.5 : 0)) + 360) % 360;
           const nextProps = Object.assign({}, prev.properties || {}, { rotationDeg: snapped });
-          // Preserve geometry so rectangles keep rotation; for points, ensure geometryType detection stays intact
           return { ...prev, properties: nextProps };
         });
       } catch (_) {}

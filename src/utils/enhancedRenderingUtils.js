@@ -266,6 +266,123 @@ export const chooseAngleQuantizer = (preferRightAngles = false) => (preferRightA
 
 
 /**
+ * Quantize an absolute angle into N uniform slices with an optional center offset.
+ * Example: slices=8, centerOffset=22.5 produces centers at 22.5, 67.5, ...
+ */
+export const quantizeToSlices = (angleDeg, slices = 8, centerOffsetDeg = 0) => {
+  const a = ((Number(angleDeg) % 360) + 360) % 360;
+  const step = 360 / Math.max(1, Math.floor(Number(slices) || 8));
+  const off = Number(centerOffsetDeg) || 0;
+  const q = Math.round((a - off) / step) * step + off;
+  return ((q % 360) + 360) % 360;
+};
+
+/**
+ * Compute the closest segment to a point and derive a local frame:
+ * - axisBearing: direction of the segment (A->B) in degrees (0=N, CW+)
+ * - side: 'left' | 'right' based on sign of cross(AB, AP) in lon/lat space
+ * - normalLeft: axisBearing - 90 (normalized)
+ * - normalRight: axisBearing + 90 (normalized)
+ * Returns null if no valid line segments are found.
+ */
+export const computeNearestSegmentClosestPointBearing = (pointFeature, lineFeatures) => {
+  try {
+    const coords = pointFeature?.geometry?.coordinates;
+    if (!Array.isArray(coords) || coords.length < 2) return null;
+    const px = Number(coords[0]);
+    const py = Number(coords[1]);
+    if (!isFinite(px) || !isFinite(py)) return null;
+
+    let best = { distSq: Infinity, axisBearing: null, side: 'right' };
+
+    (lineFeatures || []).forEach((f) => {
+      const g = f?.geometry; if (!g) return;
+      const handleArr = (arr) => {
+        for (let i = 0; i < arr.length - 1; i++) {
+          const [ax, ay] = arr[i];
+          const [bx, by] = arr[i + 1];
+          // Distance squared in local planar approx (meters)
+          const dSq = pointToSegmentDistanceSq(px, py, ax, ay, bx, by);
+          if (dSq < best.distSq) {
+            // Segment axis bearing
+            const axisBearing = computeBearingDegrees(ax, ay, bx, by);
+            // Side-of-street using cross product sign in lon/lat (sufficient for orientation)
+            const abx = bx - ax; const aby = by - ay;
+            const apx = px - ax; const apy = py - ay;
+            const crossZ = abx * apy - aby * apx; // >0 => left of AB, <0 => right
+            const side = crossZ > 0 ? 'left' : 'right';
+            best = { distSq: dSq, axisBearing, side };
+          }
+        }
+      };
+      if (g.type === 'LineString') {
+        handleArr(g.coordinates || []);
+      } else if (g.type === 'MultiLineString') {
+        (g.coordinates || []).forEach(handleArr);
+      }
+    });
+
+    if (best.axisBearing == null) return null;
+    const axis = ((best.axisBearing % 360) + 360) % 360;
+    const normalLeft = ((axis - 90) % 360 + 360) % 360;
+    const normalRight = ((axis + 90) % 360 + 360) % 360;
+    return { axisBearing: axis, side: best.side, normalLeft, normalRight };
+  } catch (_) {
+    return null;
+  }
+};
+
+/**
+ * Compute final sprite angle and image id for a point feature given base axis, side, and camera.
+ * - facingMode: 'towardStreet' | 'awayFromStreet' | undefined (when undefined, uses axis)
+ * - Quantizes to nearest 45° bucket.
+ * - Avoids dependency on bearingUtils to prevent circular imports by inlining orientation logic.
+ */
+export const computeFeatureSpriteAngle = ({
+  map,
+  view,
+  areaGeom,
+  facingMode,
+  baseAxisBearing = 0,
+  side = null,
+  spriteBase,
+  slices = 8,
+  centerOffsetDeg,
+}) => {
+  try {
+    const norm = (d) => ((Number(d) % 360) + 360) % 360;
+    const axis = norm(baseAxisBearing);
+
+    // Choose baseAngle: axis or its normal depending on facingMode + side
+    let baseAngle = axis;
+    if (facingMode === 'towardStreet' || facingMode === 'awayFromStreet') {
+      const left = norm(axis - 90);
+      const right = norm(axis + 90);
+      const isLeft = side === 'left';
+      const toStreet = isLeft ? right : left;      // toward centerline
+      const awayStreet = isLeft ? left : right;    // away from centerline
+      baseAngle = (facingMode === 'towardStreet') ? toStreet : awayStreet;
+    }
+
+    // Camera state
+    const bearingRaw = (typeof view?.bearing === 'number')
+      ? view.bearing
+      : (map && typeof map.getBearing === 'function' ? map.getBearing() : 0);
+    const viewType = (typeof view?.viewType === 'string') ? view.viewType : getMapViewType(map);
+    // Default center offset: use 22.5° for both isometric and top-down
+    const defaultOffset = 22.5;
+    const camQ = quantizeToSlices(bearingRaw, slices, (centerOffsetDeg != null ? centerOffsetDeg : defaultOffset));
+    // Effective angle measured against camera slice center
+    const eff = norm(baseAngle - camQ);
+    const q = quantizeAngleTo45(eff);
+    const imageId = spriteBase ? buildSpriteImageId(spriteBase, q) : null;
+    return { angle: q, imageId };
+  } catch (_) {
+    return { angle: 0, imageId: spriteBase ? buildSpriteImageId(spriteBase, 0) : null };
+  }
+};
+
+/**
  * Quantize a map bearing to the appropriate step for sprite families.
  * When layers prefer parallel/perpendicular alignment, snap to 90°; otherwise 45°.
  */

@@ -106,9 +106,10 @@ describe('exportUtils export/import flows', () => {
       expect(call[0].type).toBe('chair');
       expect(map.setCenter).toHaveBeenCalledWith({ lng: -73.99, lat: 40.75 });
       expect(map.setZoom).toHaveBeenCalledWith(14);
-      // Bearing is quantized to 45° increments
+      // Bearing is quantized to 45° slices centered at 22.5°
       const b = map.setBearing.mock.calls[0][0];
-      expect(((b % 45) + 45) % 45).toBe(0);
+      const mod = (((b - 22.5) % 45) + 45) % 45;
+      expect(mod).toBeCloseTo(0, 5);
       expect(map.setPitch).toHaveBeenCalledWith(5);
       expect(draw.current.set).toHaveBeenCalled();
       expect(helpers.selectGeography).toHaveBeenCalledWith('parks');
@@ -141,10 +142,11 @@ describe('exportUtils export/import flows', () => {
       const pitchOrder = map.setPitch.mock.invocationCallOrder[0];
       const bearingOrder = map.setBearing.mock.invocationCallOrder[0];
       expect(pitchOrder).toBeLessThan(bearingOrder);
-      // Bearing should snap to nearest 45° relative to area (10° -> 0°). Accept small epsilon.
+      // Bearing should snap to nearest 45° slice center (offset 22.5°). Accept small epsilon.
       const arg = map.setBearing.mock.calls[0][0];
       const val = ((arg % 360) + 360) % 360;
-      expect(((val % 45) + 45) % 45).toBe(0);
+      const mod = (((val - 22.5) % 45) + 45) % 45;
+      expect(mod).toBeCloseTo(0, 5);
     });
   });
 
@@ -182,7 +184,8 @@ describe('exportUtils export/import flows', () => {
       expect(map.project).toHaveBeenCalled();
       const arg = map.setBearing.mock.calls[0][0];
       const val = ((arg % 360) + 360) % 360;
-      expect(((val % 45) + 45) % 45).toBe(0);
+      const mod = (((val - 22.5) % 45) + 45) % 45;
+      expect(mod).toBeCloseTo(0, 5);
     });
   });
 

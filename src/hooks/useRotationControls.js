@@ -64,6 +64,7 @@ export const useRotationControls = (options) => {
       const dir = (isPeriod || isRightBracket) ? 1 : -1;
 
       if (isPlacementActive && typeof rotatePlacementStep === 'function') {
+        // Uniform 8-slice rotation for placement
         try { rotatePlacementStep(dir * 45); } catch (_) {}
         return;
       }
@@ -80,6 +81,7 @@ export const useRotationControls = (options) => {
       }
 
       if (hasSelectedPoint && typeof rotateSelectedPointStep === 'function') {
+        // Uniform 8-slice rotation for enhanced points
         try { rotateSelectedPointStep(dir * 45); } catch (_) {}
         return;
       }

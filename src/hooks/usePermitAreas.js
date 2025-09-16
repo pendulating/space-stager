@@ -7,7 +7,7 @@ import { ensureBaseLayers as ensureGeoBaseLayers, setBaseVisibility as setGeoBas
 import { GEOGRAPHIES } from '../constants/geographies';
 import { useZoneCreatorContext } from '../contexts/ZoneCreatorContext.jsx';
 import bbox from '@turf/bbox';
-import { snapToNearest } from '../utils/enhancedRenderingUtils';
+import { snapToNearest, quantizeToSlices } from '../utils/enhancedRenderingUtils';
 import { computeAreaOrientation, snapCameraBearingToArea, getSnappedBearing } from '../utils/bearingUtils';
 import { intersect as turfIntersect, booleanIntersects as turfBooleanIntersects } from '@turf/turf';
 
@@ -476,8 +476,10 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         // Enforce the same computation as a single Q/E press from the current snapped grid
         const areaPitch = map?.getPitch ? map.getPitch() : 0;
         const aRel = computeAreaOrientation({ map, geometry: permitArea.geometry, pitch: areaPitch });
-        const b0 = getSnappedBearing(map, permitArea.geometry, areaPitch); // current grid anchor (A-relative)
-        const snappedBearing = ((aRel + Math.round((b0 - aRel) / 45) * 45) + 360) % 360;
+        const b0 = getSnappedBearing(map, permitArea.geometry, areaPitch);
+        const centerOffset = areaPitch > 15 ? 22.5 : 0;
+        const relQ = quantizeToSlices((b0 - aRel), 8, centerOffset);
+        const snappedBearing = ((aRel + relQ) + 360) % 360;
         map.easeTo({ center: geom.coordinates, zoom: targetZoom, bearing: snappedBearing, duration: 1100, essential: true, easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) });
         // Apply constraints when camera settles, but preserve visual end-center to avoid a jarring jump
         map.once('idle', () => {
@@ -523,7 +525,9 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         const areaPitch2 = map?.getPitch ? map.getPitch() : 0;
         const aRel2 = computeAreaOrientation({ map, geometry: geom, pitch: areaPitch2 });
         const b0_2 = getSnappedBearing(map, geom, areaPitch2, -angle);
-        const targetBearing = ((aRel2 + Math.round((b0_2 - aRel2) / 45) * 45) + 360) % 360;
+        const centerOffset2 = areaPitch2 > 15 ? 22.5 : 0;
+        const relQ2 = quantizeToSlices((b0_2 - aRel2), 8, centerOffset2);
+        const targetBearing = ((aRel2 + relQ2) + 360) % 360;
         if (typeof map.cameraForBounds === 'function') {
           const camera = map.cameraForBounds(orientedBbox, { padding });
           const finalCamera = { ...camera, bearing: targetBearing, duration: 1200, essential: true, easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) };

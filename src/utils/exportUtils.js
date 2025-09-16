@@ -39,7 +39,7 @@ import { BLUEPRINT_THEME, registerBlueprintFonts, setPdfFont, drawTextWithWipe, 
 import { loadInfrastructureData } from '../services/infrastructureService';
 import { INFRASTRUCTURE_ENDPOINTS, EXPORT_ENDPOINTS } from '../constants/endpoints';
 import { distance as turfDistance, destination as turfDestination, bearing as turfBearing, buffer as turfBuffer, booleanIntersects as turfBooleanIntersects } from '@turf/turf';
-import { computeDominantBearingFromPolygon, computeDominantViewportBearing, quantizeBearingForSprites, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId } from './enhancedRenderingUtils';
+import { computeDominantBearingFromPolygon, computeDominantViewportBearing, quantizeBearingForSprites, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId, quantizeToSlices } from './enhancedRenderingUtils';
 import { snapCameraBearingToArea, quantizeAbsolute45, getSnappedBearing } from './bearingUtils';
 import { getIconDataUrl, INFRASTRUCTURE_ICONS } from './iconUtils';
 import { switchBasemap } from './mapUtils';
@@ -483,10 +483,6 @@ export const exportPermitAreaSiteplanV2 = async (
             if (layerId === 'permitAreas' || !cfg?.visible || !cfg?.enhancedRendering?.enabled) return;
             const data = infra?.[layerId];
             if (!data || !Array.isArray(data.features)) return;
-            const zeroOffset = (cfg?.enhancedRendering?.zeroOffsetDegByView?.[viewType])
-              ?? (cfg?.enhancedRendering?.zeroOffsetDeg)
-              ?? DEFAULT_ZERO_OFFSET_BY_VIEW[viewType]
-              ?? 0;
             const preferRightAngles = cfg?.enhancedRendering?.desiredParallelTo === 'cscl';
             const baseName = cfg?.enhancedRendering?.spriteBase;
             if (!baseName) return;
@@ -495,8 +491,8 @@ export const exportPermitAreaSiteplanV2 = async (
                 if (!f || f.geometry?.type !== 'Point') return f;
                 const p = f.properties || {};
                 const baseAngle = (typeof p.icon_base_bearing === 'number') ? p.icon_base_bearing : 0;
-                const eff = (((baseAngle - snappedBearing + zeroOffset) % 360) + 360) % 360;
-                const q = quantizeAbsolute45(eff);
+                const eff = (((baseAngle - quantizeToSlices(snappedBearing, 8, 22.5)) % 360) + 360) % 360;
+                const q = quantizeAngleTo45(eff);
                 const img = buildSpriteImageId(baseName, q);
                 if (p.icon_image === img) return f;
                 return { ...f, properties: { ...p, icon_image: img } };

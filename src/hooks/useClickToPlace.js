@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { PLACEABLE_OBJECTS } from '../constants/placeableObjects.js';
+import { quantizeToSlices } from '../utils/enhancedRenderingUtils.js';
 
 const DEBUG = false; // Set to true to enable click-to-place debug logs
 
@@ -149,17 +150,17 @@ export const useClickToPlace = (map) => {
 
   // Centralized rotation now handled via useRotationControls in MapContainer
 
-  // External control to rotate placement by step (±45)
+  // External control to rotate placement by step (±45) using uniform 8-slice quantization
   const rotatePlacementModeBy = useCallback((delta45) => {
     setPlacementMode(prev => {
       if (!prev) return prev;
       const cur = typeof prev.rotationDeg === 'number' ? prev.rotationDeg : 0;
       let next = (cur + delta45) % 360;
       if (next < 0) next += 360;
-      const q = Math.round(next / 45) * 45;
-      return { ...prev, rotationDeg: ((q % 360) + 360) % 360 };
+      const q = ((quantizeToSlices(next, 8, 22.5)) + 360) % 360;
+      return { ...prev, rotationDeg: q };
     });
-  }, []);
+  }, [map]);
 
   return {
     droppedObjects,
