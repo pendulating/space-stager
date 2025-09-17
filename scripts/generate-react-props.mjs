@@ -1,0 +1,88 @@
+#!/usr/bin/env node
+import fs from 'fs';
+import path from 'path';
+
+const ROOT = path.resolve(process.cwd());
+const INPUT = path.join(ROOT, 'documentation.json');
+const OUT_DIR = path.join(ROOT, 'docs-site', 'docs', 'api');
+const OUT_FILE = path.join(OUT_DIR, 'components.md');
+
+function ensureDir(p) {
+  fs.mkdirSync(p, { recursive: true });
+}
+
+function escapePipe(str = '') {
+  return String(str).replace(/\|/g, '\\|');
+}
+
+function escapeMdx(str = '') {
+  return String(str)
+    .replace(/\{/g, '&#123;')
+    .replace(/\}/g, '&#125;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function renderPropsTable(propsObj) {
+  const entries = Object.entries(propsObj || {});
+  if (!entries.length) return '\n_No props_\n';
+  const headers = ['Name', 'Required', 'Default', 'Type'];
+  const sep = headers.map(() => '---').join(' | ');
+  const rows = entries.map(([name, meta]) => {
+    const required = meta?.required ? 'Yes' : 'No';
+    const def = escapeMdx(meta?.defaultValue?.value ?? '');
+    const type = escapeMdx(meta?.type?.name ?? meta?.flowType?.name ?? '');
+    return `${escapePipe(name)} | ${required} | ${escapePipe(def)} | ${escapePipe(type)}`;
+  });
+  return `\n${headers.join(' | ')}\n${sep}\n${rows.join('\n')}\n`;
+}
+
+function main() {
+  if (!fs.existsSync(INPUT)) {
+    console.error(`Missing ${INPUT}. Run react-docgen first.`);
+    process.exit(1);
+  }
+  const raw = fs.readFileSync(INPUT, 'utf8');
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    console.error('Failed to parse documentation.json');
+    throw e;
+  }
+  ensureDir(OUT_DIR);
+  const lines = [];
+  lines.push('---');
+  lines.push('title: React Components Reference');
+  lines.push('sidebar_position: 1');
+  lines.push('---');
+  lines.push('');
+  lines.push('Component prop reference generated from source via react-docgen.');
+  lines.push('');
+
+  const files = Object.keys(data).sort();
+  for (const file of files) {
+    const components = data[file] || [];
+    if (!components.length) continue;
+    lines.push(`## ${file}`);
+    lines.push('');
+    for (const comp of components) {
+      const name = comp.displayName || path.basename(file);
+      lines.push(`### ${name}`);
+      lines.push('');
+      if (comp.description) {
+        lines.push(comp.description);
+        lines.push('');
+      }
+      lines.push(renderPropsTable(comp.props));
+      lines.push('');
+    }
+  }
+
+  fs.writeFileSync(OUT_FILE, lines.join('\n'));
+  console.log(`Wrote ${OUT_FILE}`);
+}
+
+main();
+
+

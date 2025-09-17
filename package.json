@@ -26,11 +26,22 @@
     "test": "vitest run --coverage --passWithNoTests",
     "predeploy": "pnpm run build",
     "deploy": "gh-pages -d dist",
+    "docs:dev": "pnpm --dir docs-site start",
+    "docs:gen:react": "node scripts/generate-react-props.mjs",
+    "docs:gen:js": "node scripts/generate-js-api.mjs",
+    "docs:gen:constants": "node scripts/generate-constants-tables.mjs",
+    "docs:assets": "node scripts/copy-docs-assets.mjs",
+    "docs:build": "pnpm --dir docs-site build",
+    "docs:screenshots": "pnpm run build && node scripts/generate-doc-screenshots.mjs",
+    "docs:serve": "pnpm --dir docs-site serve",
+    "docs:screenshots:preview": "pnpm run build && (pnpm run preview -- --port 4173 --strictPort & PREVIEW_PID=$!; sleep 2; DOCS_PREVIEW_URL=http://127.0.0.1:4173 node scripts/generate-doc-screenshots.mjs; kill $PREVIEW_PID)",
+    "build:with-docs": "pnpm run build && pnpm run depcruise || true && pnpm run docs:gen:react && pnpm run docs:gen:js && pnpm run docs:gen:constants && pnpm run docs:assets && pnpm run docs:build && mkdir -p dist/docs && rsync -a docs-site/build/ dist/docs/",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "format": "prettier --write \"src/**/*.{js,jsx,json,css,md}\"",
     "test:unit": "vitest run --coverage --passWithNoTests",
     "size": "size-limit",
-    "postinstall": "node scripts/copy-vendor.mjs"
+    "postinstall": "node scripts/copy-vendor.mjs",
+    "depcruise": "node scripts/generate-dep-graph.mjs"
   },
   "dependencies": {
     "@mapbox/mapbox-gl-draw": "^1.4.3",
@@ -54,6 +65,7 @@
     "typescript-language-server": "^4.4.0"
   },
   "devDependencies": {
+    "@aduh95/viz.js": "^3.7.0",
     "@testing-library/jest-dom": "^6.4.2",
     "@testing-library/react": "^16.0.0",
     "@testing-library/user-event": "^14.5.2",
@@ -72,6 +84,7 @@
     "gh-pages": "^6.3.0",
     "jsdom": "^24.1.0",
     "msw": "^2.3.1",
+    "playwright": "^1.55.0",
     "postcss": "^8.4.32",
     "prettier": "^3.1.1",
     "size-limit": "^11.1.6",
