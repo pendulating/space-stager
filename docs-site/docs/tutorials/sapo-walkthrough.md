@@ -5,7 +5,7 @@ title: SAPO Walkthrough
 
 End-to-end example for planning a street event in NYC.
 
-![SAPO Walkthrough](/docs/sapo_walkthrough_15fps.gif)
+![SAPO Walkthrough](/sapo_walkthrough_15fps.gif)
 
 Steps:
 

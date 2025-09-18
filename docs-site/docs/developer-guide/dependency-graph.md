@@ -7,6 +7,6 @@ The following diagram shows the current module dependency graph.
 
 > Note: Diagram will appear once generated. If missing, run `pnpm run depcruise` to (re)create it.
 
-![Dependency Graph](/docs/dependency-graph.svg)
+![Dependency Graph](/dependency-graph.svg)
 
 

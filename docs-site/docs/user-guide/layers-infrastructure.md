@@ -9,4 +9,4 @@ title: Layers & Infrastructure
  
  - Example: all recommended layers enabled on a focused park zone:
 
-![All layers enabled](/docs/screens/parks_zoomin_alllayers.png)
+![All layers enabled](/screens/parks_zoomin_alllayers.png)
