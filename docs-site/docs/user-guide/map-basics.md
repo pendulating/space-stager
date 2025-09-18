@@ -7,6 +7,6 @@ title: Map Basics
 - Basemap: switch between Paper and Satellite via the left sidebar Basemap section.
 - Search: use "Search Zones" to find Parks, Plazas, or Intersections; click a result to focus.
 
-![Map basics](/screens/map_basics.png)
+![Map basics](/docs/screens/map_basics.png)
 
 
