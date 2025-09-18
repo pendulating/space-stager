@@ -41,10 +41,11 @@ function renderPropsTable(propsObj) {
 function main() {
   if (!fs.existsSync(INPUT)) {
     console.warn(`Missing ${INPUT}. Generating via react-docgen...`);
-    // Prefer local binary via pnpm; fall back to npx if needed
-    let res = spawnSync('pnpm', ['exec', 'react-docgen', '--pretty', '-o', 'documentation.json', 'src/components', '--extensions', 'jsx'], { stdio: 'inherit' });
+    // @react-docgen/cli v1+: path is a glob; --extensions removed; use -o/--pretty
+    const glob = 'src/components/**/*.{jsx,js}';
+    let res = spawnSync('pnpm', ['exec', 'react-docgen', glob, '--pretty', '-o', 'documentation.json'], { stdio: 'inherit' });
     if (res.status !== 0) {
-      res = spawnSync('npx', ['-y', '@react-docgen/cli', 'src/components', '--extensions', 'jsx', '--pretty', '-o', 'documentation.json'], { stdio: 'inherit', shell: true });
+      res = spawnSync('npx', ['-y', '@react-docgen/cli', glob, '--pretty', '-o', 'documentation.json'], { stdio: 'inherit', shell: true });
     }
     if (!fs.existsSync(INPUT)) {
       console.error(`Failed to generate ${INPUT}.`);
