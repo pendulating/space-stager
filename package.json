@@ -35,7 +35,7 @@
     "docs:screenshots": "pnpm run build && node scripts/generate-doc-screenshots.mjs",
     "docs:serve": "pnpm --dir docs-site serve",
     "docs:screenshots:preview": "pnpm run build && (pnpm run preview -- --port 4173 --strictPort & PREVIEW_PID=$!; sleep 2; DOCS_PREVIEW_URL=http://127.0.0.1:4173 node scripts/generate-doc-screenshots.mjs; kill $PREVIEW_PID)",
-    "build:with-docs": "pnpm run build && pnpm run depcruise || true && pnpm run docs:gen:react && pnpm run docs:gen:js && pnpm run docs:gen:constants && pnpm run docs:assets && pnpm run docs:build && mkdir -p dist/docs && rsync -a docs-site/build/ dist/docs/",
+    "build:with-docs": "pnpm run build && pnpm run depcruise || true && pnpm run docs:gen:react && pnpm run docs:gen:js && pnpm run docs:gen:constants && pnpm run docs:assets && pnpm run docs:build && mkdir -p dist/docs && rsync -a --delete docs-site/build/ dist/docs/",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "format": "prettier --write \"src/**/*.{js,jsx,json,css,md}\"",
     "test:unit": "vitest run --coverage --passWithNoTests",

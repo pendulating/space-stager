@@ -7,7 +7,13 @@ const ROOT = path.resolve(process.cwd());
 const OUT_SVG = path.join(ROOT, 'dependency-graph.svg');
 
 function runDepcruiseDOT() {
-  const args = ['--config', '.dependency-cruiser.js', '--include-only', '^src', '--output-type', 'dot', 'src'];
+  const configFile = fs.existsSync('.dependency-cruiser.js') ? '.dependency-cruiser.js' : null;
+  const args = [
+    ...(configFile ? ['--config', configFile] : ['--no-config']),
+    '--include-only', '^src',
+    '--output-type', 'dot',
+    'src'
+  ];
   const res = spawnSync(path.join(ROOT, 'node_modules/.bin/dependency-cruiser'), args, {
     encoding: 'utf8'
   });

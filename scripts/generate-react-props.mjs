@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'fs';
 import path from 'path';
+import { spawnSync } from 'node:child_process';
 
 const ROOT = path.resolve(process.cwd());
 const INPUT = path.join(ROOT, 'documentation.json');
@@ -39,8 +40,16 @@ function renderPropsTable(propsObj) {
 
 function main() {
   if (!fs.existsSync(INPUT)) {
-    console.error(`Missing ${INPUT}. Run react-docgen first.`);
-    process.exit(1);
+    console.warn(`Missing ${INPUT}. Generating via react-docgen...`);
+    // Prefer local binary via pnpm; fall back to npx if needed
+    let res = spawnSync('pnpm', ['exec', 'react-docgen', '--pretty', '-o', 'documentation.json', 'src/components', '--extensions', 'jsx'], { stdio: 'inherit' });
+    if (res.status !== 0) {
+      res = spawnSync('npx', ['-y', '@react-docgen/cli', 'src/components', '--extensions', 'jsx', '--pretty', '-o', 'documentation.json'], { stdio: 'inherit', shell: true });
+    }
+    if (!fs.existsSync(INPUT)) {
+      console.error(`Failed to generate ${INPUT}.`);
+      process.exit(1);
+    }
   }
   const raw = fs.readFileSync(INPUT, 'utf8');
   let data;
