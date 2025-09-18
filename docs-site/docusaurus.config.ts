@@ -7,7 +7,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 const config: Config = {
   title: 'Space Stager Docs',
   tagline: 'User & Developer documentation for the Space Stager platform',
-  favicon: 'img/spacestager_v1.png',
+  favicon: 'img/spacestager_v2.png',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
   future: {
