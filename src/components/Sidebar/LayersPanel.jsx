@@ -20,11 +20,11 @@ const LayersPanel = ({
   // State for tracking which groups are expanded
   const [expandedGroups, setExpandedGroups] = useState(new Set(['public-infrastructure', 'nyc-parks'])); // Start with some groups expanded
 
-  // Check if all layers are currently visible (recommended = all layers)
+  // Check if all layers are currently requested (recommended = all layers)
   const allLayersActive = useMemo(() => {
     return Object.entries(layers)
       .filter(([id, cfg]) => id !== 'permitAreas' && cfg && !cfg.disabled)
-      .every(([id, cfg]) => cfg && cfg.visible);
+      .every(([id, cfg]) => cfg && !!cfg.requested);
   }, [layers]);
 
   // Toggle all layers on/off (recommended = all)
@@ -32,9 +32,8 @@ const LayersPanel = ({
     Object.entries(layers)
       .filter(([id, cfg]) => id !== 'permitAreas' && cfg && !cfg.disabled)
       .forEach(([id, cfg]) => {
-        if (cfg && cfg.visible === allLayersActive) {
-          onToggleLayer(id);
-        }
+        const target = !allLayersActive;
+        if (!!cfg.requested !== target) onToggleLayer(id);
       });
   };
 
@@ -51,7 +50,7 @@ const LayersPanel = ({
     });
   };
 
-  // Check if all layers in a group are visible
+  // Check if all layers in a group are requested
   const getEffectiveGroupLayers = (groupId) => {
     const group = LAYER_GROUPS[groupId];
     if (!group) return [];
@@ -64,7 +63,7 @@ const LayersPanel = ({
   const isGroupActive = (groupId) => {
     const effective = getEffectiveGroupLayers(groupId);
     if (effective.length === 0) return false;
-    return effective.every(layerId => layers[layerId] && layers[layerId].visible);
+    return effective.every(layerId => layers[layerId] && layers[layerId].requested);
   };
 
   // Toggle all layers in a group
@@ -74,9 +73,8 @@ const LayersPanel = ({
     const groupActive = isGroupActive(groupId);
     effective.forEach(layerId => {
       const cfg = layers[layerId];
-      if (cfg && cfg.visible === groupActive) {
-        onToggleLayer(layerId);
-      }
+      const target = !groupActive;
+      if (!!cfg.requested !== target) onToggleLayer(layerId);
     });
   };
 
@@ -94,7 +92,7 @@ const LayersPanel = ({
       return (
         <div 
           className={`w-6 h-6 flex items-center justify-center ${config.loading ? 'animate-pulse' : ''}`}
-          style={{ opacity: config.visible ? 1 : 0.3 }}
+          style={{ opacity: config.requested ? 1 : 0.3 }}
         >
           {src ? (
             <img 
@@ -103,7 +101,7 @@ const LayersPanel = ({
               className="w-8 h-8 object-contain"
               style={{
                 filter: config.loading ? 'grayscale(100%)' : 'none',
-                opacity: config.visible ? 1 : 0.6
+                opacity: config.requested ? 1 : 0.6
               }}
               onError={(e) => {
                 try {
@@ -132,7 +130,7 @@ const LayersPanel = ({
           className={`w-4 h-4 rounded-full ${config.loading ? 'animate-pulse' : ''}`}
           style={{ 
             backgroundColor: config.loading ? '#9CA3AF' : config.color, 
-            opacity: config.visible ? 1 : 0.3 
+            opacity: config.requested ? 1 : 0.3 
           }}
         />
       );
@@ -143,7 +141,7 @@ const LayersPanel = ({
       return (
         <div 
           className={`w-6 h-6 flex items-center justify-center ${config.loading ? 'animate-pulse' : ''}`}
-          style={{ opacity: config.visible ? 1 : 0.3 }}
+          style={{ opacity: config.requested ? 1 : 0.3 }}
         >
           <img 
             src={svgToDataUrl(icon.svg)} 
@@ -151,7 +149,7 @@ const LayersPanel = ({
             className="w-8 h-8 object-contain"
             style={{
               filter: config.loading ? 'grayscale(100%)' : 'none',
-              opacity: config.visible ? 1 : 0.6
+              opacity: config.requested ? 1 : 0.6
             }}
           />
         </div>
@@ -163,7 +161,7 @@ const LayersPanel = ({
       return (
         <div 
           className={`w-6 h-6 flex items-center justify-center ${config.loading ? 'animate-pulse' : ''}`}
-          style={{ opacity: config.visible ? 1 : 0.3 }}
+          style={{ opacity: config.requested ? 1 : 0.3 }}
         >
           <img 
             src={icon.src} 
@@ -171,7 +169,7 @@ const LayersPanel = ({
             className="w-8 h-8 object-contain"
             style={{
               filter: config.loading ? 'grayscale(100%)' : 'none',
-              opacity: config.visible ? 1 : 0.6
+              opacity: config.requested ? 1 : 0.6
             }}
           />
         </div>
@@ -184,7 +182,7 @@ const LayersPanel = ({
         className={`w-4 h-4 rounded-full ${config.loading ? 'animate-pulse' : ''}`}
         style={{ 
           backgroundColor: config.loading ? '#9CA3AF' : config.color, 
-          opacity: config.visible ? 1 : 0.3 
+          opacity: config.requested ? 1 : 0.3 
         }}
       />
     );
@@ -253,6 +251,7 @@ const LayersPanel = ({
     // In DPR, enable permit areas or if focused area exists
     const isEnabled = (isPermitLayer || focusedArea) && !config.disabled;
     const isLoading = config.loading || false;
+    const isRequested = !!config.requested;
     const isVisible = !!config.visible;
     const isLoaded = !!config.loaded;
     const isEmpty = !!config.empty;
@@ -261,8 +260,8 @@ const LayersPanel = ({
     const renderStatusIcon = () => {
       if (isError) return <AlertCircle className="w-4 h-4 text-red-500" title="Error loading" />;
       if (isLoading) return <Loader2 className="w-4 h-4 text-blue-600 animate-spin" title="Loading" />;
-      if (isLoaded && isEmpty) return <Circle className="w-4 h-4 text-gray-300" title="No data" />;
-      if (isVisible && isLoaded) return <CheckCircle className="w-4 h-4 text-emerald-600" title="Loaded" />;
+      if (isRequested && isLoaded && isEmpty) return <Circle className="w-4 h-4 text-gray-300" title="No data" />;
+      if (isRequested && isLoaded && !isEmpty) return <CheckCircle className="w-4 h-4 text-emerald-600" title="Loaded" />;
       return <Circle className="w-4 h-4 text-gray-400" title="Hidden" />;
     };
     
@@ -281,7 +280,7 @@ const LayersPanel = ({
             }`}
             disabled={!isEnabled || isLoading}
           >
-            {config.visible ? (
+            {isRequested ? (
               <Eye className={`w-5 h-5 ${isEnabled ? 'text-blue-600' : 'text-gray-400 dark:text-gray-500'}`} />
             ) : (
               <EyeOff className={`w-5 h-5 ${isEnabled ? 'text-gray-600 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'}`} />
@@ -289,7 +288,7 @@ const LayersPanel = ({
           </button>
           {renderLayerIcon(layerId, config)}
           <span className={`text-sm font-medium ${
-            config.visible && isEnabled ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'
+            isRequested && isEnabled ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'
           }`}>
             {layerId === 'permitAreas' ? (geographyType === 'plazas' ? 'Plazas' : geographyType === 'intersections' ? 'Intersections' : 'Parks') : (config.name)}
           </span>
@@ -299,10 +298,10 @@ const LayersPanel = ({
           {isLoading && (
             <span className="text-[11px] text-gray-500 dark:text-gray-400">Loading…</span>
           )}
-          {isLoaded && isEmpty && (
+          {isRequested && isLoaded && isEmpty && (
             <span className="text-[11px] text-gray-400">No data</span>
           )}
-          {isVisible && isLoaded && !isEmpty && (
+          {isRequested && isLoaded && !isEmpty && (
             <span className="text-[11px] text-emerald-700 dark:text-emerald-400">Ready</span>
           )}
           {isError && (

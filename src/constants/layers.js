@@ -58,6 +58,7 @@ export const INITIAL_LAYERS = {
   },
   bikeLanes: { 
     visible: false, 
+    requested: false,
     name: 'Bike Lanes', 
     color: '#b2c5a5', 
     loading: false,
@@ -66,6 +67,7 @@ export const INITIAL_LAYERS = {
   },
   bikeParking: {
     visible: false,
+    requested: false,
     name: 'Bike Parking',
     color: '#b2c5a5',
     loading: false,
@@ -81,6 +83,7 @@ export const INITIAL_LAYERS = {
   },
   citibikeStations: {
     visible: false,
+    requested: false,
     name: 'Citibike Stations',
     color: '#0ea5e9',
     loading: false,
@@ -89,6 +92,7 @@ export const INITIAL_LAYERS = {
   },
   subwayEntrances: {
     visible: false,
+    requested: false,
     name: 'Subway Entrances',
     color: '#dc2626',
     loading: false,
@@ -97,6 +101,7 @@ export const INITIAL_LAYERS = {
   },
   fireLanes: {
     visible: false,
+    requested: false,
     name: 'Fire Lanes',
     color: '#ef4444',
     loading: false,
@@ -105,6 +110,7 @@ export const INITIAL_LAYERS = {
   },
   specialDisasterRoutes: {
     visible: false,
+    requested: false,
     name: 'Special Disaster Routes',
     color: '#f59e0b',
     loading: false,
@@ -113,6 +119,7 @@ export const INITIAL_LAYERS = {
   },
   pedestrianRamps: {
     visible: false,
+    requested: false,
     name: 'Pedestrian Ramps',
     color: '#8b5cf6',
     loading: false,
@@ -123,6 +130,7 @@ export const INITIAL_LAYERS = {
   },
   parkingMeters: {
     visible: false,
+    requested: false,
     name: 'Parking Meters',
     color: '#f59e0b',
     loading: false,
@@ -138,6 +146,7 @@ export const INITIAL_LAYERS = {
   },
   streetParkingSigns: {
     visible: false,
+    requested: false,
     name: 'Street Parking Regulations',
     color: '#111827',
     loading: false,
@@ -146,6 +155,7 @@ export const INITIAL_LAYERS = {
   },
   linknycKiosks: {
     visible: false,
+    requested: false,
     name: 'LinkNYC Kiosks',
     color: '#06b6d4',
     loading: false,
@@ -162,6 +172,7 @@ export const INITIAL_LAYERS = {
   },
   publicRestrooms: {
     visible: false,
+    requested: false,
     name: 'Public Restrooms',
     color: '#8b5cf6',
     loading: false,
@@ -170,6 +181,7 @@ export const INITIAL_LAYERS = {
   },
   drinkingFountains: {
     visible: false,
+    requested: false,
     name: 'Drinking Fountains',
     color: '#0891b2',
     loading: false,
@@ -178,6 +190,7 @@ export const INITIAL_LAYERS = {
   },
   sprayShowers: {
     visible: false,
+    requested: false,
     name: 'Spray Showers',
     color: '#0ea5e9',
     loading: false,
@@ -186,6 +199,7 @@ export const INITIAL_LAYERS = {
   },
   parksTrails: {
     visible: false,
+    requested: false,
     name: 'Parks Trails',
     color: '#059669',
     loading: false,
@@ -194,6 +208,7 @@ export const INITIAL_LAYERS = {
   },
   parkingLots: {
     visible: false,
+    requested: false,
     name: 'Parking Lots',
     color: '#dc2626',
     loading: false,
@@ -202,6 +217,7 @@ export const INITIAL_LAYERS = {
   },
   iceLadders: {
     visible: false,
+    requested: false,
     name: 'Ice Ladders',
     color: '#0ea5e9',
     loading: false,
@@ -210,6 +226,7 @@ export const INITIAL_LAYERS = {
   },
   parksSigns: {
     visible: false,
+    requested: false,
     name: 'Parks Signs',
     color: '#7c3aed',
     loading: false,
@@ -218,6 +235,7 @@ export const INITIAL_LAYERS = {
   },
   trees: { 
     visible: false, 
+    requested: false,
     name: 'Trees', 
     color: '#22c55e', 
     loading: false,
@@ -232,6 +250,7 @@ export const INITIAL_LAYERS = {
   },
   hydrants: { 
     visible: false, 
+    requested: false,
     name: 'Fire Hydrants', 
     color: '#ef4444', 
     loading: false,
@@ -247,6 +266,7 @@ export const INITIAL_LAYERS = {
 
   busStops: { 
     visible: false, 
+    requested: false,
     name: 'Bus Stops', 
     color: '#dc2626', 
     loading: false,
@@ -255,6 +275,7 @@ export const INITIAL_LAYERS = {
   },
   benches: { 
     visible: false, 
+    requested: false,
     name: 'Benches', 
     color: '#8b5cf6', 
     loading: false,
@@ -270,6 +291,7 @@ export const INITIAL_LAYERS = {
   },
   trashBaskets: {
     visible: false,
+    requested: false,
     name: 'Trash Baskets',
     color: '#374151',
     loading: false,
@@ -284,6 +306,7 @@ export const INITIAL_LAYERS = {
   },
   stationEnvelopes: {
     visible: false,
+    requested: false,
     name: 'Transit Station Envelopes',
     color: '#10b981',
     loading: false,
@@ -292,6 +315,7 @@ export const INITIAL_LAYERS = {
   },
   accessiblePedSignals: {
     visible: false,
+    requested: false,
     name: 'Accessible Ped Signals',
     color: '#eab308',
     loading: false,
@@ -300,6 +324,7 @@ export const INITIAL_LAYERS = {
   },
   curbCuts: {
     visible: false,
+    requested: false,
     name: 'Curb Cuts',
     color: '#ef4444',
     loading: false,
@@ -308,6 +333,7 @@ export const INITIAL_LAYERS = {
   },
   dcwpParkingGarages: {
     visible: false,
+    requested: false,
     name: 'DCWP Parking Garages',
     color: '#3b82f6',
     loading: false,

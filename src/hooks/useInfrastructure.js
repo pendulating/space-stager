@@ -124,7 +124,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     if (focusedAreaId) {
       // Load infrastructure data for layers that are visible
       Object.entries(layers).forEach(([layerId, config]) => {
-        if (layerId !== 'permitAreas' && !config?.disabled && !DISABLED_INFRASTRUCTURE_LAYERS.has(layerId) && config.visible && !loadingLayersRef.current.has(layerId)) {
+        if (layerId !== 'permitAreas' && !config?.disabled && !DISABLED_INFRASTRUCTURE_LAYERS.has(layerId) && config.requested && !loadingLayersRef.current.has(layerId)) {
           loadInfrastructureLayer(layerId);
         }
       });
@@ -141,7 +141,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       // Reset infrastructure data map
       setInfrastructureData({});
       
-      // Reset all layer states dynamically
+      // Reset all layer states dynamically (preserve requested intent)
       setLayers(prev => {
         const next = { ...prev };
         Object.keys(prev || {}).forEach((layerId) => {
@@ -238,7 +238,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     const viewType = view?.viewType || getMapViewType(map);
     try {
       Object.entries(layers).forEach(([layerId, cfg]) => {
-        if (!cfg?.visible || !cfg?.enhancedRendering?.enabled) return;
+        if (!cfg?.requested || !cfg?.enhancedRendering?.enabled) return;
         const base = cfg.enhancedRendering.spriteBase;
         const angles = cfg.enhancedRendering.angles || [0,45,90,135,180,225,270,315];
         // Replace existing images for this sprite family with the current view variant
@@ -280,7 +280,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     if (!map) return;
     try {
       Object.entries(layers).forEach(([layerId, cfg]) => {
-        if (!cfg?.visible || !cfg?.enhancedRendering?.enabled) return;
+        if (!cfg?.requested || !cfg?.enhancedRendering?.enabled) return;
         const data = infrastructureData?.[layerId];
         if (!data || !Array.isArray(data.features) || data.features.length === 0) return;
         const viewType = view?.viewType || getMapViewType(map);
@@ -702,8 +702,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
           loading: false, 
           error: false,
           loaded: true,
-          visible: isEmpty ? false : true,
-          empty: isEmpty
+          empty: isEmpty,
+          visible: (prev[layerId]?.requested && !isEmpty) ? true : false,
         }
       }));
       
@@ -922,23 +922,22 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     // Infrastructure layer toggling
     setLayers(prev => {
       const currentConfig = prev[layerId];
-      const willBeVisible = !currentConfig.visible;
-      
-      if (willBeVisible) {
-        // If turning on, load the data for this area
-        loadInfrastructureLayer(layerId);
+      const willBeRequested = !currentConfig.requested;
+      // Map side effect
+      if (willBeRequested) {
+        if (!currentConfig.loaded && !currentConfig.loading && !loadingLayersRef.current.has(layerId)) {
+          loadInfrastructureLayer(layerId);
+        } else {
+          try { toggleInfrastructureLayerVisibility(layerId, !currentConfig.empty); } catch (_) {}
+        }
       } else {
-        // If turning off, hide the layer
-        toggleInfrastructureLayerVisibility(layerId, false);
+        try { toggleInfrastructureLayerVisibility(layerId, false); } catch (_) {}
       }
-      
       return {
         ...prev,
-        [layerId]: { 
-          ...prev[layerId], 
-          visible: willBeVisible,
-          // Reset loaded state if turning on so it loads fresh data
-          loaded: willBeVisible ? false : prev[layerId].loaded
+        [layerId]: {
+          ...prev[layerId],
+          requested: willBeRequested
         }
       };
     });
@@ -949,7 +948,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     if (!map || !focusedArea) return;
     const run = () => {
       Object.entries(layers).forEach(([layerId, config]) => {
-        if (layerId !== 'permitAreas' && !config?.disabled && !DISABLED_INFRASTRUCTURE_LAYERS.has(layerId) && config.visible && !loadingLayersRef.current.has(layerId)) {
+        if (layerId !== 'permitAreas' && !config?.disabled && !DISABLED_INFRASTRUCTURE_LAYERS.has(layerId) && config.requested && !loadingLayersRef.current.has(layerId)) {
           loadInfrastructureLayer(layerId);
         }
       });
