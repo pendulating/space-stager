@@ -4,7 +4,7 @@ slug: /
 ---
 
 <div style={{display:'grid',gap:'1.25rem',placeItems:'center',textAlign:'center',padding:'2rem 0'}}>
-  <img src="img/logo.svg" alt="Space Stager" width="72" height="72" />
+  <img src="img/logo.png" alt="Space Stager" width="72" height="72" />
   <h1 style={{margin:'0.25rem 0'}}>Space Stager Documentation</h1>
   <p style={{maxWidth:780,margin:'0 auto',opacity:.85}}>
     Plan public‑space events with a fast, map‑first workflow. Place objects, annotate, validate,

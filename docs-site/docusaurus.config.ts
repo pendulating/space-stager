@@ -59,12 +59,12 @@ const config: Config = {
 
   themeConfig: {
     // Replace with your project's social card
-    image: 'img/logo.svg',
+    image: 'img/logo.png',
     navbar: {
       title: 'Space Stager',
       logo: {
         alt: 'Space Stager Logo',
-        src: 'img/logo.svg',
+        src: 'img/logo.png',
       },
       items: [
         { type: 'docSidebar', sidebarId: 'tutorialSidebar', position: 'left', label: 'Docs' },
