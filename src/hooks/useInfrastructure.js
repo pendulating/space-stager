@@ -48,10 +48,23 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     parksSigns: null
   });
 
+  // Bulk load queue (for "All Recommended") with limited concurrency
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ total: 0, completed: 0 });
+  const loadQueueRef = useRef([]);
+  const queuedSetRef = useRef(new Set());
+  const activeLoadsRef = useRef(0);
+  const maxConcurrentRef = useRef(1);
+
   // Use refs to track state and prevent loops
   const prevFocusedAreaIdRef = useRef(null);
   const loadingLayersRef = useRef(new Set());
   const lastCameraBucketRef = useRef({});
+  // Live layers ref to avoid stale-closure reads inside async callbacks
+  const layersRef = useRef(layers);
+  useEffect(() => { layersRef.current = layers; }, [layers]);
+
+  // (queue functions declared after loader)
 
   // Get the focused area ID for comparison
   const focusedAreaId = focusedArea?.id || focusedArea?.properties?.id;
@@ -77,19 +90,30 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     const sourceId = layerId;
     const altSourceId = `source-${layerId}`;
     try {
+      // Detach saved event handlers for this layer id(s) if present
+      try {
+        const H = map.__infraHandlers;
+        const offFor = (id) => {
+          if (!H || !H.has(id)) return;
+          const hs = H.get(id);
+          try { if (hs?.enter) map.off('mouseenter', id, hs.enter); } catch (_) {}
+          try { if (hs?.leave) map.off('mouseleave', id, hs.leave); } catch (_) {}
+          try { if (hs?.click) map.off('click', id, hs.click); } catch (_) {}
+          try { H.delete(id); } catch (_) {}
+        };
+        offFor(pointLayerId);
+        offFor(lineLayerId);
+        offFor(polygonLayerId);
+        offFor(altLayerId);
+      } catch (_) {}
+
       if (map.getLayer(pointLayerId)) {
-        try { map.off('mouseenter', pointLayerId); } catch {}
-        try { map.off('mouseleave', pointLayerId); } catch {}
-        try { map.off('click', pointLayerId); } catch {}
         map.removeLayer(pointLayerId);
       }
       if (map.getLayer(lineLayerId)) {
         map.removeLayer(lineLayerId);
       }
       if (map.getLayer(polygonLayerId)) {
-        try { map.off('mouseenter', polygonLayerId); } catch {}
-        try { map.off('mouseleave', polygonLayerId); } catch {}
-        try { map.off('click', polygonLayerId); } catch {}
         map.removeLayer(polygonLayerId);
       }
       if (map.getLayer(altLayerId)) {
@@ -121,14 +145,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       return;
     }
 
-    if (focusedAreaId) {
-      // Load infrastructure data for layers that are visible
-      Object.entries(layers).forEach(([layerId, config]) => {
-        if (layerId !== 'permitAreas' && !config?.disabled && !DISABLED_INFRASTRUCTURE_LAYERS.has(layerId) && config.requested && !loadingLayersRef.current.has(layerId)) {
-          loadInfrastructureLayer(layerId);
-        }
-      });
-    } else {
+    if (!focusedAreaId) {
       // Clear everything when focus is removed
       if (map) {
         try {
@@ -141,12 +158,12 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       // Reset infrastructure data map
       setInfrastructureData({});
       
-      // Reset all layer states dynamically (preserve requested intent)
+      // Reset all layer states dynamically (also clear requested intent)
       setLayers(prev => {
         const next = { ...prev };
         Object.keys(prev || {}).forEach((layerId) => {
           if (layerId === 'permitAreas') return;
-          next[layerId] = { ...prev[layerId], visible: false, loading: false, loaded: false, error: null };
+          next[layerId] = { ...prev[layerId], visible: false, loading: false, loaded: false, error: null, requested: false };
         });
         return next;
       });
@@ -172,43 +189,26 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
           ...prev,
           [layerId]: { 
             ...prev[layerId], 
-            visible: false,  // Force layers to be hidden
+            visible: false,  // hide until reloaded for new area
             loaded: false, 
             loading: false,
-            error: null
+            error: null,
+            // preserve requested intent across focus changes so All Recommended remains active
+            requested: prev[layerId]?.requested === true
           }
         }));
       }
     });
 
-    // Clear infrastructure data when focus changes
-    setInfrastructureData({
-      trees: null,
-      hydrants: null,
-      busStops: null,
-      benches: null,
-      trashBaskets: null,
-      bikeLanes: null,
-      bikeParking: null,
-      citibikeStations: null,
-      subwayEntrances: null,
-      fireLanes: null,
-      specialDisasterRoutes: null,
-      pedestrianRamps: null,
-      parkingMeters: null,
-      linknycKiosks: null,
-      publicRestrooms: null,
-      drinkingFountains: null,
-      sprayShowers: null,
-      parksTrails: null,
-      parkingLots: null,
-      iceLadders: null,
-      parksSigns: null
-    });
+    // Clear infrastructure data cache so old area data doesn't flash under new area
+    setInfrastructureData({});
 
     // Clear loading states
     loadingLayersRef.current.clear();
     try { lastCameraBucketRef.current = {}; } catch (_) {}
+
+    // After clearing previous area's layers/state, (re)load any requested layers for the new focus
+    try { reloadVisibleLayers(); } catch (_) {}
   }, [focusedAreaId, map, options?.rehydratingImport]);
 
   // (moved below reloadVisibleLayers declaration)
@@ -273,6 +273,54 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       try { if (typeof map.triggerRepaint === 'function') map.triggerRepaint(); } catch (_) {}
     } catch (_) {}
   }, [map, layers, view?.viewType]);
+
+  // On-demand image registration for infrastructure icons and enhanced sprites (styleimagemissing)
+  useEffect(() => {
+    if (!map) return;
+    const onMissing = async (e) => {
+      try {
+        const id = e && e.id;
+        if (!id || typeof id !== 'string') return;
+        try { if (map.hasImage && map.hasImage(id)) return; } catch (_) {}
+
+        // Enhanced sprite family: id like "base_045"
+        if (id.includes('_')) {
+          const parts = id.split('_');
+          const base = parts[0];
+          let angle = 0;
+          try { angle = parseInt(parts[1], 10); if (!isFinite(angle)) angle = 0; } catch (_) { angle = 0; }
+          const vt = view?.viewType || getMapViewType(map);
+          try {
+            await addEnhancedSpritesToMap(map, {
+              baseName: base,
+              publicDir: `/static/${base}`,
+              angles: [angle],
+              viewType: vt,
+              urlBuilder: buildFlatSpriteUrl,
+              replaceExisting: false
+            });
+            return;
+          } catch (_) {}
+        }
+
+        // Fallback to basic PNG/SVG infrastructure icons by ID
+        try {
+          const icon = Object.values(INFRASTRUCTURE_ICONS).find((v) => v && v.id === id);
+          if (icon && icon.src) {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            await new Promise((resolve) => {
+              img.onload = () => { try { map.addImage(id, img); } catch (_) {} resolve(true); };
+              img.onerror = () => resolve(false);
+              img.src = icon.src;
+            });
+          }
+        } catch (_) {}
+      } catch (_) {}
+    };
+    try { map.on('styleimagemissing', onMissing); } catch (_) {}
+    return () => { try { map.off('styleimagemissing', onMissing); } catch (_) {} };
+  }, [map, view?.viewType]);
 
   // Recompute per-feature icon_image for enhanced infra when bearing/view changes
   // Uses same logic as dropped objects: compensate for map bearing in isometric view
@@ -361,7 +409,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       data: data
     });
     
-    const layerStyle = getLayerStyle(layerId, layers[layerId], map);
+    const layerStyle = getLayerStyle(layerId, (layersRef.current && layersRef.current[layerId]) || layers[layerId], map);
     if (DEBUG_INFRA) console.log(`[DEBUG] Layer style for ${layerId}:`, layerStyle);
     
     // Try to place infra layers below draw controls if present; otherwise they end up on top
@@ -422,21 +470,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     
     if (hasPolygon && (layerStyle.type === 'fill' || layerId === 'stationEnvelopes')) {
       const polygonLayerId = `layer-${layerId}-polygon`;
-      // Prefer placing polygons below active zone geometry if present
-      let zoneBeforeId;
-      try {
-        const zoneCandidates = [
-          'sub-focus-fill','sub-focus-outline',
-          'permit-areas-focused-fill','permit-areas-focused-outline',
-          'plaza-areas-focused-fill','plaza-areas-focused-outline',
-          'permit-areas-fill','permit-areas-outline',
-          'plaza-areas-fill','plaza-areas-outline'
-        ];
-        for (const id of zoneCandidates) {
-          if (map.getLayer && map.getLayer(id)) { zoneBeforeId = id; break; }
-        }
-      } catch (_) {}
-      const finalBeforeId = zoneBeforeId || beforeId;
+      // Insert above zone fills by default (just below Draw if present)
+      const finalBeforeId = beforeId;
       map.addLayer({
         id: polygonLayerId,
         type: 'fill',
@@ -449,19 +484,24 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       }, finalBeforeId);
       if (DEBUG_INFRA) console.log(`[DEBUG] Added polygon layer: ${polygonLayerId}`);
       
-      // Add hover and click events for polygons
-      map.on('mouseenter', polygonLayerId, () => {
-        map.getCanvas().style.cursor = 'pointer';
-      });
-      map.on('mouseleave', polygonLayerId, () => {
-        map.getCanvas().style.cursor = '';
-      });
-      map.on('click', polygonLayerId, (e) => {
-        if (e.features.length === 0) return;
-        const feature = e.features[0];
-        const content = createInfrastructureTooltipContent(feature.properties, layerId);
-        if (DEBUG_INFRA) console.log('Infrastructure feature clicked:', content);
-      });
+      // Add hover and click events for polygons with tracked handlers
+      try {
+        const H = map.__infraHandlers || (map.__infraHandlers = new Map());
+        const onEnter = () => { try { map.getCanvas().style.cursor = 'pointer'; } catch (_) {} };
+        const onLeave = () => { try { map.getCanvas().style.cursor = ''; } catch (_) {} };
+        const onClick = (e) => {
+          try {
+            if (!e || !e.features || e.features.length === 0) return;
+            const feature = e.features[0];
+            const content = createInfrastructureTooltipContent(feature.properties, layerId);
+            if (DEBUG_INFRA) console.log('Infrastructure feature clicked:', content);
+          } catch (_) {}
+        };
+        map.on('mouseenter', polygonLayerId, onEnter);
+        map.on('mouseleave', polygonLayerId, onLeave);
+        map.on('click', polygonLayerId, onClick);
+        H.set(polygonLayerId, { enter: onEnter, leave: onLeave, click: onClick });
+      } catch (_) {}
     }
     
     if (hasPoint && (layerStyle.type === 'symbol' || layerStyle.type === 'circle')) {
@@ -477,44 +517,53 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       if (layerStyle.layout) {
         layerConfig.layout = layerStyle.layout;
       }
-      // Ensure icons do not rotate with map bearing/pitch
-      try {
-        layerConfig.layout = {
-          ...(layerConfig.layout || {}),
-          'symbol-placement': 'point',
-          'icon-rotation-alignment': 'viewport',
-          'icon-pitch-alignment': 'viewport',
-          'icon-rotate': 0
-        };
-      } catch (_) {}
+      // Only apply icon-alignment props for symbol layers
+      if (layerConfig.type === 'symbol') {
+        try {
+          layerConfig.layout = {
+            ...(layerConfig.layout || {}),
+            'symbol-placement': 'point',
+            'icon-rotation-alignment': 'viewport',
+            'icon-pitch-alignment': 'viewport',
+            'icon-rotate': 0,
+            'icon-anchor': 'center',
+            'icon-offset': [0, 0]
+          };
+        } catch (_) {}
+      }
       
       if (DEBUG_INFRA) console.log(`[DEBUG] Adding point layer: ${pointLayerId} with config:`, layerConfig);
       
       map.addLayer(layerConfig, beforeId);
       
-      map.on('mouseenter', pointLayerId, () => {
-        map.getCanvas().style.cursor = 'pointer';
-      });
-      map.on('mouseleave', pointLayerId, () => {
-        map.getCanvas().style.cursor = '';
-      });
-      map.on('click', pointLayerId, (e) => {
-        if (e.features.length === 0) return;
-        const feature = e.features[0];
-        const content = createInfrastructureTooltipContent(feature.properties, layerId);
-        if (DEBUG_INFRA) console.log('Infrastructure feature clicked:', content);
-      });
+      try {
+        const H = map.__infraHandlers || (map.__infraHandlers = new Map());
+        const onEnter = () => { try { map.getCanvas().style.cursor = 'pointer'; } catch (_) {} };
+        const onLeave = () => { try { map.getCanvas().style.cursor = ''; } catch (_) {} };
+        const onClick = (e) => {
+          try {
+            if (!e || !e.features || e.features.length === 0) return;
+            const feature = e.features[0];
+            const content = createInfrastructureTooltipContent(feature.properties, layerId);
+            if (DEBUG_INFRA) console.log('Infrastructure feature clicked:', content);
+          } catch (_) {}
+        };
+        map.on('mouseenter', pointLayerId, onEnter);
+        map.on('mouseleave', pointLayerId, onLeave);
+        map.on('click', pointLayerId, onClick);
+        H.set(pointLayerId, { enter: onEnter, leave: onLeave, click: onClick });
+      } catch (_) {}
       
       if (DEBUG_INFRA) console.log(`[DEBUG] Successfully added point layer: ${pointLayerId}`);
     }
-  }, [map, layers]);
+  }, [map, layers, view?.viewType]);
 
   // (removed duplicate definition further below)
 
   // Load infrastructure layer - now addInfrastructureLayerToMap is defined
   const loadInfrastructureLayer = useCallback(async (layerId) => {
     if (!map || !focusedArea || loadingLayersRef.current.has(layerId)) return;
-    const cfg = layers?.[layerId];
+    const cfg = layersRef.current?.[layerId];
     if (cfg?.disabled || DISABLED_INFRASTRUCTURE_LAYERS.has(layerId)) return;
     
     if (DEBUG_INFRA) console.log(`Loading ${layerId} for area:`, focusedArea.properties?.name || focusedArea.id);
@@ -899,6 +948,54 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     }
   }, [map]);
 
+  // (toggleLayer / reloadVisibleLayers are declared after queue helpers)
+
+  // Queue runner with limited concurrency (declared after loadInfrastructureLayer)
+  const drainQueue = useCallback(() => {
+    try {
+      while (activeLoadsRef.current < maxConcurrentRef.current && loadQueueRef.current.length > 0) {
+        const layerId = loadQueueRef.current.shift();
+        if (!layerId) continue;
+        activeLoadsRef.current += 1;
+        (async () => {
+          try {
+            await loadInfrastructureLayer(layerId);
+          } catch (_) {
+          } finally {
+            try { queuedSetRef.current.delete(layerId); } catch (_) {}
+            activeLoadsRef.current = Math.max(0, activeLoadsRef.current - 1);
+            setBulkProgress(prev => ({ total: prev.total, completed: Math.min(prev.total, prev.completed + 1) }));
+            if (loadQueueRef.current.length === 0 && activeLoadsRef.current === 0) {
+              setBulkLoading(false);
+            } else {
+              drainQueue();
+            }
+          }
+        })();
+      }
+    } catch (_) {}
+  }, [loadInfrastructureLayer]);
+
+  const enqueueLoad = useCallback((layerId) => {
+    try {
+      const cfg = layersRef.current?.[layerId];
+      if (!cfg || cfg.loading || cfg.loaded) return;
+      if (queuedSetRef.current.has(layerId)) return;
+      queuedSetRef.current.add(layerId);
+      loadQueueRef.current.push(layerId);
+      drainQueue();
+    } catch (_) {}
+  }, [drainQueue]);
+
+  const bulkCancelLoading = useCallback(() => {
+    try {
+      loadQueueRef.current = [];
+      queuedSetRef.current.clear();
+      setBulkLoading(false);
+      setBulkProgress({ total: 0, completed: 0 });
+    } catch (_) {}
+  }, []);
+
   // Toggle layer - fix to properly load data for new areas
   const toggleLayer = useCallback((layerId) => {
     // Only handle infrastructure layers, not permit areas
@@ -926,7 +1023,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       // Map side effect
       if (willBeRequested) {
         if (!currentConfig.loaded && !currentConfig.loading && !loadingLayersRef.current.has(layerId)) {
-          loadInfrastructureLayer(layerId);
+          enqueueLoad(layerId);
         } else {
           try { toggleInfrastructureLayerVisibility(layerId, !currentConfig.empty); } catch (_) {}
         }
@@ -941,7 +1038,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
         }
       };
     });
-  }, [focusedArea, loadInfrastructureLayer, toggleInfrastructureLayerVisibility, setLayers]);
+  }, [focusedArea, enqueueLoad, toggleInfrastructureLayerVisibility, setLayers]);
 
   // Reload any currently visible layers (useful after style changes)
   const reloadVisibleLayers = useCallback(() => {
@@ -949,7 +1046,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     const run = () => {
       Object.entries(layers).forEach(([layerId, config]) => {
         if (layerId !== 'permitAreas' && !config?.disabled && !DISABLED_INFRASTRUCTURE_LAYERS.has(layerId) && config.requested && !loadingLayersRef.current.has(layerId)) {
-          loadInfrastructureLayer(layerId);
+          enqueueLoad(layerId);
         }
       });
     };
@@ -962,7 +1059,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     } catch (_) {
       run();
     }
-  }, [map, focusedArea, layers, loadInfrastructureLayer]);
+  }, [map, focusedArea, layers, enqueueLoad]);
 
   // After import rehydration completes, load any visible infrastructure layers
   useEffect(() => {
@@ -1021,7 +1118,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       } catch (_) {}
     }
 
-    // Reset all infrastructure layer states
+    // Reset all infrastructure layer states (including requested)
     setLayers(prev => {
       const newLayers = { ...prev };
       Object.keys(newLayers).forEach(layerId => {
@@ -1031,7 +1128,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
             visible: false,
             loaded: false,
             loading: false,
-            error: null
+            error: null,
+            requested: false
           };
         }
       });
@@ -1044,10 +1142,41 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     loadingLayersRef.current.clear();
   }, [map, layers, removeInfrastructureLayer, setLayers]);
 
+  // Bulk toggle helper for All Recommended with queue + progress
+  const bulkToggleAllRecommended = useCallback((targetOn = true) => {
+    const cur = layersRef.current || {};
+    const candidates = Object.keys(cur).filter((id) => id !== 'permitAreas' && !cur[id]?.disabled && !DISABLED_INFRASTRUCTURE_LAYERS.has(id));
+    setLayers(prev => {
+      const next = { ...prev };
+      candidates.forEach((id) => {
+        if (!!prev[id]?.requested !== !!targetOn) next[id] = { ...prev[id], requested: !!targetOn };
+      });
+      return next;
+    });
+    if (targetOn) {
+      const toLoad = candidates.filter((id) => {
+        const cfg = cur[id];
+        return cfg && !cfg.loaded && !cfg.loading && !loadingLayersRef.current.has(id);
+      });
+      if (toLoad.length > 0) {
+        setBulkProgress({ total: toLoad.length, completed: 0 });
+        setBulkLoading(true);
+        toLoad.forEach((id) => enqueueLoad(id));
+      }
+    } else {
+      candidates.forEach((id) => { try { toggleInfrastructureLayerVisibility(id, false); } catch (_) {} });
+      bulkCancelLoading();
+    }
+  }, [setLayers, enqueueLoad, toggleInfrastructureLayerVisibility, bulkCancelLoading]);
+
   return {
     infrastructureData,
     toggleLayer,
     clearFocus,
-    reloadVisibleLayers
+    reloadVisibleLayers,
+    bulkLoading,
+    bulkProgress,
+    bulkToggleAllRecommended,
+    bulkCancelLoading
   };
 };

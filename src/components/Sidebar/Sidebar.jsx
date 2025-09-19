@@ -91,8 +91,11 @@ const Sidebar = ({
           isSitePlanMode={isSitePlanMode}
           geographyType={geographyType}
           map={map}
+          infrastructure={infrastructure}
         />
       </div>
+
+      {/* Progress modal removed (replaced by inline panel indicator) */}
     </div>
   );
 };

@@ -14,7 +14,8 @@ const LayersPanel = ({
   onClearFocus,
   isSitePlanMode = false,
   geographyType,
-  map
+  map,
+  infrastructure
 }) => {
   const view = useMapViewState(map);
   // State for tracking which groups are expanded
@@ -29,12 +30,16 @@ const LayersPanel = ({
 
   // Toggle all layers on/off (recommended = all)
   const handleRecommendedToggle = () => {
-    Object.entries(layers)
-      .filter(([id, cfg]) => id !== 'permitAreas' && cfg && !cfg.disabled)
-      .forEach(([id, cfg]) => {
-        const target = !allLayersActive;
-        if (!!cfg.requested !== target) onToggleLayer(id);
-      });
+    const target = !allLayersActive;
+    if (infrastructure && typeof infrastructure.bulkToggleAllRecommended === 'function') {
+      infrastructure.bulkToggleAllRecommended(target);
+    } else {
+      Object.entries(layers)
+        .filter(([id, cfg]) => id !== 'permitAreas' && cfg && !cfg.disabled)
+        .forEach(([id, cfg]) => {
+          if (!!cfg.requested !== target) onToggleLayer(id);
+        });
+    }
   };
 
   // Toggle group expansion
@@ -405,6 +410,24 @@ const LayersPanel = ({
                     </span>
                   </button>
                 </div>
+                {infrastructure && infrastructure.bulkLoading && (
+                  <div className="mt-2">
+                    <div className="text-[11px] text-blue-700 dark:text-blue-300 flex items-center justify-between">
+                      <span>Loading layers… ({infrastructure.bulkProgress.completed}/{infrastructure.bulkProgress.total})</span>
+                      <button
+                        type="button"
+                        onClick={infrastructure.bulkCancelLoading}
+                        className="text-[11px] px-2 py-0.5 rounded border border-blue-300 dark:border-gray-700 text-blue-700 dark:text-blue-200 hover:bg-blue-50 dark:hover:bg-gray-800"
+                        title="Cancel loading"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <div className="w-full h-1.5 bg-blue-100 dark:bg-gray-800 rounded overflow-hidden mt-1">
+                      <div className="h-1.5 bg-blue-600 transition-all" style={{ width: `${infrastructure.bulkProgress.total > 0 ? Math.round((infrastructure.bulkProgress.completed / infrastructure.bulkProgress.total) * 100) : 0}%` }} />
+                    </div>
+                  </div>
+                )}
                 <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
                   Toggle all recommended layers across groups.
                 </p>

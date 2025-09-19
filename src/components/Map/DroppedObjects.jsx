@@ -442,6 +442,9 @@ const DroppedObjects = ({
         try { map.setLayoutProperty(DROPPED_SYMBOL_LAYER_ID, 'icon-rotation-alignment', 'viewport'); } catch (_) {}
         try { map.setLayoutProperty(DROPPED_SYMBOL_LAYER_ID, 'icon-pitch-alignment', 'viewport'); } catch (_) {}
         try { map.setLayoutProperty(DROPPED_SYMBOL_LAYER_ID, 'icon-rotate', 0); } catch (_) {}
+        // Revert to existing anchor/offset defaults
+        try { map.setLayoutProperty(DROPPED_SYMBOL_LAYER_ID, 'icon-anchor', 'center'); } catch (_) {}
+        try { map.setLayoutProperty(DROPPED_SYMBOL_LAYER_ID, 'icon-offset', [0, 0]); } catch (_) {}
         if (!map.getLayer(DROPPED_SELECTED_LAYER_ID)) {
           map.addLayer({
             id: DROPPED_SELECTED_LAYER_ID,

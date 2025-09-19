@@ -82,6 +82,9 @@ export const useMap = (mapContainer) => {
         };
         try { window.addEventListener('map:style:will-change', onWillChange); } catch (_) {}
         mapInstance.on('style.load', onStyleLoad);
+        // Store for cleanup
+        mapRef.current.__onWillChange = onWillChange;
+        mapRef.current.__onStyleLoad = onStyleLoad;
         
       } catch (error) {
         console.error('Map setup failed:', error);
@@ -93,11 +96,15 @@ export const useMap = (mapContainer) => {
     setupMap();
 
     return () => {
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
-      try { window.removeEventListener('map:style:will-change', onWillChange); } catch (_) {}
+      try {
+        const m = mapRef.current;
+        if (m && m.__onStyleLoad) {
+          try { m.off && m.off('style.load', m.__onStyleLoad); } catch (_) {}
+        }
+        try { window.removeEventListener('map:style:will-change', m && m.__onWillChange ? m.__onWillChange : () => {}); } catch (_) {}
+        if (m) { m.remove(); }
+      } catch (_) {}
+      mapRef.current = null;
       setMap(null);
       setMapLoaded(false);
       setStyleLoaded(false);

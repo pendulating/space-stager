@@ -54,7 +54,8 @@ export const loadInfrastructureData = async (layerId, bounds) => {
       whereConditions.push(`${endpoint.filterField}='${endpoint.filterValue}'`);
     }
     
-    const bboxFilter = `$where=${whereConditions.join(' AND ')}`;
+    const bboxWhere = whereConditions.join(' AND ');
+    const bboxFilter = `$where=${encodeURIComponent(bboxWhere)}`;
     // Optional column selection for certain datasets
     const selectClause = Array.isArray(endpoint.selectFields) && endpoint.selectFields.length > 0
       ? (() => {
@@ -85,9 +86,27 @@ export const loadInfrastructureData = async (layerId, bounds) => {
       url = `${endpoint.baseUrl}?$where=${where}${select}&$limit=5000`;
     } else {
       if (layerId === 'streetParkingSigns') {
-        // JSON endpoint; start without WHERE to validate columns/ranges, rely on client-side filtering if needed
-        const select = endpoint.selectFields?.length ? `?$select=${encodeURIComponent(endpoint.selectFields.join(','))}` : '';
-        url = `${endpoint.baseUrl}${select}${select ? '&' : '?'}$limit=5000`;
+        // Always use EPSG:2263 numeric X/Y filter; sign_location is text in this dataset
+        let where = '';
+        try {
+          if (!proj4.defs || !proj4.defs('EPSG:2263')) {
+            proj4.defs('EPSG:2263', '+proj=lcc +lat_1=41.03333333333333 +lat_2=40.66666666666666 +lat_0=40.16666666666666 +lon_0=-74 +x_0=300000 +y_0=0 +datum=NAD83 +units=us-ft +no_defs');
+          }
+        } catch (_) {}
+        try {
+          const sw = proj4('EPSG:4326', 'EPSG:2263', [minLng, minLat]);
+          const ne = proj4('EPSG:4326', 'EPSG:2263', [maxLng, maxLat]);
+          const minX = Math.min(sw[0], ne[0]);
+          const maxX = Math.max(sw[0], ne[0]);
+          const minY = Math.min(sw[1], ne[1]);
+          const maxY = Math.max(sw[1], ne[1]);
+          where = `sign_x_coord between ${minX} and ${maxX} AND sign_y_coord between ${minY} and ${maxY}`;
+        } catch (_) {
+          where = '';
+        }
+        const select = endpoint.selectFields?.length ? `&$select=${encodeURIComponent(endpoint.selectFields.join(','))}` : '';
+        const whereParam = where ? `?$where=${encodeURIComponent(where)}` : '?';
+        url = `${endpoint.baseUrl}${whereParam}${select ? select : ''}&$limit=5000`;
       } else {
         url = `${endpoint.baseUrl}?${bboxFilter}${selectClause}&$limit=5000`;
       }
