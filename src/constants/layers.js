@@ -46,6 +46,16 @@ export const DISABLED_INFRASTRUCTURE_LAYERS = new Set([
   'pedestrianRamps'
 ]);
 
+// Layers excluded from "All Recommended" bulk toggle (still usable individually)
+export const NON_RECOMMENDED_INFRASTRUCTURE_LAYERS = new Set([
+  'dcwpParkingGarages',
+  'stationEnvelopes',
+  'parkingLots',
+  'iceLadders',
+  'fireLanes',
+  'specialDisasterRoutes'
+]);
+
 
 export const INITIAL_LAYERS = {
   permitAreas: { 

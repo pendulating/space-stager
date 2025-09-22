@@ -12,13 +12,56 @@ import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
 import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId, getMapViewType, buildSpriteUrl, buildFlatSpriteUrl, quantizeBearingForSprites, computeNearestSegmentClosestPointBearing, computeFeatureSpriteAngle } from '../utils/enhancedRenderingUtils';
 import { snapBearingRelativeToArea, computeAreaOrientation } from '../utils/bearingUtils';
 import { useMapViewState } from './useMapViewState';
-import { DISABLED_INFRASTRUCTURE_LAYERS } from '../constants/layers';
+import { DISABLED_INFRASTRUCTURE_LAYERS, NON_RECOMMENDED_INFRASTRUCTURE_LAYERS } from '../constants/layers';
 const DEBUG_INFRA = false;
 import { prefetchView } from '../utils/spriteResolver';
 
 // NOTE: Enhanced infra sprites: use flat /static/{base}/{base|base_TOP} paths for both views
 // because our public assets are deployed in flat layout. The spriteResolver handles nested fallbacks.
 export const useInfrastructure = (map, focusedArea, layers, setLayers, options = {}) => {
+  // Lightweight fetch utilities for robustness in bulk mode
+  const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  const raceWithTimeout = (promise, timeoutMs = 15000, label = 'request') => {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const t = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(`[timeout] ${label} exceeded ${timeoutMs}ms`));
+      }, Math.max(1000, timeoutMs));
+      promise.then((v) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(t);
+        resolve(v);
+      }).catch((e) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(t);
+        reject(e);
+      });
+    });
+  };
+  const shouldRetry = (err) => {
+    try {
+      const msg = (err && err.message ? String(err.message) : '').toLowerCase();
+      return msg.includes('429') || msg.includes('rate') || msg.includes('timeout') || msg.includes('network') || msg.includes('503') || msg.includes('504') || msg.includes('failed to fetch');
+    } catch (_) { return false; }
+  };
+  const loadWithRetry = async (layerId, bounds, attempts = 3) => {
+    let lastErr = null;
+    for (let i = 1; i <= attempts; i++) {
+      try {
+        return await raceWithTimeout(loadInfrastructureData(layerId, bounds), 15000, `loadInfrastructureData(${layerId})`);
+      } catch (e) {
+        lastErr = e;
+        if (i >= attempts || !shouldRetry(e)) break;
+        const backoffMs = Math.min(1500, 400 * Math.pow(2, i - 1));
+        try { await delay(backoffMs); } catch (_) {}
+      }
+    }
+    throw lastErr || new Error('Unknown load error');
+  };
   const view = useMapViewState(map);
   if (DEBUG_INFRA) console.log('[DEBUG] useInfrastructure hook called with map:', !!map);
   // Removed DEFAULT_ZERO_OFFSET_BY_VIEW; final sprite angle derived from
@@ -55,6 +98,9 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
   const queuedSetRef = useRef(new Set());
   const activeLoadsRef = useRef(0);
   const maxConcurrentRef = useRef(1);
+  const reloadDebounceRef = useRef(null);
+  // Request version tokens to invalidate stale/in-flight completions
+  const requestVersionRef = useRef(new Map());
 
   // Use refs to track state and prevent loops
   const prevFocusedAreaIdRef = useRef(null);
@@ -577,10 +623,13 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     }));
     
     try {
+      // Capture version at start
+      const startVersion = (requestVersionRef.current.get(layerId) || 0);
       const bounds = calculateGeometryBounds(focusedArea.geometry);
       if (!bounds) throw new Error('Invalid geometry bounds');
       
-      const data = await loadInfrastructureData(layerId, bounds);
+      // Use robust fetch with timeout + limited retries to avoid indefinite loading
+      const data = await loadWithRetry(layerId, bounds, 3);
       
       let filteredFeatures = data.features;
       if (layerId !== 'hydrants' && layerId !== 'busStops') {
@@ -733,28 +782,85 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
         if (DEBUG_INFRA) console.log('[dcwp] sample feature geoms:', filteredData.features.slice(0, 2).map(f => f.geometry?.type));
       }
       
+      // Ignore stale completion
+      if ((requestVersionRef.current.get(layerId) || 0) !== startVersion) return;
+
       // Save the data
       setInfrastructureData(prev => ({
         ...prev,
         [layerId]: filteredData
       }));
-      
-      // Add to map
-      addInfrastructureLayerToMap(layerId, filteredData);
-      
-      // Clear loading state and mark as successful; if empty, treat as hidden and flag empty
+
+      // Determine if dataset is empty up front
       const isEmpty = !filteredData?.features || filteredData.features.length === 0;
-      setLayers(prev => ({
-        ...prev,
-        [layerId]: { 
-          ...prev[layerId], 
-          loading: false, 
-          error: false,
-          loaded: true,
-          empty: isEmpty,
-          visible: (prev[layerId]?.requested && !isEmpty) ? true : false,
+
+      if (isEmpty) {
+        // No features: mark as loaded with no data immediately; do not wait for map layer presence
+        setLayers(prev => ({
+          ...prev,
+          [layerId]: {
+            ...prev[layerId],
+            loading: false,
+            error: false,
+            loaded: true,
+            empty: true,
+            visible: false
+          }
+        }));
+      } else {
+        // Add to map; finalize to "ready" only after a render idle confirms style processed
+        addInfrastructureLayerToMap(layerId, filteredData);
+
+        // Keep showing loading until confirmed on next idle, then mark ready/visible
+        const confirmReady = () => {
+          try {
+            if ((requestVersionRef.current.get(layerId) || 0) !== startVersion) return;
+            const stillRequested = !!(layersRef.current?.[layerId]?.requested);
+            setLayers(prev => ({
+              ...prev,
+              [layerId]: {
+                ...prev[layerId],
+                loading: false,
+                error: false,
+                loaded: true,
+                empty: false,
+                visible: stillRequested ? true : false
+              }
+            }));
+            try { if (stillRequested) toggleInfrastructureLayerVisibility(layerId, true); } catch (_) {}
+          } catch (_) {}
+        };
+
+        const safetyErr = () => {
+          try {
+            if ((requestVersionRef.current.get(layerId) || 0) !== startVersion) return;
+            setLayers(prev => ({
+              ...prev,
+              [layerId]: { ...prev[layerId], loading: false, error: true, loaded: false, visible: false }
+            }));
+          } catch (_) {}
+        };
+
+        let safetyTimer = null;
+        try { safetyTimer = setTimeout(safetyErr, 12000); } catch (_) {}
+        try {
+          if (map && typeof map.once === 'function') {
+            map.once('idle', () => {
+              try { if (safetyTimer) clearTimeout(safetyTimer); } catch (_) {}
+              confirmReady();
+            });
+          } else {
+            // Fallback next tick if idle is unavailable
+            setTimeout(() => {
+              try { if (safetyTimer) clearTimeout(safetyTimer); } catch (_) {}
+              confirmReady();
+            }, 0);
+          }
+        } catch (_) {
+          try { if (safetyTimer) clearTimeout(safetyTimer); } catch (_) {}
+          confirmReady();
         }
-      }));
+      }
       
     } catch (error) {
       console.error(`Error loading ${layerId}:`, error);
@@ -919,30 +1025,17 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     const polygonLayerId = `layer-${layerId}-polygon`;
     
     try {
-      // Toggle point layer
-      if (map.getLayer(pointLayerId)) {
-        map.setLayoutProperty(
-          pointLayerId,
-          'visibility',
-          visible ? 'visible' : 'none'
-        );
-      }
-      // Toggle line layer
-      if (map.getLayer(lineLayerId)) {
-        map.setLayoutProperty(
-          lineLayerId,
-          'visibility',
-          visible ? 'visible' : 'none'
-        );
-      }
-      // Toggle polygon layer
-      if (map.getLayer(polygonLayerId)) {
-        map.setLayoutProperty(
-          polygonLayerId,
-          'visibility',
-          visible ? 'visible' : 'none'
-        );
-      }
+      const next = visible ? 'visible' : 'none';
+      const setIfChanged = (id) => {
+        if (!map.getLayer(id)) return;
+        try {
+          const cur = map.getLayoutProperty(id, 'visibility');
+          if (cur !== next) map.setLayoutProperty(id, 'visibility', next);
+        } catch (_) {}
+      };
+      setIfChanged(pointLayerId);
+      setIfChanged(lineLayerId);
+      setIfChanged(polygonLayerId);
     } catch (error) {
       console.error(`Error toggling ${layerId} visibility:`, error);
     }
@@ -956,11 +1049,25 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       while (activeLoadsRef.current < maxConcurrentRef.current && loadQueueRef.current.length > 0) {
         const layerId = loadQueueRef.current.shift();
         if (!layerId) continue;
+        if (DEBUG_INFRA) console.log('[infra] start load:', layerId);
         activeLoadsRef.current += 1;
         (async () => {
           try {
             await loadInfrastructureLayer(layerId);
-          } catch (_) {
+            if (DEBUG_INFRA) console.log('[infra] finalized load:', layerId);
+          } catch (e) {
+            // On failure, mark layer as not loading/error to unblock UI and continue
+            try {
+              setLayers(prev => ({
+                ...prev,
+                [layerId]: {
+                  ...prev[layerId],
+                  loading: false,
+                  error: true,
+                  loaded: false
+                }
+              }));
+            } catch (_) {}
           } finally {
             try { queuedSetRef.current.delete(layerId); } catch (_) {}
             activeLoadsRef.current = Math.max(0, activeLoadsRef.current - 1);
@@ -981,6 +1088,11 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       const cfg = layersRef.current?.[layerId];
       if (!cfg || cfg.loading || cfg.loaded) return;
       if (queuedSetRef.current.has(layerId)) return;
+      // Bump request version for this new intent
+      try {
+        const prev = requestVersionRef.current.get(layerId) || 0;
+        requestVersionRef.current.set(layerId, prev + 1);
+      } catch (_) {}
       queuedSetRef.current.add(layerId);
       loadQueueRef.current.push(layerId);
       drainQueue();
@@ -1022,19 +1134,39 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       const willBeRequested = !currentConfig.requested;
       // Map side effect
       if (willBeRequested) {
+        // Bump version for new request intent
+        try {
+          const prevV = requestVersionRef.current.get(layerId) || 0;
+          requestVersionRef.current.set(layerId, prevV + 1);
+        } catch (_) {}
         if (!currentConfig.loaded && !currentConfig.loading && !loadingLayersRef.current.has(layerId)) {
           enqueueLoad(layerId);
         } else {
           try { toggleInfrastructureLayerVisibility(layerId, !currentConfig.empty); } catch (_) {}
         }
       } else {
+        // Turning off: hide, cancel any queued load, and clear loading state
         try { toggleInfrastructureLayerVisibility(layerId, false); } catch (_) {}
+        try {
+          // Remove from queue if present
+          queuedSetRef.current.delete(layerId);
+          try { loadQueueRef.current = (loadQueueRef.current || []).filter((id) => id !== layerId); } catch (_) {}
+          // If currently loading, mark as not loading so UI clears spinner; fetch cannot be aborted but completion will be ignored
+          loadingLayersRef.current.delete(layerId);
+          // Bump version so any in-flight completion is ignored
+          const prevV = requestVersionRef.current.get(layerId) || 0;
+          requestVersionRef.current.set(layerId, prevV + 1);
+        } catch (_) {}
       }
       return {
         ...prev,
         [layerId]: {
           ...prev[layerId],
-          requested: willBeRequested
+          requested: willBeRequested,
+          // Keep visible in sync with requested to avoid re-show via effects
+          visible: willBeRequested ? (currentConfig.loaded ? !currentConfig.empty : false) : false,
+          // If turning off, ensure loading flag is cleared for UI responsiveness
+          loading: willBeRequested ? prev[layerId].loading : false
         }
       };
     });
@@ -1046,19 +1178,24 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     const run = () => {
       Object.entries(layers).forEach(([layerId, config]) => {
         if (layerId !== 'permitAreas' && !config?.disabled && !DISABLED_INFRASTRUCTURE_LAYERS.has(layerId) && config.requested && !loadingLayersRef.current.has(layerId)) {
+          if (DEBUG_INFRA) console.log('[infra] enqueue after reloadVisibleLayers:', layerId);
           enqueueLoad(layerId);
         }
       });
     };
-    try {
-      if (map.isStyleLoaded && !map.isStyleLoaded()) {
-        map.once('style.load', run);
-      } else {
+    // Debounce to next tick to avoid thundering herd on style changes
+    try { if (reloadDebounceRef.current) clearTimeout(reloadDebounceRef.current); } catch (_) {}
+    reloadDebounceRef.current = setTimeout(() => {
+      try {
+        if (map.isStyleLoaded && !map.isStyleLoaded()) {
+          map.once('style.load', run);
+        } else {
+          run();
+        }
+      } catch (_) {
         run();
       }
-    } catch (_) {
-      run();
-    }
+    }, 0);
   }, [map, focusedArea, layers, enqueueLoad]);
 
   // After import rehydration completes, load any visible infrastructure layers
@@ -1084,14 +1221,15 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
           if (layerId === 'permitAreas') return;
           if (cfg?.disabled || DISABLED_INFRASTRUCTURE_LAYERS.has(layerId)) return;
 
+          // Only act on layers the user has requested to be on
           // If marked visible by state but not yet loaded/loading, fetch now
-          if (cfg?.visible && !cfg?.loaded && !cfg?.loading && !loadingLayersRef.current.has(layerId)) {
+          if (cfg?.requested && cfg?.visible && !cfg?.loaded && !cfg?.loading && !loadingLayersRef.current.has(layerId)) {
             loadInfrastructureLayer(layerId);
             return;
           }
 
           // If already loaded and should be visible, ensure layer visibility in style
-          if (cfg?.visible && cfg?.loaded) {
+          if (cfg?.requested && cfg?.visible && cfg?.loaded) {
             try { toggleInfrastructureLayerVisibility(layerId, true); } catch (_) {}
           }
         });
@@ -1107,6 +1245,21 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       run();
     }
   }, [map, focusedArea, layers, loadInfrastructureLayer, toggleInfrastructureLayerVisibility]);
+
+  // Guardrail: if a layer is no longer requested, ensure loading is cleared so UI doesn't show stale spinners
+  useEffect(() => {
+    try {
+      Object.entries(layersRef.current || {}).forEach(([layerId, cfg]) => {
+        if (layerId === 'permitAreas') return;
+        if (cfg && cfg.loading && !cfg.requested) {
+          setLayers(prev => ({
+            ...prev,
+            [layerId]: { ...prev[layerId], loading: false }
+          }));
+        }
+      });
+    } catch (_) {}
+  }, [layers, setLayers]);
 
       // Clear focus and all infrastructure - ensure state is properly reset
   const clearFocus = useCallback(() => {
@@ -1145,25 +1298,49 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
   // Bulk toggle helper for All Recommended with queue + progress
   const bulkToggleAllRecommended = useCallback((targetOn = true) => {
     const cur = layersRef.current || {};
-    const candidates = Object.keys(cur).filter((id) => id !== 'permitAreas' && !cur[id]?.disabled && !DISABLED_INFRASTRUCTURE_LAYERS.has(id));
-    setLayers(prev => {
-      const next = { ...prev };
-      candidates.forEach((id) => {
-        if (!!prev[id]?.requested !== !!targetOn) next[id] = { ...prev[id], requested: !!targetOn };
-      });
-      return next;
-    });
+    const candidates = Object.keys(cur).filter((id) => id !== 'permitAreas' && !cur[id]?.disabled && !DISABLED_INFRASTRUCTURE_LAYERS.has(id) && !NON_RECOMMENDED_INFRASTRUCTURE_LAYERS.has(id));
+
     if (targetOn) {
+      // Determine which to show immediately and which to load
+      const loadedToShow = candidates.filter((id) => cur[id]?.loaded && !cur[id]?.empty);
       const toLoad = candidates.filter((id) => {
         const cfg = cur[id];
         return cfg && !cfg.loaded && !cfg.loading && !loadingLayersRef.current.has(id);
       });
+
+      // Update state: mark requested and set visible=true for already-loaded non-empty layers
+      setLayers(prev => {
+        const next = { ...prev };
+        candidates.forEach((id) => {
+          const wasLoaded = !!prev[id]?.loaded;
+          const wasEmpty = !!prev[id]?.empty;
+          next[id] = {
+            ...prev[id],
+            requested: true,
+            visible: wasLoaded ? !wasEmpty : false
+          };
+        });
+        return next;
+      });
+
+      // Reflect map visibility for already-loaded layers
+      loadedToShow.forEach((id) => { try { toggleInfrastructureLayerVisibility(id, true); } catch (_) {} });
+
+      // Queue the rest
       if (toLoad.length > 0) {
         setBulkProgress({ total: toLoad.length, completed: 0 });
         setBulkLoading(true);
         toLoad.forEach((id) => enqueueLoad(id));
       }
     } else {
+      // Turning everything off: hide on map and in state; cancel outstanding loads
+      setLayers(prev => {
+        const next = { ...prev };
+        candidates.forEach((id) => {
+          next[id] = { ...prev[id], requested: false, visible: false };
+        });
+        return next;
+      });
       candidates.forEach((id) => { try { toggleInfrastructureLayerVisibility(id, false); } catch (_) {} });
       bulkCancelLoading();
     }
