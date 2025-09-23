@@ -10,7 +10,8 @@ import { createInfrastructureTooltipContent } from '../utils/tooltipUtils';
 import { addIconsToMap, retryLoadIcons, INFRASTRUCTURE_ICONS } from '../utils/iconUtils';
 import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
 import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId, getMapViewType, buildSpriteUrl, buildFlatSpriteUrl, quantizeBearingForSprites, computeNearestSegmentClosestPointBearing, computeFeatureSpriteAngle } from '../utils/enhancedRenderingUtils';
-import { snapBearingRelativeToArea, computeAreaOrientation } from '../utils/bearingUtils';
+import { snapBearingRelativeToArea, computeAreaOrientation, quantizeBearingForView, normalizeAngle } from '../utils/bearingUtils';
+import { ensureViewportAlignedSymbols } from '../utils/mapLayerUtils';
 import { useMapViewState } from './useMapViewState';
 import { DISABLED_INFRASTRUCTURE_LAYERS, NON_RECOMMENDED_INFRASTRUCTURE_LAYERS } from '../constants/layers';
 const DEBUG_INFRA = false;
@@ -386,8 +387,10 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
         const bearingRaw = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
         let areaBearing = 0;
         try { if (areaGeom) areaBearing = computeAreaOrientation({ map, geometry: areaGeom }); } catch (_) { areaBearing = 0; }
-        const rel = quantizeBearingForSprites((Number(bearingRaw) - Number(areaBearing)), false);
-        const snappedBucket = (((Number(areaBearing) + rel) % 360) + 360) % 360;
+        // Use different bucket logic per view to avoid stale icon_rotate in 2D
+        const snappedBucket = (viewType === 'top-down')
+          ? Math.round(normalizeAngle(bearingRaw))
+          : (((Number(areaBearing) + quantizeBearingForSprites((Number(bearingRaw) - Number(areaBearing)), false)) % 360) + 360) % 360;
         const prevBucket = lastCameraBucketRef.current[layerId];
         if (typeof prevBucket === 'number' && prevBucket === snappedBucket) {
           return; // Skip when bucket unchanged
@@ -400,20 +403,38 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
           const facingMode = cfg?.enhancedRendering?.facingMode;
           const side = p.icon_side || null;
           const baseAngle = (typeof p.icon_base_bearing === 'number') ? p.icon_base_bearing : 0;
-          const { imageId: img } = computeFeatureSpriteAngle({
-            map,
-            view,
-            areaGeom,
-            facingMode,
-            baseAxisBearing: baseAngle,
-            side,
-            spriteBase: cfg.enhancedRendering.spriteBase
-          }) || {};
-          if (p.icon_image !== img) {
-            changed = true;
-            return { ...f, properties: { ...p, icon_image: img } };
+          const viewType2 = viewType; // alias for clarity
+          const spriteBase = cfg?.enhancedRendering?.spriteBase;
+          const zeroOffset = (cfg?.enhancedRendering?.zeroOffsetDegByView?.[viewType2])
+            ?? (cfg?.enhancedRendering?.zeroOffsetDeg)
+            ?? 0;
+          if (viewType2 === 'top-down') {
+            // Continuous rotation in 2D: bind icon_rotate and use 0° sprite
+            const img = spriteBase ? `${spriteBase}_000` : p.icon_image;
+            // Align with 22.5°-centered camera grid in 2D as well
+            const rotate = normalizeAngle(baseAngle - bearingRaw + 22.5);
+            if (p.icon_image !== img || p.icon_rotate !== rotate) {
+              changed = true;
+              return { ...f, properties: { ...p, icon_image: img, icon_rotate: rotate } };
+            }
+            return f;
+          } else {
+            // Isometric stepped sprites via existing utility
+            const { imageId: img } = computeFeatureSpriteAngle({
+              map,
+              view,
+              areaGeom,
+              facingMode,
+              baseAxisBearing: baseAngle,
+              side,
+              spriteBase
+            }) || {};
+            if (p.icon_image !== img || p.icon_rotate !== 0) {
+              changed = true;
+              return { ...f, properties: { ...p, icon_image: img, icon_rotate: 0 } };
+            }
+            return f;
           }
-          return f;
         });
 
         if (changed) {
@@ -571,7 +592,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
             'symbol-placement': 'point',
             'icon-rotation-alignment': 'viewport',
             'icon-pitch-alignment': 'viewport',
-            'icon-rotate': 0,
+            'icon-rotate': ['coalesce', ['get', 'icon_rotate'], 0],
             'icon-anchor': 'center',
             'icon-offset': [0, 0]
           };
@@ -601,6 +622,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       } catch (_) {}
       
       if (DEBUG_INFRA) console.log(`[DEBUG] Successfully added point layer: ${pointLayerId}`);
+      try { ensureViewportAlignedSymbols(map, [pointLayerId]); } catch (_) {}
     }
   }, [map, layers, view?.viewType]);
 

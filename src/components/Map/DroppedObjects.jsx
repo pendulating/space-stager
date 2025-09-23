@@ -1,7 +1,8 @@
 import React, { useCallback, useMemo, useEffect, useState } from 'react';
 import { Popup as MapLibrePopup } from 'maplibre-gl';
-import { quantizeAngleTo45, addEnhancedSpritesToMap, buildSpriteImageId, getMapViewType, buildFlatSpriteUrl } from '../../utils/enhancedRenderingUtils';
-import { snapBearingRelativeToArea } from '../../utils/bearingUtils';
+import { quantizeAngleTo45, quantizeToSlices, addEnhancedSpritesToMap, buildSpriteImageId, getMapViewType, buildFlatSpriteUrl } from '../../utils/enhancedRenderingUtils';
+import { getCenterOffsetForPitch, quantizeBearingForView, normalizeAngle } from '../../utils/bearingUtils';
+import { ensureViewportAlignedSymbols } from '../../utils/mapLayerUtils';
 import { useMapViewState } from '../../hooks/useMapViewState';
 import { useStableImageSrc } from '../../hooks/useStableImageSrc';
 import { getCandidateSrcs, prefetchView } from '../../utils/spriteResolver';
@@ -54,6 +55,7 @@ const debug = {
 };
 
 // Default per-view zero-angle calibration (degrees). Adjust if assets differ.
+// Use 0° for top-down so enriched icon angles align exactly with snapped camera.
 const DEFAULT_ZERO_OFFSET_BY_VIEW = { 'isometric': -90, 'top-down': 0 };
 const USE_DOM_OVERLAY = false;
 const DROPPED_SOURCE_ID = 'dropped-objects';
@@ -208,8 +210,10 @@ const DroppedObjects = ({
             ?? (t?.enhancedRendering?.zeroOffsetDeg)
             ?? DEFAULT_ZERO_OFFSET_BY_VIEW[vt] ?? 0;
           const baseAngle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
-          const snappedBearing = snapBearingRelativeToArea(bearingRaw, (areaBearingDeg || 0), false);
-          const eff = (((baseAngle - snappedBearing + zeroOffset) % 360) + 360) % 360;
+          // Snap camera bearing relative to area with view-dependent center offset (matches infra)
+          const p = (map?.getPitch ? map.getPitch() : 0);
+          const camQ = quantizeBearingForView(bearingRaw, p);
+          const eff = (((baseAngle + zeroOffset - camQ) % 360) + 360) % 360;
           const q = quantizeAngleTo45(eff);
           if (!baseToAngles.has(base)) baseToAngles.set(base, new Set());
           baseToAngles.get(base).add(q);
@@ -272,22 +276,38 @@ const DroppedObjects = ({
             ?? (t?.enhancedRendering?.zeroOffsetDeg)
             ?? DEFAULT_ZERO_OFFSET_BY_VIEW[vt] ?? 0;
           const baseAngle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
-          // Snap camera bearing to the same step as our sprite families to avoid drift
-          const snappedBearing = snapBearingRelativeToArea(bearingRaw, (areaBearingDeg || 0), false);
-          // Compensate for map bearing in both views so icons remain visually stationary while rotating the map
-          const eff = (((baseAngle - snappedBearing + zeroOffset) % 360 + 360) % 360);
-          const q = quantizeAngleTo45(eff);
-          const imgId = buildSpriteImageId(t.enhancedRendering.spriteBase, q);
-          let ready = false;
-          try { ready = map && typeof map.hasImage === 'function' ? map.hasImage(imgId) : false; } catch (_) { ready = false; }
-          props.icon_ready = ready ? 1 : 0;
-          if (ready) {
-            // Only assign icon when registered to avoid styleimagemissing storms
-            props.icon_image = imgId;
+          const p = (map?.getPitch ? map.getPitch() : 0);
+          const isTopDown = (vt === 'top-down');
+          if (isTopDown) {
+            // Continuous rotation in 2D: use 0° sprite and rotate via icon-rotate
+            const imgId = buildSpriteImageId(t.enhancedRendering.spriteBase, 0);
+            let ready = false;
+            try { ready = map && typeof map.hasImage === 'function' ? map.hasImage(imgId) : false; } catch (_) { ready = false; }
+            props.icon_ready = ready ? 1 : 0;
+            if (ready) {
+              props.icon_image = imgId;
+            } else {
+              const prevIcon = prevIconById.get(obj.id);
+              if (prevIcon) props.icon_image = prevIcon;
+            }
+            // Align with 22.5°-centered camera grid in 2D as well
+            props.icon_rotate = normalizeAngle(baseAngle - bearingRaw + 22.5);
           } else {
-            // Persist previous icon_image to avoid flicker while new angle registers
-            const prevIcon = prevIconById.get(obj.id);
-            if (prevIcon) props.icon_image = prevIcon;
+            // Isometric: stepped 45° sprites relative to snapped camera
+            const camQ = quantizeBearingForView(bearingRaw, p);
+            const eff = (((baseAngle + zeroOffset - camQ) % 360 + 360) % 360);
+            const q = quantizeAngleTo45(eff);
+            const imgId = buildSpriteImageId(t.enhancedRendering.spriteBase, q);
+            let ready = false;
+            try { ready = map && typeof map.hasImage === 'function' ? map.hasImage(imgId) : false; } catch (_) { ready = false; }
+            props.icon_ready = ready ? 1 : 0;
+            if (ready) {
+              props.icon_image = imgId;
+            } else {
+              const prevIcon = prevIconById.get(obj.id);
+              if (prevIcon) props.icon_image = prevIcon;
+            }
+            props.icon_rotate = 0;
           }
         } else if (t?.imageUrl) {
           // Simple (non-enhanced) static icon path: use type id as image id
@@ -438,10 +458,9 @@ const DroppedObjects = ({
         // Enforce filters even if layers already existed
         try { map.setFilter(DROPPED_SYMBOL_LAYER_ID, ['has', 'icon_image']); } catch (_) {}
         try { map.setFilter(DROPPED_CIRCLE_LAYER_ID, ['!', ['has', 'icon_image']]); } catch (_) {}
-        // Enforce viewport alignment so icons do not rotate with map bearing/pitch
-        try { map.setLayoutProperty(DROPPED_SYMBOL_LAYER_ID, 'icon-rotation-alignment', 'viewport'); } catch (_) {}
-        try { map.setLayoutProperty(DROPPED_SYMBOL_LAYER_ID, 'icon-pitch-alignment', 'viewport'); } catch (_) {}
-        try { map.setLayoutProperty(DROPPED_SYMBOL_LAYER_ID, 'icon-rotate', 0); } catch (_) {}
+        // Enforce viewport alignment so icons do not rotate with map bearing/pitch; bind rotate
+        try { ensureViewportAlignedSymbols(map, [DROPPED_SYMBOL_LAYER_ID]); } catch (_) {}
+        try { map.setLayoutProperty(DROPPED_SYMBOL_LAYER_ID, 'icon-rotate', ['coalesce', ['get', 'icon_rotate'], 0]); } catch (_) {}
         // Revert to existing anchor/offset defaults
         try { map.setLayoutProperty(DROPPED_SYMBOL_LAYER_ID, 'icon-anchor', 'center'); } catch (_) {}
         try { map.setLayoutProperty(DROPPED_SYMBOL_LAYER_ID, 'icon-offset', [0, 0]); } catch (_) {}

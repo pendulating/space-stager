@@ -18,6 +18,7 @@ import { useMemo } from 'react';
 import TextAnnotationEditor, { AnnotationActionPill } from './TextAnnotationEditor';
 import { useMapViewState } from '../../hooks/useMapViewState';
 import { useRotationControls } from '../../hooks/useRotationControls';
+import { useCameraRotation } from '../../hooks/useCameraRotation';
 import { useSelectionController } from '../../hooks/useSelectionController';
 import { useDroppedObjects } from '../../contexts/DroppedObjectsContext';
 import { rotateRectanglePolygonMercator, normalizeAngle } from '../../utils/objectGeometry';
@@ -797,91 +798,26 @@ const MapContainer = forwardRef(({
     const currentCenter = map.getCenter ? map.getCenter() : null;
     const currentZoom = map.getZoom ? map.getZoom() : undefined;
     const isIso = (map.getPitch ? map.getPitch() : 0) > 15;
+    const currentBearing = (map.getBearing ? map.getBearing() : 0) || 0;
     if (isIso) {
       // Return to top-down
       try {
-        map.easeTo({ pitch: 0, bearing: 0, center: currentCenter || undefined, zoom: currentZoom, duration: 600 });
+        map.easeTo({ pitch: 0, bearing: currentBearing, center: currentCenter || undefined, zoom: currentZoom, duration: 600 });
       } catch (_) {}
     } else {
       // Go to isometric: high pitch, snap bearing to nearest 45°
-      const brg = snapToNearest45(map.getBearing ? map.getBearing() : 0) || 45;
       try {
-        map.easeTo({ pitch: 60, bearing: brg, center: currentCenter || undefined, zoom: currentZoom, duration: 600 });
+        map.easeTo({ pitch: 60, bearing: currentBearing, center: currentCenter || undefined, zoom: currentZoom, duration: 600 });
       } catch (_) {}
     }
   };
 
-  // Keyboard map rotation (Q/E) with snapping relative to area orientation
-  useEffect(() => {
-    if (!map) return;
-    const onKeyDown = (e) => {
-      try {
-        const t = e.target;
-        const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
-        if (typing) return;
-        // Ignore key repeats to enforce exactly one 45° step per press
-        if (e.repeat) return;
-        // Only rotate map when not in placement mode and no selected object rotation keys pressed
-        const key = (e.key || '').toLowerCase();
-        if (key !== 'q' && key !== 'e') return;
-        e.preventDefault();
-        const dir = key === 'e' ? 1 : -1; // CW for E, CCW for Q
-        const current = (typeof map.getBearing === 'function') ? map.getBearing() : 0;
-        const p = (map.getPitch ? map.getPitch() : 0);
-        const isIso = p > 15;
-        const areaGeom = (permitAreas?.hasSubFocus ? permitAreas?.subFocusArea?.geometry : permitAreas?.focusedArea?.geometry) || null;
-        const centerOffset = isIso ? 22.5 : 0;
-        const theta = areaGeom ? computeAreaOrientation({ map, geometry: areaGeom, pitch: p }) : 0;
-        let base = lastDiscreteBearingRef.current;
-        // Re-anchor to current grid if:
-        // - no baseline yet
-        // - user rotated away from last discrete bearing
-        // - view type changed (e.g., toggled into/out of isometric)
-        // - dominant area orientation changed materially (>= 1°)
-        const diffFromLast = (base == null) ? Infinity : Math.abs((((current - base) % 360) + 540) % 360 - 180);
-        const prevIso = lastIsoRef.current;
-        const prevTheta = lastThetaRef.current;
-        const thetaDrift = (prevTheta == null) ? 0 : Math.abs((((theta - prevTheta) % 360) + 540) % 360 - 180);
-        const needsReanchor = (base == null) || (diffFromLast > 2) || (prevIso != null && prevIso !== isIso) || (prevTheta != null && thetaDrift > 1);
-        if (needsReanchor) {
-          base = quantizeToSlices(current, 8, centerOffset);
-        }
-        // Update refs for next key press
-        lastIsoRef.current = isIso;
-        lastThetaRef.current = theta;
-        const target = ((base + dir * 45) % 360 + 360) % 360;
-        try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
-        try {
-          suppressRotateSnapRef.current = true;
-          lastDiscreteBearingRef.current = target;
-          map.easeTo({ bearing: target, duration: 180, essential: true });
-        } catch (_) {
-          suppressRotateSnapRef.current = false;
-        }
-      } catch (_) {}
-    };
-    window.addEventListener('keydown', onKeyDown, { passive: false });
-    return () => { window.removeEventListener('keydown', onKeyDown); };
-  }, [map, permitAreas?.hasSubFocus, permitAreas?.subFocusArea?.geometry, permitAreas?.focusedArea?.geometry]);
-
-  // Snap free-rotate interactions on rotateend to nearest 45° relative to area orientation
-  useEffect(() => {
-    if (!map) return;
-    const onRotateEnd = () => {
-      try {
-        if (suppressRotateSnapRef.current) { suppressRotateSnapRef.current = false; return; }
-        const current = (typeof map.getBearing === 'function') ? map.getBearing() : 0;
-        const isIso = (map.getPitch ? map.getPitch() : 0) > 15;
-        const absQ = quantizeToSlices(current, 8, isIso ? 22.5 : 0);
-        const delta = Math.abs((((absQ - current) % 360) + 540) % 360 - 180);
-        if (delta > 0.5) {
-          try { lastDiscreteBearingRef.current = absQ; map.rotateTo(absQ, { duration: 120 }); } catch (_) {}
-        }
-      } catch (_) {}
-    };
-    try { map.on('rotateend', onRotateEnd); } catch (_) {}
-    return () => { try { map.off('rotateend', onRotateEnd); } catch (_) {} };
-  }, [map, permitAreas?.hasSubFocus, permitAreas?.subFocusArea?.geometry, permitAreas?.focusedArea?.geometry]);
+  // Centralized camera rotation (Q/E and rotateend snap)
+  useCameraRotation({
+    map,
+    getAreaGeometry: () => (permitAreas?.hasSubFocus ? permitAreas?.subFocusArea?.geometry : permitAreas?.focusedArea?.geometry) || null,
+    isEnabled: true
+  });
 
   // Delete selected dropped object or selected annotation with Delete/Backspace (select mode only)
   useEffect(() => {
@@ -1059,6 +995,7 @@ const MapContainer = forwardRef(({
 
   // Rotation controller (handles placement mode and selected objects)
   useRotationControls({
+    map,
     isPlacementActive: !!placementMode,
     rotatePlacementStep: clickToPlace.rotatePlacementModeBy,
     hasSelectedRect: selectedKind === 'rect' && !!selectedObjectId,

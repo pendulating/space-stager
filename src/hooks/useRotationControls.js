@@ -20,6 +20,7 @@ import { useEffect } from 'react';
  */
 export const useRotationControls = (options) => {
   const {
+    map,
     isPlacementActive,
     rotatePlacementStep,
     hasSelectedRect,
@@ -36,9 +37,25 @@ export const useRotationControls = (options) => {
     let activeDir = 0; // -1 CCW, +1 CW
     let lastTs = 0;
     const degreesPerSecond = 90;
+    let gesturesLocked = false;
+
+    const disableMapRotationGestures = () => {
+      if (gesturesLocked) return;
+      try { if (map && map.dragRotate && typeof map.dragRotate.disable === 'function') map.dragRotate.disable(); } catch (_) {}
+      try { if (map && map.touchZoomRotate && typeof map.touchZoomRotate.disableRotation === 'function') map.touchZoomRotate.disableRotation(); } catch (_) {}
+      try { if (map && map.keyboard && typeof map.keyboard.disable === 'function') map.keyboard.disable(); } catch (_) {}
+      gesturesLocked = true;
+    };
+    const enableMapRotationGestures = () => {
+      if (!gesturesLocked) return;
+      try { if (map && map.dragRotate && typeof map.dragRotate.enable === 'function') map.dragRotate.enable(); } catch (_) {}
+      try { if (map && map.touchZoomRotate && typeof map.touchZoomRotate.enableRotation === 'function') map.touchZoomRotate.enableRotation(); } catch (_) {}
+      try { if (map && map.keyboard && typeof map.keyboard.enable === 'function') map.keyboard.enable(); } catch (_) {}
+      gesturesLocked = false;
+    };
 
     const step = (ts) => {
-      if (!hasSelectedRect || activeDir === 0) { rafId = null; return; }
+      if (!hasSelectedRect || activeDir === 0) { if (gesturesLocked) enableMapRotationGestures(); rafId = null; return; }
       const dt = lastTs ? Math.max(0, (ts - lastTs) / 1000) : 0;
       lastTs = ts;
       const delta = activeDir * degreesPerSecond * dt;
@@ -75,6 +92,7 @@ export const useRotationControls = (options) => {
         if (activeDir !== dir) {
           activeDir = dir;
           lastTs = 0;
+          disableMapRotationGestures();
           if (rafId == null) rafId = requestAnimationFrame(step);
         }
         return;
@@ -103,6 +121,7 @@ export const useRotationControls = (options) => {
       if (hasSelectedRect) {
         activeDir = 0;
         lastTs = 0;
+        enableMapRotationGestures();
         if (rafId != null) { cancelAnimationFrame(rafId); rafId = null; }
       }
     };
@@ -113,8 +132,9 @@ export const useRotationControls = (options) => {
       window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('keyup', onKeyUp, true);
       if (rafId != null) cancelAnimationFrame(rafId);
+      try { enableMapRotationGestures(); } catch (_) {}
     };
-  }, [isPlacementActive, rotatePlacementStep, hasSelectedRect, rotateSelectedRectBy, hasSelectedPoint, rotateSelectedPointStep, hasSelectedAnnotation, rotateSelectedAnnotationBy, clearSelection]);
+  }, [map, isPlacementActive, rotatePlacementStep, hasSelectedRect, rotateSelectedRectBy, hasSelectedPoint, rotateSelectedPointStep, hasSelectedAnnotation, rotateSelectedAnnotationBy, clearSelection]);
 };
 
 

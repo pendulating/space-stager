@@ -2,7 +2,8 @@ import React, { useMemo, useEffect } from 'react';
 import { useMapViewState } from '../../hooks/useMapViewState';
 import { useStableImageSrc } from '../../hooks/useStableImageSrc';
 import { getCandidateSrcs, prefetchView } from '../../utils/spriteResolver';
-import { buildSpriteFallbacks, quantizeAngleTo45, computeDominantBearingFromPolygon, computeDominantViewportBearing } from '../../utils/enhancedRenderingUtils';
+import { buildSpriteFallbacks, quantizeAngleTo45, quantizeToSlices, computeDominantBearingFromPolygon, computeDominantViewportBearing } from '../../utils/enhancedRenderingUtils';
+import { quantizeBearingForView } from '../../utils/bearingUtils';
 
 const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects, map }) => {
   const view = useMapViewState(map);
@@ -48,7 +49,9 @@ const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects, map
     const zeroOffset = (objectType?.enhancedRendering?.zeroOffsetDegByView?.[view?.viewType])
       ?? (objectType?.enhancedRendering?.zeroOffsetDeg)
       ?? (view?.viewType === 'isometric' ? -90 : 0);
-    const angleForSprite = (((angle - (bearing - areaBearing) + zeroOffset) % 360 + 360) % 360);
+    const p = (map?.getPitch ? map.getPitch() : 0);
+    const camQ = quantizeBearingForView(bearing, p);
+    const angleForSprite = (((angle - camQ + zeroOffset) % 360 + 360) % 360);
     const primary = getCandidateSrcs(objectType, angleForSprite, view?.viewType) || [];
     if (primary.length > 0) return primary;
     // Fallback: assume public/static/{id} structure when spriteBase missing

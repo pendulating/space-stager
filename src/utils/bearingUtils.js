@@ -72,6 +72,37 @@ export const computeAreaOrientation = ({ map = null, geometry = null, pitch = nu
   } catch (_) { return 0; }
 };
 
+// Return the absolute center offset used for 8-slice snapping.
+// Use 22.5° for both top-down and isometric so the grid is consistent.
+export const getCenterOffsetForPitch = (pitch) => {
+  try {
+    return 22.5;
+  } catch (_) {
+    return 22.5;
+  }
+};
+
+// Quantize a given bearing to the nearest 45° slice, with view-dependent center offset
+export const quantizeBearingForView = (bearingDeg, pitch = 0) => {
+  try {
+    const centerOffset = getCenterOffsetForPitch(pitch);
+    return quantizeToSlices(normalizeAngle(bearingDeg), 8, centerOffset);
+  } catch (_) {
+    return quantizeToSlices(bearingDeg || 0, 8, 0);
+  }
+};
+
+// Get the current map bearing snapped to the viewport's 8-slice grid
+export const getSnappedViewportBearing = (map, pitch = null) => {
+  try {
+    const p = (typeof pitch === 'number') ? pitch : (map && typeof map.getPitch === 'function' ? map.getPitch() : 0);
+    const b = (map && typeof map.getBearing === 'function') ? map.getBearing() : 0;
+    return quantizeBearingForView(b, p);
+  } catch (_) {
+    return 0;
+  }
+};
+
 // Snap a camera/map bearing relative to an area orientation, using sprite quantization.
 // Returns normalized absolute bearing in [0, 360).
 export const snapBearingRelativeToArea = (bearingDeg, areaBearingDeg = 0, preferRightAngles = false) => {

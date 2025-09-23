@@ -706,46 +706,7 @@ const SpaceStager = () => {
     } catch (_) {}
   }, [map, isDarkMode, handleStyleChange]);
 
-  // Add keyboard controls for map rotation
-  useEffect(() => {
-    if (!map) return;
-
-    const handleKeyDown = (e) => {
-      // Only handle Q and E keys when not in input fields
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.contentEditable === 'true') {
-        return;
-      }
-
-      const rotationAmount = 45; // degrees per key press
-      const step = 45;
-      const snap = (deg) => {
-        const d = ((deg % 360) + 360) % 360;
-        return Math.round(d / step) * step;
-      };
-      const areaBearing = (() => {
-        try {
-          const g = (permitAreas?.hasSubFocus ? permitAreas?.subFocusArea?.geometry : permitAreas?.focusedArea?.geometry);
-          if (!g) return 0;
-          const isIso = (map?.getPitch ? map.getPitch() : 0) > 15;
-          if (isIso && map) return computeDominantViewportBearing(map, g) || 0;
-          return computeDominantBearingFromPolygon(g) || 0;
-        } catch (_) { return 0; }
-      })();
-
-      // Map rotation via Q/E is now centralized in MapContainer with bearingUtils snapping.
-      // Intentionally no-op here to avoid duplicate handlers and snap loops.
-      return;
-    };
-
-    // Add event listener to the document to capture all key events
-    document.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [map]);
-
-  // Rotate-end snapping is centralized in MapContainer; avoid duplicate snap logic here.
+  // Map rotation handling centralized in MapContainer via useCameraRotation
 
   // Contextual nudges (evaluated only when prerequisites are visible)
   const customShapes = drawTools.draw?.current ? drawTools.draw.current.getAll().features : [];

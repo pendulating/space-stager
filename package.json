@@ -76,6 +76,7 @@
     "@vitejs/plugin-react": "^4.2.1",
     "@vitest/coverage-v8": "^2.0.5",
     "autoprefixer": "^10.4.16",
+    "context7": "link:/Users/mattfranchi/Repos/mcp/context7",
     "dependency-cruiser": "^17.0.1",
     "eslint": "^8.55.0",
     "eslint-plugin-react": "^7.33.2",
