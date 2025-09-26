@@ -9,7 +9,7 @@ import { calculateGeometryBounds, expandBounds } from '../utils/geometryUtils';
 import { createInfrastructureTooltipContent } from '../utils/tooltipUtils';
 import { addIconsToMap, retryLoadIcons, INFRASTRUCTURE_ICONS } from '../utils/iconUtils';
 import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
-import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId, getMapViewType, buildSpriteUrl, buildFlatSpriteUrl, quantizeBearingForSprites, computeNearestSegmentClosestPointBearing, computeFeatureSpriteAngle } from '../utils/enhancedRenderingUtils';
+import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId, getMapViewType, buildSpriteUrl, buildFlatSpriteUrl, computeNearestSegmentClosestPointBearing, computeFeatureSpriteAngle, computeSpriteTransform, extractCameraState, computeCameraBucket } from '../utils/enhancedRenderingUtils.js';
 import { snapBearingRelativeToArea, computeAreaOrientation, quantizeBearingForView, normalizeAngle } from '../utils/bearingUtils';
 import { ensureViewportAlignedSymbols } from '../utils/mapLayerUtils';
 import { useMapViewState } from './useMapViewState';
@@ -374,67 +374,52 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
   useEffect(() => {
     if (!map) return;
     try {
+      const state = extractCameraState({ map, view });
       Object.entries(layers).forEach(([layerId, cfg]) => {
         if (!cfg?.requested || !cfg?.enhancedRendering?.enabled) return;
         const data = infrastructureData?.[layerId];
         if (!data || !Array.isArray(data.features) || data.features.length === 0) return;
-        const viewType = view?.viewType || getMapViewType(map);
+
+        const snappedBucket = computeCameraBucket({ cameraState: state, bucketPrecisionDeg: 1, slices: 8 });
+        const prevBucket = lastCameraBucketRef.current[layerId];
+        if (typeof prevBucket === 'number' && prevBucket === snappedBucket) {
+          return;
+        }
+        lastCameraBucketRef.current[layerId] = snappedBucket;
+
         const areaGeom = (() => { try {
           return (focusedArea?.properties?.__subFocus ? focusedArea : null)?.geometry || (focusedArea?.geometry);
         } catch (_) { return null; } })();
 
-        // Per-layer camera bucket to avoid redundant mass recompute
-        const bearingRaw = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
-        let areaBearing = 0;
-        try { if (areaGeom) areaBearing = computeAreaOrientation({ map, geometry: areaGeom }); } catch (_) { areaBearing = 0; }
-        // Use different bucket logic per view to avoid stale icon_rotate in 2D
-        const snappedBucket = (viewType === 'top-down')
-          ? Math.round(normalizeAngle(bearingRaw))
-          : (((Number(areaBearing) + quantizeBearingForSprites((Number(bearingRaw) - Number(areaBearing)), false)) % 360) + 360) % 360;
-        const prevBucket = lastCameraBucketRef.current[layerId];
-        if (typeof prevBucket === 'number' && prevBucket === snappedBucket) {
-          return; // Skip when bucket unchanged
-        }
-        lastCameraBucketRef.current[layerId] = snappedBucket;
         let changed = false;
         const newFeatures = data.features.map((f) => {
           if (!f || f.geometry?.type !== 'Point') return f;
           const p = f.properties || {};
-          const facingMode = cfg?.enhancedRendering?.facingMode;
-          const side = p.icon_side || null;
-          const baseAngle = (typeof p.icon_base_bearing === 'number') ? p.icon_base_bearing : 0;
-          const viewType2 = viewType; // alias for clarity
           const spriteBase = cfg?.enhancedRendering?.spriteBase;
-          const zeroOffset = (cfg?.enhancedRendering?.zeroOffsetDegByView?.[viewType2])
+          const baseAngle = (typeof p.icon_base_bearing === 'number') ? p.icon_base_bearing : 0;
+          const zeroOffset = (cfg?.enhancedRendering?.zeroOffsetDegByView?.[state.viewType])
             ?? (cfg?.enhancedRendering?.zeroOffsetDeg)
             ?? 0;
-          if (viewType2 === 'top-down') {
-            // Continuous rotation in 2D: bind icon_rotate and use 0° sprite
-            const img = spriteBase ? `${spriteBase}_000` : p.icon_image;
-            // Align with 22.5°-centered camera grid in 2D as well
-            const rotate = normalizeAngle(baseAngle - bearingRaw + 22.5);
-            if (p.icon_image !== img || p.icon_rotate !== rotate) {
-              changed = true;
-              return { ...f, properties: { ...p, icon_image: img, icon_rotate: rotate } };
-            }
-            return f;
-          } else {
-            // Isometric stepped sprites via existing utility
-            const { imageId: img } = computeFeatureSpriteAngle({
-              map,
-              view,
-              areaGeom,
-              facingMode,
-              baseAxisBearing: baseAngle,
-              side,
-              spriteBase
-            }) || {};
-            if (p.icon_image !== img || p.icon_rotate !== 0) {
-              changed = true;
-              return { ...f, properties: { ...p, icon_image: img, icon_rotate: 0 } };
-            }
-            return f;
+          const displayAngle = (typeof p.icon_display_bearing === 'number') ? p.icon_display_bearing : undefined;
+          const transform = computeSpriteTransform({
+            map,
+            view,
+            cameraState: state,
+            spriteBase,
+            baseAngleDeg: baseAngle,
+            displayAngleDeg: displayAngle,
+            zeroOffsetDeg: zeroOffset,
+            areaGeom,
+            facingMode: cfg?.enhancedRendering?.facingMode,
+            side: p.icon_side || null
+          });
+          const nextImage = transform.imageId || (spriteBase ? `${spriteBase}_000` : p.icon_image);
+          const nextRotate = transform.iconRotate || 0;
+          if (p.icon_image !== nextImage || (p.icon_rotate || 0) !== nextRotate) {
+            changed = true;
+            return { ...f, properties: { ...p, icon_image: nextImage, icon_rotate: nextRotate } };
           }
+          return f;
         });
 
         if (changed) {
@@ -448,7 +433,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
         }
       });
     } catch (_) {}
-  }, [map, layers, infrastructureData, view?.bearing, view?.viewType, view?.pitch]);
+  }, [map, layers, infrastructureData, view?.bearing, view?.viewType, view?.pitch, focusedArea]);
 
   // Add infrastructure layer to map - move this before loadInfrastructureLayer
   const addInfrastructureLayerToMap = useCallback((layerId, data) => {
@@ -791,7 +776,18 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
                 side,
                 spriteBase: cfg.enhancedRendering.spriteBase
               }) || {};
-              return { ...f, properties: { ...p, icon_image: img, icon_sprite_base: cfg.enhancedRendering.spriteBase, icon_base_bearing: baseBearing, icon_side: side, icon_base_bearing_source: baseSource } };
+              // Precompute a world-facing display bearing for 2D use so alignment is geometry-based
+              let displayBase = (baseBearing != null ? baseBearing : 0);
+              if (facingMode === 'towardStreet' || facingMode === 'awayFromStreet') {
+                const axis = ((Number(displayBase) % 360) + 360) % 360;
+                const left = ((axis - 90) % 360 + 360) % 360;
+                const right = ((axis + 90) % 360 + 360) % 360;
+                const isLeft = side === 'left';
+                const toStreet = isLeft ? right : left;
+                const awayStreet = isLeft ? left : right;
+                displayBase = (facingMode === 'towardStreet') ? toStreet : awayStreet;
+              }
+              return { ...f, properties: { ...p, icon_image: img, icon_sprite_base: cfg.enhancedRendering.spriteBase, icon_base_bearing: baseBearing, icon_side: side, icon_base_bearing_source: baseSource, icon_display_bearing: ((Number(displayBase) % 360) + 360) % 360 } };
             })
           };
         }

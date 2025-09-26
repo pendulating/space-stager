@@ -8,7 +8,7 @@ import { GEOGRAPHIES } from '../constants/geographies';
 import { useZoneCreatorContext } from '../contexts/ZoneCreatorContext.jsx';
 import bbox from '@turf/bbox';
 import { snapToNearest, quantizeToSlices } from '../utils/enhancedRenderingUtils';
-import { computeAreaOrientation, snapCameraBearingToArea, getSnappedBearing } from '../utils/bearingUtils';
+import { computeAreaOrientation, snapCameraBearingToArea, getSnappedBearing, getCenterOffsetForPitch } from '../utils/bearingUtils';
 import { intersect as turfIntersect, booleanIntersects as turfBooleanIntersects } from '@turf/turf';
 
 // Minimal oriented minimum bounding box (rotating calipers) implementation
@@ -477,7 +477,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         const areaPitch = map?.getPitch ? map.getPitch() : 0;
         const aRel = computeAreaOrientation({ map, geometry: permitArea.geometry, pitch: areaPitch });
         const b0 = getSnappedBearing(map, permitArea.geometry, areaPitch);
-        const centerOffset = areaPitch > 15 ? 22.5 : 0;
+        const centerOffset = getCenterOffsetForPitch(areaPitch);
         const relQ = quantizeToSlices((b0 - aRel), 8, centerOffset);
         const snappedBearing = ((aRel + relQ) + 360) % 360;
         map.easeTo({ center: geom.coordinates, zoom: targetZoom, bearing: snappedBearing, duration: 1100, essential: true, easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) });
@@ -525,7 +525,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         const areaPitch2 = map?.getPitch ? map.getPitch() : 0;
         const aRel2 = computeAreaOrientation({ map, geometry: geom, pitch: areaPitch2 });
         const b0_2 = getSnappedBearing(map, geom, areaPitch2, -angle);
-        const centerOffset2 = areaPitch2 > 15 ? 22.5 : 0;
+        const centerOffset2 = getCenterOffsetForPitch(areaPitch2);
         const relQ2 = quantizeToSlices((b0_2 - aRel2), 8, centerOffset2);
         const targetBearing = ((aRel2 + relQ2) + 360) % 360;
         if (typeof map.cameraForBounds === 'function') {

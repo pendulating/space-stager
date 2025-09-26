@@ -934,6 +934,7 @@ const SpaceStager = () => {
             drawTools={drawTools}
             clickToPlace={clickToPlace}
             permitAreas={permitAreas}
+            infrastructure={infrastructure}
             placeableObjects={PLACEABLE_OBJECTS}
             nudges={nudges}
             highlightedIds={highlightedIds}

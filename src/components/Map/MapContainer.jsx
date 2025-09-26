@@ -6,7 +6,7 @@ import { useZoneCreator } from '../../hooks/useZoneCreator';
 import OverlapSelector from './OverlapSelector';
 import DroppedObjects from './DroppedObjects';
 import { computeDominantBearingFromPolygon, computeDominantViewportBearing, quantizeToSlices } from '../../utils/enhancedRenderingUtils';
-import { computeAreaOrientation, snapBearingRelativeToArea } from '../../utils/bearingUtils';
+import { computeAreaOrientation, snapBearingRelativeToArea, getCenterOffsetForPitch } from '../../utils/bearingUtils';
 import DroppedRectangles from './DroppedRectangles';
 import DroppedObjectNoteEditor from './DroppedObjectNoteEditor';
 import CustomShapeLabels from './CustomShapeLabels';
@@ -14,6 +14,7 @@ import NudgeMarkers from './NudgeMarkers';
 import ActiveToolIndicator from './ActiveToolIndicator';
 import LoadingOverlay from './LoadingOverlay';
 import PlacementPreview from './PlacementPreview';
+import EdgeMarkers from './EdgeMarkers';
 import { useMemo } from 'react';
 import TextAnnotationEditor, { AnnotationActionPill } from './TextAnnotationEditor';
 import { useMapViewState } from '../../hooks/useMapViewState';
@@ -775,10 +776,14 @@ const MapContainer = forwardRef(({
         activeRectId: drawTools?.activeRectObjectTypeId || null,
         map,
         mapEl: map && map.getContainer ? map.getContainer() : null,
-        mapContainer: mapContainerRef?.current || null
+        mapContainer: mapContainerRef?.current || null,
+        infrastructureData: infrastructure?.infrastructureData || null,
+        edgeMarkersCategories: Array.isArray(infrastructure?.edgeMarkerCategories)
+          ? infrastructure.edgeMarkerCategories
+          : null
       });
     } catch (_) {}
-  }, [drawTools]);
+  }, [drawTools, infrastructure]);
 
   // Compass click handler
   const handleCompassClick = () => {
@@ -789,8 +794,7 @@ const MapContainer = forwardRef(({
 
   // Projection toggle
   const snapToNearest45 = (deg) => {
-    const isIso = (view?.pitch || 0) > 15;
-    const centerOffset = isIso ? 22.5 : 0;
+    const centerOffset = getCenterOffsetForPitch(view?.pitch || 0);
     return quantizeToSlices(deg, 8, centerOffset);
   };
   const handleToggleProjection = () => {
@@ -1020,8 +1024,8 @@ const MapContainer = forwardRef(({
           if (!prev) return prev;
           const cur = Number(prev?.properties?.rotationDeg || 0);
           let next = normalizeAngle(cur + delta45);
-          const isIso = (map?.getPitch ? map.getPitch() : 0) > 15;
-          const snapped = ((quantizeToSlices(next, 8, isIso ? 22.5 : 0)) + 360) % 360;
+          // Persist world-facing rotation in 45° increments without applying center offset
+          const snapped = ((quantizeToSlices(next, 8, 0)) + 360) % 360;
           const nextProps = Object.assign({}, prev.properties || {}, { rotationDeg: snapped });
           return { ...prev, properties: nextProps };
         });
@@ -1240,6 +1244,12 @@ const MapContainer = forwardRef(({
         objectUpdateTrigger={clickToPlace.objectUpdateTrigger}
         onDismiss={onDismissNudge}
         highlightedIds={highlightedIds}
+      />
+
+      <EdgeMarkers
+        map={map}
+        infrastructureData={infrastructure?.infrastructureData}
+        categories={infrastructure?.edgeMarkerCategories}
       />
       
       {!mapLoaded && <LoadingOverlay />}

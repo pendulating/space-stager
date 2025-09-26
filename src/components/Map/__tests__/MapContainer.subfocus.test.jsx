@@ -95,6 +95,7 @@ describe('MapContainer subfocus integration', () => {
             clickToPlace={hooks.clickToPlace}
             permitAreas={hooks.permitAreas}
             placeableObjects={[]}
+            infrastructure={{ infrastructureData: {} }}
             nudges={[]}
             highlightedIds={[]}
             onDismissNudge={vi.fn()}

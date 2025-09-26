@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useEffect, useState } from 'react';
 import { Popup as MapLibrePopup } from 'maplibre-gl';
-import { quantizeAngleTo45, quantizeToSlices, addEnhancedSpritesToMap, buildSpriteImageId, getMapViewType, buildFlatSpriteUrl } from '../../utils/enhancedRenderingUtils';
-import { getCenterOffsetForPitch, quantizeBearingForView, normalizeAngle } from '../../utils/bearingUtils';
+import { quantizeAngleTo45, quantizeToSlices, addEnhancedSpritesToMap, buildSpriteImageId, getMapViewType, buildFlatSpriteUrl, computeSpriteTransform, extractCameraState } from '../../utils/enhancedRenderingUtils';
+import { getCenterOffsetForPitch, quantizeBearingForView } from '../../utils/bearingUtils';
 import { ensureViewportAlignedSymbols } from '../../utils/mapLayerUtils';
 import { useMapViewState } from '../../hooks/useMapViewState';
 import { useStableImageSrc } from '../../hooks/useStableImageSrc';
@@ -272,43 +272,30 @@ const DroppedObjects = ({
         const baseSize = Math.max(t.size?.width || 24, t.size?.height || 24, 24);
         const props = { id: obj.id, type: t.id, color: t.color || '#64748b', baseSize };
         if (t?.enhancedRendering?.enabled && t.enhancedRendering?.spriteBase) {
+          const baseAngle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
           const zeroOffset = (t?.enhancedRendering?.zeroOffsetDegByView?.[vt])
             ?? (t?.enhancedRendering?.zeroOffsetDeg)
             ?? DEFAULT_ZERO_OFFSET_BY_VIEW[vt] ?? 0;
-          const baseAngle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
-          const p = (map?.getPitch ? map.getPitch() : 0);
-          const isTopDown = (vt === 'top-down');
-          if (isTopDown) {
-            // Continuous rotation in 2D: use 0° sprite and rotate via icon-rotate
-            const imgId = buildSpriteImageId(t.enhancedRendering.spriteBase, 0);
-            let ready = false;
-            try { ready = map && typeof map.hasImage === 'function' ? map.hasImage(imgId) : false; } catch (_) { ready = false; }
-            props.icon_ready = ready ? 1 : 0;
-            if (ready) {
-              props.icon_image = imgId;
-            } else {
-              const prevIcon = prevIconById.get(obj.id);
-              if (prevIcon) props.icon_image = prevIcon;
-            }
-            // Align with 22.5°-centered camera grid in 2D as well
-            props.icon_rotate = normalizeAngle(baseAngle - bearingRaw + 22.5);
+          const cameraState = extractCameraState({ map, view });
+          const { imageId, iconRotate } = computeSpriteTransform({
+            map,
+            view,
+            spriteBase: t.enhancedRendering.spriteBase,
+            baseAngleDeg: baseAngle,
+            zeroOffsetDeg: zeroOffset,
+            cameraState
+          });
+          const imgId = imageId || buildSpriteImageId(t.enhancedRendering.spriteBase, 0);
+          let ready = false;
+          try { ready = map && typeof map.hasImage === 'function' ? map.hasImage(imgId) : false; } catch (_) { ready = false; }
+          props.icon_ready = ready ? 1 : 0;
+          if (ready) {
+            props.icon_image = imgId;
           } else {
-            // Isometric: stepped 45° sprites relative to snapped camera
-            const camQ = quantizeBearingForView(bearingRaw, p);
-            const eff = (((baseAngle + zeroOffset - camQ) % 360 + 360) % 360);
-            const q = quantizeAngleTo45(eff);
-            const imgId = buildSpriteImageId(t.enhancedRendering.spriteBase, q);
-            let ready = false;
-            try { ready = map && typeof map.hasImage === 'function' ? map.hasImage(imgId) : false; } catch (_) { ready = false; }
-            props.icon_ready = ready ? 1 : 0;
-            if (ready) {
-              props.icon_image = imgId;
-            } else {
-              const prevIcon = prevIconById.get(obj.id);
-              if (prevIcon) props.icon_image = prevIcon;
-            }
-            props.icon_rotate = 0;
+            const prevIcon = prevIconById.get(obj.id);
+            if (prevIcon) props.icon_image = prevIcon;
           }
+          props.icon_rotate = iconRotate || 0;
         } else if (t?.imageUrl) {
           // Simple (non-enhanced) static icon path: use type id as image id
           const imgId = String(t.id);

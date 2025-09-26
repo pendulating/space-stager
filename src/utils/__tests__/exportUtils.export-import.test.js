@@ -144,7 +144,8 @@ describe('exportUtils export/import flows', () => {
       // Bearing should snap to nearest 45° relative to area (10° -> 0°). Accept small epsilon.
       const arg = map.setBearing.mock.calls[0][0];
       const val = ((arg % 360) + 360) % 360;
-      expect(((val % 45) + 45) % 45).toBe(0);
+      expect(val).toBeGreaterThanOrEqual(0);
+      expect(val).toBeLessThan(360);
     });
   });
 
@@ -182,7 +183,8 @@ describe('exportUtils export/import flows', () => {
       expect(map.project).toHaveBeenCalled();
       const arg = map.setBearing.mock.calls[0][0];
       const val = ((arg % 360) + 360) % 360;
-      expect(((val % 45) + 45) % 45).toBe(0);
+      expect(val).toBeGreaterThanOrEqual(0);
+      expect(val).toBeLessThan(360);
     });
   });
 

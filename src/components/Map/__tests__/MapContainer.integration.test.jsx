@@ -16,6 +16,9 @@ function makeMap(overrides = {}) {
     easeTo: vi.fn(),
     getPitch: vi.fn(() => overrides.pitch ?? 0),
     getCenter: vi.fn(() => ({ lng: -74, lat: 40.7 })),
+    getBounds: vi.fn(() => ({
+      toArray: () => [[-74.1, 40.6], [-73.9, 40.8]]
+    })),
     getZoom: vi.fn(() => 12),
     doubleClickZoom: { disable: vi.fn() },
     addSource: vi.fn(),
@@ -27,7 +30,8 @@ function makeMap(overrides = {}) {
     isStyleLoaded: vi.fn(() => true),
     hasImage: vi.fn(() => false),
     addImage: vi.fn(),
-    project: vi.fn(() => ({ x: 10, y: 20 })),
+    project: vi.fn(() => ({ x: -50, y: 20 })),
+    getContainer: vi.fn(() => ({ clientWidth: 800, clientHeight: 600 })),
     ...overrides,
     __listeners: listeners,
   };
@@ -85,6 +89,7 @@ describe('MapContainer integration', () => {
             clickToPlace={hooks.clickToPlace}
             permitAreas={hooks.permitAreas}
             placeableObjects={[]}
+            infrastructure={{ infrastructureData: {} }}
             nudges={[]}
             highlightedIds={[]}
             onDismissNudge={vi.fn()}
@@ -108,6 +113,7 @@ describe('MapContainer integration', () => {
             clickToPlace={hooks.clickToPlace}
             permitAreas={hooks.permitAreas}
             placeableObjects={[]}
+            infrastructure={{ infrastructureData: {} }}
             nudges={[]}
             highlightedIds={[]}
             onDismissNudge={vi.fn()}

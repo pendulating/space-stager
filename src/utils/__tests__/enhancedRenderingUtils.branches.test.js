@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { padAngle, quantizeAngleTo45, computeBearingDegrees, computeNearestLineBearing, buildSpriteImageId, addEnhancedSpritesToMap, computeNearestSegmentClosestPointBearing, computeFeatureSpriteAngle } from '../enhancedRenderingUtils.js';
+import { padAngle, quantizeAngleTo45, computeBearingDegrees, computeNearestLineBearing, buildSpriteImageId, addEnhancedSpritesToMap, computeNearestSegmentClosestPointBearing, computeFeatureSpriteAngle, extractCameraState, computeCameraBucket, computeSpriteTransform } from '../enhancedRenderingUtils.js';
 
 describe('enhancedRenderingUtils branches', () => {
   it('padAngle/quantize/buildSpriteImageId basic cases', () => {
@@ -48,6 +48,43 @@ describe('enhancedRenderingUtils branches', () => {
     const away = computeFeatureSpriteAngle({ map: mockMap, view, areaGeom, facingMode: 'awayFromStreet', baseAxisBearing: 90, side: 'left', spriteBase: 'bench' });
     expect(away).toBeTruthy();
     expect(typeof away.angle).toBe('number');
+  });
+
+  it('extractCameraState falls back to map getters when view missing', () => {
+    const map = { getBearing: () => 33.333, getPitch: () => 12.5 };
+    const state = extractCameraState({ map });
+    expect(state.viewType).toBe('top-down');
+    expect(state.bearing).toBe(33.333);
+    expect(state.pitch).toBe(12.5);
+  });
+
+  it('computeCameraBucket returns fractional precision in top-down and slices in isometric', () => {
+    const topDown = computeCameraBucket({ cameraState: { viewType: 'top-down', bearing: 10 } });
+    expect(topDown).toBeCloseTo(10, 2);
+    const iso = computeCameraBucket({ cameraState: { viewType: 'isometric', bearing: 100 } });
+    expect(typeof iso).toBe('number');
+    expect(iso % 45).toBeCloseTo(22.5 % 45, 4);
+  });
+
+  it('computeSpriteTransform yields rotation in top-down and sprite ids in isometric', () => {
+    const top = computeSpriteTransform({
+      spriteBase: 'bench',
+      baseAngleDeg: 90,
+      displayAngleDeg: 135,
+      cameraState: { viewType: 'top-down', bearing: 30, pitch: 0 }
+    });
+    expect(top.imageId).toBe('bench_000');
+    expect(top.iconRotate).toBeCloseTo(135 - 30);
+
+    const isoMap = { getBearing: () => 40, getPitch: () => 25 };
+    const iso = computeSpriteTransform({
+      map: isoMap,
+      spriteBase: 'bench',
+      baseAngleDeg: 90,
+      cameraState: { viewType: 'isometric', bearing: 40, pitch: 25 }
+    });
+    expect(iso.imageId).toMatch(/bench_/);
+    expect(iso.iconRotate).toBe(0);
   });
 
   it('addEnhancedSpritesToMap skips already-registered and registers new images', async () => {

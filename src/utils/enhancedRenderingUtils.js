@@ -277,6 +277,111 @@ export const quantizeToSlices = (angleDeg, slices = 8, centerOffsetDeg = 0) => {
   return ((q % 360) + 360) % 360;
 };
 
+const normalizeAngle = (deg) => ((Number(deg) % 360) + 360) % 360;
+
+export const extractCameraState = ({ map, view } = {}) => {
+  try {
+    const viewType = (() => {
+      try {
+        if (view && typeof view.viewType === 'string') return view.viewType;
+      } catch (_) {}
+      return getMapViewType(map);
+    })();
+
+    const bearing = (() => {
+      if (view && typeof view.bearing === 'number') return view.bearing;
+      try { return map && typeof map.getBearing === 'function' ? map.getBearing() || 0 : 0; } catch (_) { return 0; }
+    })();
+
+    const pitch = (() => {
+      if (view && typeof view.pitch === 'number') return view.pitch;
+      try { return map && typeof map.getPitch === 'function' ? map.getPitch() || 0 : 0; } catch (_) { return 0; }
+    })();
+
+    return { viewType, bearing, pitch };
+  } catch (_) {
+    return { viewType: getMapViewType(map), bearing: 0, pitch: 0 };
+  }
+};
+
+export const computeCameraBucket = ({ map, view, cameraState, bucketPrecisionDeg = 0.25, slices = 8, topDownRotateOffsetDeg = 22.5 } = {}) => {
+  try {
+    const state = cameraState || extractCameraState({ map, view });
+    const normBearing = normalizeAngle(state?.bearing || 0);
+    if (state?.viewType === VIEW_TYPES.TOP_DOWN) {
+      const precision = Math.max(0.01, Math.abs(Number(bucketPrecisionDeg) || 0.25));
+      const factor = Math.round(1 / precision) || 1;
+      return Math.round(normBearing * factor) / factor;
+    }
+    const offset = state?.viewType === VIEW_TYPES.ISOMETRIC ? topDownRotateOffsetDeg : 0;
+    return quantizeToSlices(normBearing, slices, offset);
+  } catch (_) {
+    return 0;
+  }
+};
+
+export const computeSpriteTransform = ({
+  map,
+  view,
+  cameraState,
+  spriteBase,
+  baseAngleDeg = 0,
+  displayAngleDeg,
+  zeroOffsetDeg = 0,
+  areaGeom,
+  facingMode,
+  side,
+  slices = 8,
+  bucketPrecisionDeg = 0.25,
+  topDownRotateOffsetDeg = 22.5
+} = {}) => {
+  const state = cameraState || extractCameraState({ map, view });
+  const normBearing = normalizeAngle(state?.bearing || 0);
+  const isTopDown = state?.viewType === VIEW_TYPES.TOP_DOWN;
+  const bucketOffset = isTopDown ? 0 : topDownRotateOffsetDeg;
+  const bucketKey = computeCameraBucket({ cameraState: state, bucketPrecisionDeg, slices, topDownRotateOffsetDeg: bucketOffset });
+  const normalizedBase = normalizeAngle((Number(baseAngleDeg) || 0) + (Number(zeroOffsetDeg) || 0));
+  const normalizedDisplay = displayAngleDeg != null ? normalizeAngle(displayAngleDeg) : normalizedBase;
+  if (isTopDown) {
+    const imageId = spriteBase ? buildSpriteImageId(spriteBase, 0) : null;
+    const iconRotate = normalizeAngle(normalizedDisplay - normBearing);
+    const cameraSlice = computeCameraBucket({ cameraState: state, bucketPrecisionDeg, slices, topDownRotateOffsetDeg: 0 });
+    return {
+      viewType: state.viewType,
+      imageId,
+      iconRotate,
+      spriteAngle: 0,
+      cameraSlice,
+      bucketKey,
+      bearing: normBearing
+    };
+  }
+
+  const { angle = 0, imageId: isoImageId } = computeFeatureSpriteAngle({
+    map,
+    view: Object.assign({}, view, { viewType: state?.viewType, bearing: state?.bearing, pitch: state?.pitch }),
+    areaGeom,
+    facingMode,
+    baseAxisBearing: normalizedBase,
+    side,
+    spriteBase,
+    slices,
+    centerOffsetDeg: topDownRotateOffsetDeg
+  }) || {};
+
+  const spriteAngle = normalizeAngle(angle || 0);
+  const cameraSlice = quantizeToSlices(normBearing, slices, topDownRotateOffsetDeg);
+  return {
+    viewType: state?.viewType,
+    imageId: isoImageId || (spriteBase ? buildSpriteImageId(spriteBase, spriteAngle) : null),
+    iconRotate: 0,
+    spriteAngle,
+    cameraSlice,
+    bucketKey,
+    bearing: normBearing
+  };
+};
+
 /**
  * Compute the closest segment to a point and derive a local frame:
  * - axisBearing: direction of the segment (A->B) in degrees (0=N, CW+)

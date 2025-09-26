@@ -1,12 +1,11 @@
 import { useEffect, useRef } from 'react';
-import { computeAreaOrientation, getCenterOffsetForPitch } from '../utils/bearingUtils';
-import { quantizeToSlices } from '../utils/enhancedRenderingUtils';
+import { computeAreaOrientation } from '../utils/bearingUtils';
 
 /**
  * useCameraRotation
  * Centralize camera rotation controls:
- *  - Q/E keyboard steps (45° increments) with view-dependent anchoring
- *  - rotateend snapping to nearest 45° with view-dependent center offset
+ *  - Q/E keyboard nudge with smooth continuous rotation (no snapping)
+ *  - rotateend leaves bearing as-is (no forced snap)
  *
  * options:
  *  - map: MapLibre/Mapbox map instance (required)
@@ -14,10 +13,74 @@ import { quantizeToSlices } from '../utils/enhancedRenderingUtils';
  *  - isEnabled?: boolean (default true)
  */
 export const useCameraRotation = ({ map, getAreaGeometry, isEnabled = true } = {}) => {
-  const suppressRotateSnapRef = useRef(false);
-  const lastDiscreteBearingRef = useRef(null);
+  const suppressSnapRef = useRef(false);
+  const lastBearingRef = useRef(null);
   const lastThetaRef = useRef(null);
   const lastIsoRef = useRef(null);
+  const activeDirRef = useRef(0);
+  const lastDirRef = useRef(0);
+  const rafIdRef = useRef(null);
+  const lastFrameTsRef = useRef(0);
+  const remainingBurstRef = useRef(0);
+
+  const stopContinuousRotation = () => {
+    activeDirRef.current = 0;
+    lastDirRef.current = 0;
+    lastFrameTsRef.current = 0;
+    remainingBurstRef.current = 0;
+    if (rafIdRef.current != null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+  };
+
+  const stepContinuousRotation = (ts) => {
+    try {
+      if (!map) { stopContinuousRotation(); return; }
+      const dir = activeDirRef.current || lastDirRef.current;
+      if (!dir) { stopContinuousRotation(); return; }
+      const prevTs = lastFrameTsRef.current || ts;
+      lastFrameTsRef.current = ts;
+      const dt = Math.max(0, (ts - prevTs) / 1000);
+      if (!dt) {
+        rafIdRef.current = requestAnimationFrame(stepContinuousRotation);
+        return;
+      }
+      const bearing = (typeof map.getBearing === 'function') ? map.getBearing() : 0;
+      const pitch = (typeof map.getPitch === 'function') ? map.getPitch() : 0;
+      const isIso = pitch > 15;
+      const speed = isIso ? 60 : 45; // degrees per second
+      let delta = dir * speed * dt;
+      if (remainingBurstRef.current > 0) {
+        const maxBurst = Math.min(remainingBurstRef.current, Math.abs(delta));
+        const applied = maxBurst > 0 ? dir * maxBurst : 0;
+        if (Math.abs(delta) > maxBurst) {
+          delta = dir * maxBurst;
+        } else {
+          delta = applied;
+        }
+        remainingBurstRef.current = Math.max(0, remainingBurstRef.current - Math.abs(delta));
+      } else if (!activeDirRef.current) {
+        stopContinuousRotation();
+        return;
+      }
+      if (delta === 0) {
+        rafIdRef.current = requestAnimationFrame(stepContinuousRotation);
+        return;
+      }
+      const next = ((bearing + delta) % 360 + 360) % 360;
+      suppressSnapRef.current = true;
+      if (typeof map.setBearing === 'function') {
+        map.setBearing(next);
+      } else if (typeof map.rotateTo === 'function') {
+        map.rotateTo(next, { duration: 0, essential: true });
+      }
+      lastDirRef.current = dir;
+      rafIdRef.current = requestAnimationFrame(stepContinuousRotation);
+    } catch (err) {
+      stopContinuousRotation();
+    }
+  };
 
   // Keyboard map rotation with snapping relative to area orientation
   useEffect(() => {
@@ -28,7 +91,7 @@ export const useCameraRotation = ({ map, getAreaGeometry, isEnabled = true } = {
         const t = e.target;
         const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
         if (typing) return;
-        if (e.repeat) return; // exactly one step per press
+        if (e.repeat) return; // continuous rotation handled manually
         const key = (e.key || '').toLowerCase();
         if (key !== 'q' && key !== 'e') return;
         e.preventDefault();
@@ -39,34 +102,19 @@ export const useCameraRotation = ({ map, getAreaGeometry, isEnabled = true } = {
         const isIso = p > 15;
         const areaGeom = (typeof getAreaGeometry === 'function') ? (getAreaGeometry() || null) : null;
         const theta = areaGeom ? computeAreaOrientation({ map, geometry: areaGeom, pitch: p }) : 0;
-
-        let base = lastDiscreteBearingRef.current;
-        // Re-anchor to current grid if:
-        //  - no baseline yet
-        //  - user rotated away from last discrete bearing
-        //  - view type changed (isometric vs top-down)
-        //  - dominant area orientation changed materially (>= 1°)
-        const diffFromLast = (base == null) ? Infinity : Math.abs((((current - base) % 360) + 540) % 360 - 180);
-        const prevIso = lastIsoRef.current;
-        const prevTheta = lastThetaRef.current;
-        const thetaDrift = (prevTheta == null) ? 0 : Math.abs((((theta - prevTheta) % 360) + 540) % 360 - 180);
-        const needsReanchor = (base == null) || (diffFromLast > 2) || (prevIso != null && prevIso !== isIso) || (prevTheta != null && thetaDrift > 1);
-        if (needsReanchor) {
-          const centerOffset = getCenterOffsetForPitch(p);
-          base = quantizeToSlices(current, 8, centerOffset);
-        }
-
         lastIsoRef.current = isIso;
         lastThetaRef.current = theta;
 
-        const target = ((base + dir * 45) % 360 + 360) % 360;
+        const baseBurst = Math.abs(isIso ? 12 : 8);
+        remainingBurstRef.current = baseBurst;
         try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
-        try {
-          suppressRotateSnapRef.current = true;
-          lastDiscreteBearingRef.current = target;
-          map.easeTo({ bearing: target, duration: 180, essential: true });
-        } catch (_) {
-          suppressRotateSnapRef.current = false;
+        suppressSnapRef.current = true;
+
+        activeDirRef.current = dir;
+        lastDirRef.current = dir;
+        lastFrameTsRef.current = 0;
+        if (rafIdRef.current == null) {
+          rafIdRef.current = requestAnimationFrame(stepContinuousRotation);
         }
       } catch (_) {}
     };
@@ -75,20 +123,29 @@ export const useCameraRotation = ({ map, getAreaGeometry, isEnabled = true } = {
     return () => { window.removeEventListener('keydown', onKeyDown); };
   }, [map, getAreaGeometry, isEnabled]);
 
-  // Snap free-rotate interactions on rotateend to nearest 45°
+  useEffect(() => {
+    if (!map || !isEnabled) return;
+    const onKeyUp = (e) => {
+      try {
+        const key = (e.key || '').toLowerCase();
+        if (key !== 'q' && key !== 'e') return;
+        e.preventDefault();
+        activeDirRef.current = 0;
+        if (!remainingBurstRef.current) stopContinuousRotation();
+      } catch (_) {}
+    };
+    window.addEventListener('keyup', onKeyUp, { passive: false });
+    return () => { window.removeEventListener('keyup', onKeyUp); };
+  }, [map, isEnabled]);
+
+  // After rotateend, persist final bearing without snapping
   useEffect(() => {
     if (!map || !isEnabled) return;
     const onRotateEnd = () => {
       try {
-        if (suppressRotateSnapRef.current) { suppressRotateSnapRef.current = false; return; }
+        if (suppressSnapRef.current || activeDirRef.current) { suppressSnapRef.current = false; return; }
         const current = (typeof map.getBearing === 'function') ? map.getBearing() : 0;
-        const p = (map.getPitch ? map.getPitch() : 0);
-        const centerOffset = getCenterOffsetForPitch(p);
-        const absQ = quantizeToSlices(current, 8, centerOffset);
-        const delta = Math.abs((((absQ - current) % 360) + 540) % 360 - 180);
-        if (delta > 0.5) {
-          try { lastDiscreteBearingRef.current = absQ; map.rotateTo(absQ, { duration: 120 }); } catch (_) {}
-        }
+        lastBearingRef.current = current;
       } catch (_) {}
     };
     try { map.on('rotateend', onRotateEnd); } catch (_) {}
@@ -97,5 +154,6 @@ export const useCameraRotation = ({ map, getAreaGeometry, isEnabled = true } = {
 };
 
 export default useCameraRotation;
+
 
 

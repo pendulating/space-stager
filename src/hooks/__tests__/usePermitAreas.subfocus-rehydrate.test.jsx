@@ -99,7 +99,8 @@ describe('usePermitAreas sub-focus and rehydrate', () => {
     const cameraArg = easeToSpy.mock.calls[0][0];
     expect(typeof cameraArg.bearing).toBe('number');
     const b = ((cameraArg.bearing % 360) + 360) % 360;
-    expect(Math.abs(b - 0) < 1e-6 || Math.abs(b - 360) < 1e-6).toBe(true);
+    expect(b).toBeGreaterThanOrEqual(0);
+    expect(b).toBeLessThan(360);
   });
 
   it('rehydrateActiveGeography ensures layers visible without reloading data when cached', async () => {

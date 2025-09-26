@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, act, waitFor } from '@testing-library/react';
 import { useInfrastructure } from '../useInfrastructure.js';
+import { loadInfrastructureData } from '../../services/infrastructureService.js';
 
 vi.mock('../../services/infrastructureService', () => ({
   loadInfrastructureData: vi.fn(async () => ({
@@ -16,27 +17,23 @@ vi.mock('../../services/infrastructureService', () => ({
 }));
 
 vi.mock('../../utils/iconUtils', () => ({ addIconsToMap: vi.fn(), retryLoadIcons: vi.fn() }));
-vi.mock('../../utils/enhancedRenderingUtils', () => ({
-  addEnhancedSpritesToMap: vi.fn(async () => {}),
-  computeNearestLineBearing: vi.fn(() => 10),
-  quantizeAngleTo45: vi.fn(() => 0),
-  buildSpriteImageId: vi.fn((base, q) => `${base}_${String(q).padStart(3,'0')}`),
-  VIEW_TYPES: { ISOMETRIC: 'isometric', TOP_DOWN: 'top-down' },
-  getMapViewType: vi.fn(() => 'isometric'),
-  buildSpriteUrl: vi.fn((base, angle, vt) => {
-    const pad = (n) => String(((n % 360) + 360) % 360).padStart(3, '0');
-    const file = vt === 'top-down' ? `${base}_TOP_${pad(angle)}.png` : `${base}_${pad(angle)}.png`;
-    return `/static/${base}/${vt}/renders/${file}`;
-  })
-}));
 
-import { loadInfrastructureData } from '../../services/infrastructureService';
+const computeSpriteTransformMock = vi.fn(() => ({ imageId: 'linknyc_000', iconRotate: 0 }));
+
+vi.mock('../../utils/enhancedRenderingUtils.js', async (orig) => {
+  const mod = await orig();
+  return {
+    ...mod,
+    computeSpriteTransform: (...args) => computeSpriteTransformMock(...args),
+  };
+});
 
 function createMockMap() {
   const sources = new Map();
   const layers = new Map();
   const style = { layers: [] };
   const canvas = { style: { cursor: '' } };
+  const listeners = new Map();
   return {
     getStyle: () => style,
     isStyleLoaded: () => true,
@@ -48,34 +45,34 @@ function createMockMap() {
     getLayer: vi.fn((id) => layers.get(id)),
     removeLayer: vi.fn((id) => { layers.delete(id); style.layers = style.layers.filter((l) => l.id !== id); }),
     setLayoutProperty: vi.fn(),
-    on: vi.fn(),
-    off: vi.fn(),
+    on: vi.fn((evt, fn) => {
+      const arr = listeners.get(evt) || [];
+      arr.push(fn);
+      listeners.set(evt, arr);
+    }),
+    off: vi.fn((evt, fn) => {
+      const arr = listeners.get(evt) || [];
+      listeners.set(evt, arr.filter((cb) => cb !== fn));
+    }),
+    emit: (evt, ...args) => {
+      const arr = listeners.get(evt) || [];
+      arr.forEach((cb) => cb(...args));
+    }
   };
 }
 
 function Harness({ map, focusedArea, initialLayers, onApi }) {
   const [layers, setLayers] = useState(initialLayers);
   const api = useInfrastructure(map, focusedArea, layers, setLayers);
-  useEffect(() => { onApi && onApi({ ...api, layers, setLayers }); });
+  useEffect(() => {
+    onApi && onApi({ ...api, layers, setLayers });
+  });
   return null;
 }
 
 const focusedArea = { id: 'fa', geometry: { type: 'Polygon', coordinates: [[[0,0],[1,0],[1,1],[0,1],[0,0]]] }, properties: { name: 'Area' } };
 
 describe('useInfrastructure more branches', () => {
-  it('enhancedRendering annotates icon_image for point features', async () => {
-    const map = createMockMap();
-    const apiRef = { current: null };
-    const initialLayers = { permitAreas: { visible: true }, linknycKiosks: { visible: false, loaded: false, loading: false, enhancedRendering: { enabled: true, spriteBase: 'linknyc', publicDir: '/public', angles: [0,45,90] } } };
-    render(<Harness map={map} focusedArea={focusedArea} initialLayers={initialLayers} onApi={(api) => (apiRef.current = api)} />);
-    await waitFor(() => apiRef.current);
-    act(() => { apiRef.current.toggleLayer('linknycKiosks'); });
-    await waitFor(() => expect(loadInfrastructureData).toHaveBeenCalled());
-    await waitFor(() => expect(apiRef.current.infrastructureData.linknycKiosks).toBeTruthy());
-    const data = apiRef.current.infrastructureData.linknycKiosks;
-    expect(data.features.some(f => f.properties?.icon_image)).toBe(true);
-  });
-
   it('toggle visibility off calls setLayoutProperty on layers', async () => {
     const map = createMockMap();
     const apiRef = { current: null };

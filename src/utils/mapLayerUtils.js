@@ -12,7 +12,6 @@ export const ensureViewportAlignedSymbols = (map, layerIds = []) => {
       if (!id) continue;
       try { map.setLayoutProperty(id, 'icon-rotation-alignment', 'viewport'); } catch (_) {}
       try { map.setLayoutProperty(id, 'icon-pitch-alignment', 'viewport'); } catch (_) {}
-      try { map.setLayoutProperty(id, 'icon-rotate', 0); } catch (_) {}
       try { map.setLayoutProperty(id, 'icon-anchor', 'center'); } catch (_) {}
       try { map.setLayoutProperty(id, 'icon-offset', [0, 0]); } catch (_) {}
     }
@@ -20,5 +19,6 @@ export const ensureViewportAlignedSymbols = (map, layerIds = []) => {
 };
 
 export default ensureViewportAlignedSymbols;
+
 
 

@@ -91,9 +91,16 @@ const Harness = ({ map, autoToggle = true }) => {
       return feats[0]?.properties?.icon_image || '';
     } catch (_) { return ''; }
   })();
+  const firstRot = (() => {
+    try {
+      const feats = infra.infrastructureData?.benches?.features || [];
+      return typeof feats[0]?.properties?.icon_rotate === 'number' ? feats[0].properties.icon_rotate : '';
+    } catch (_) { return ''; }
+  })();
   return (
     <div>
       <div data-testid="img">{firstImg}</div>
+      <div data-testid="rot">{String(firstRot)}</div>
     </div>
   );
 };
@@ -103,24 +110,30 @@ describe('useInfrastructure integration', () => {
   beforeEach(() => { map = new FakeMap(); });
   afterEach(() => { map = null; });
 
-  it('updates icon_image when bearing crosses 45° bucket, not within same bucket', async () => {
+  it('updates icon_image when bearing changes enough to cross sprite bucket', async () => {
     render(<Harness map={map} />);
     // Allow effect chain to run
     await act(async () => { map.emit('style.load'); map.emit('render'); });
 
-    const getImg = () => screen.getByTestId('img').textContent;
-    const initial = getImg();
-    expect(typeof initial).toBe('string');
+    const getProps = () => ({
+      img: screen.getByTestId('img').textContent,
+      rot: Number(screen.getByTestId('rot').textContent)
+    });
+    const { img: initialImg, rot: initialRot } = getProps();
+    expect(initialImg).toBeTypeOf('string');
+    expect(initialImg.length).toBeGreaterThan(0);
 
-    // Small rotate within same 45° bucket → unchanged
-    await act(async () => { map.setBearing(10); map.emit('render'); });
-    const withinBucket = getImg();
-    expect(withinBucket).toBe(initial);
+    // Small rotate slightly moves bearing and should adjust icon_rotate
+    await act(async () => { map.setBearing(2); map.emit('render'); });
+    const afterSmall = getProps();
+    expect(afterSmall.img).toBe(initialImg);
+    expect(afterSmall.rot).not.toBe(initialRot);
 
-    // Cross bucket boundary → changed
-    await act(async () => { map.setBearing(60); map.emit('render'); });
-    const next = getImg();
-    expect(next).not.toBe(initial);
+    // Larger change keeps icon but continues to update rotation
+    await act(async () => { map.setBearing(20); map.emit('render'); });
+    const afterLarge = getProps();
+    expect(afterLarge.img).toBe(initialImg);
+    expect(afterLarge.rot).not.toBe(afterSmall.rot);
   });
 
   it('re-buckets on pitch change when area orientation changes', async () => {
