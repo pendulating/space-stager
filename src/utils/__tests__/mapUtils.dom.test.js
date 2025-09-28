@@ -9,15 +9,33 @@ describe('mapUtils DOM helpers', () => {
 
   it('loadCSS appends required stylesheet links once', () => {
     loadCSS();
-    // maplibre and draw
+    // maplibre and draw are always required
     expect(document.head.querySelector(`link[href="${MAP_LIBRARIES.maplibre.css}"]`)).toBeTruthy();
     expect(document.head.querySelector(`link[href="${MAP_LIBRARIES.draw.css}"]`)).toBeTruthy();
-    // search box (optional=false in config)
-    expect(document.head.querySelector(`link[href="${MAP_LIBRARIES.searchBox.css}"]`)).toBeTruthy();
+    // optional search box should be skipped by default when flagged optional
+    expect(document.head.querySelector(`link[href="${MAP_LIBRARIES.searchBox.css}"]`)).toBeNull();
     // Calling again should not duplicate
     loadCSS();
     const links = document.head.querySelectorAll('link');
+    expect(links.length).toBe(2);
+  });
+
+  it('loadCSS includes search box stylesheet when explicitly required', () => {
+    const originalOptional = MAP_LIBRARIES.searchBox.optional;
+    MAP_LIBRARIES.searchBox.optional = false;
+
+    loadCSS();
+
+    expect(document.head.querySelector(`link[href="${MAP_LIBRARIES.maplibre.css}"]`)).toBeTruthy();
+    expect(document.head.querySelector(`link[href="${MAP_LIBRARIES.draw.css}"]`)).toBeTruthy();
+    expect(document.head.querySelector(`link[href="${MAP_LIBRARIES.searchBox.css}"]`)).toBeTruthy();
+
+    // Ensure no duplicates on rerun
+    loadCSS();
+    const links = document.head.querySelectorAll('link');
     expect(links.length).toBe(3);
+
+    MAP_LIBRARIES.searchBox.optional = originalOptional;
   });
 
   it('loadScript resolves immediately if checkFn true', async () => {

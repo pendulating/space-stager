@@ -84,7 +84,7 @@ describe('useDrawTools', () => {
     global.window.MapboxDraw.modes = {};
 
     function Harness() {
-      const tools = useDrawTools(map);
+      const tools = useDrawTools(map, null, { enableRectEscape: false });
       return (
         <div>
           <button onClick={() => tools.startRectObjectPlacement({ id: 'bench' })}>toggleRect</button>

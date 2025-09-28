@@ -92,6 +92,7 @@ describe('MapContainer additional branches', () => {
             nudges={[]}
             highlightedIds={[]}
             onDismissNudge={vi.fn()}
+          responsive={{ sidebarMode: 'expanded' }}
           />
         </ZoneCreatorProvider>
       </DroppedObjectsProvider>
@@ -120,6 +121,7 @@ describe('MapContainer additional branches', () => {
             nudges={[]}
             highlightedIds={[]}
             onDismissNudge={vi.fn()}
+          responsive={{ sidebarMode: 'expanded' }}
           />
         </ZoneCreatorProvider>
       </DroppedObjectsProvider>

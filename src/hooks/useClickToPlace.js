@@ -10,6 +10,23 @@ export const useClickToPlace = (map) => {
   const [cursorPosition, setCursorPosition] = useState(null);
   const [objectUpdateTrigger, setObjectUpdateTrigger] = useState(0);
 
+  const placementModeRef = useRef(null);
+  useEffect(() => {
+    placementModeRef.current = placementMode;
+  }, [placementMode]);
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape' && placementModeRef.current) {
+        e.preventDefault();
+        setPlacementMode(null);
+        setCursorPosition(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   // Deprecated: camera-driven objectUpdateTrigger is no longer required; overlays use view hook.
 
   // Handle mouse move for preview

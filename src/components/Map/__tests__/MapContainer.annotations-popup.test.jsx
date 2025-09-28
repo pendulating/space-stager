@@ -119,6 +119,7 @@ describe('MapContainer annotations popup', () => {
             nudges={[]}
             highlightedIds={[]}
             onDismissNudge={vi.fn()}
+        responsive={{ sidebarMode: 'expanded' }}
           />
         </ZoneCreatorProvider>
       </DroppedObjectsProvider>
@@ -163,6 +164,7 @@ describe('MapContainer annotations popup', () => {
             nudges={[]}
             highlightedIds={[]}
             onDismissNudge={vi.fn()}
+            responsive={{ sidebarMode: 'expanded' }}
           />
         </ZoneCreatorProvider>
       </DroppedObjectsProvider>

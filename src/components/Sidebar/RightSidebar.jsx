@@ -1,12 +1,26 @@
-import React, { useState } from 'react';
-import { FileImage, FileText, Download } from 'lucide-react';
-import PlaceableObjectsPanel from './PlaceableObjectsPanel';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import { ClipboardList, Download, FileImage, FileText, List, PencilRuler, Shapes } from 'lucide-react';
 import DrawingTools from './DrawingTools';
 import ShapeProperties from './ShapeProperties';
+import PlaceableObjectsPanel from './PlaceableObjectsPanel';
 import CustomShapesList from './CustomShapesList';
 import DroppedObjectsList from './DroppedObjectsList';
 
-const RightSidebar = ({ 
+const SECTION_CONFIG = [
+  { id: 'design', label: 'Drawing & Annotations', defaultActive: true, icon: PencilRuler },
+  { id: 'objects', label: 'Event Objects & Placed Items', defaultActive: false, icon: Shapes }
+];
+
+const SECTION_LOOKUP = SECTION_CONFIG.reduce((acc, section) => {
+  acc[section.id] = section;
+  return acc;
+}, {});
+
+const RightSidebar = ({
+  mode = 'expanded',
+  isOpen = true,
+  onClose = () => {},
+  onToggle = () => {},
   drawTools,
   clickToPlace,
   placeableObjects,
@@ -15,140 +29,375 @@ const RightSidebar = ({
   onImport,
   focusedArea
 }) => {
-  const [showExportMenu, setShowExportMenu] = useState(false);
-  return (
-    <>
-      <div className="w-80 h-full bg-white dark:bg-gray-800 dark:text-gray-100 shadow-lg z-10 flex flex-col border-l border-gray-200 dark:border-gray-700 sidebar-right">
+  const [activeSection, setActiveSection] = useState(
+    SECTION_CONFIG.find((section) => section.defaultActive)?.id || SECTION_CONFIG[0].id
+  );
 
-      {/* Top: Event Information & Options (moved up, wider controls) */}
-      <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-        <div className="grid grid-cols-1 gap-2">
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [subSectionsExpanded, setSubSectionsExpanded] = useState({
+    drawing: true,
+    annotations: true,
+    dropped: true,
+    placed: true
+  });
+
+  useEffect(() => {
+    if (!clickToPlace) return;
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape' && clickToPlace.placementMode) {
+        try { clickToPlace.cancelPlacementMode(); } catch (_) {}
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [clickToPlace]);
+
+  const ensureDrawerOpen = useCallback(() => {
+    if (mode === 'icon-rail' && !isOpen) {
+      onToggle();
+    }
+  }, [mode, isOpen, onToggle]);
+
+  const handleSectionShortcut = useCallback((id) => {
+    setActiveSection(id);
+    ensureDrawerOpen();
+
+    if (mode !== 'icon-rail' && typeof window !== 'undefined') {
+      window.requestAnimationFrame(() => {
+        const sectionEl = document.querySelector(`[data-sidebar-section="${id}"]`);
+        if (sectionEl && typeof sectionEl.scrollIntoView === 'function') {
+          sectionEl.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        }
+      });
+    }
+  }, [ensureDrawerOpen, mode]);
+
+  const sidebarClasses = useMemo(() => {
+    const base = 'h-full bg-white dark:bg-gray-800 dark:text-gray-100 shadow-lg z-30 flex flex-col border-l border-gray-200 dark:border-gray-700 sidebar-right transition-all duration-300 ease-in-out';
+    if (mode === 'icon-rail') return `${base} w-full`;
+    if (mode === 'condensed') return `${base} w-64`;
+    return `${base} w-80`;
+  }, [mode]);
+
+  const toggleSubSection = useCallback((id) => {
+    setSubSectionsExpanded((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      if (id === 'drawing' && prev[id]) {
+        next.annotations = false;
+      }
+      if (id === 'dropped' && prev[id]) {
+        next.placed = false;
+      }
+      if (id === 'drawing' && !prev[id]) {
+        next.annotations = true;
+      }
+      if (id === 'dropped' && !prev[id]) {
+        next.placed = true;
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleSubChild = useCallback((id, parentId) => {
+    setSubSectionsExpanded((prev) => {
+      if (!prev[parentId]) return prev;
+      return { ...prev, [id]: !prev[id] };
+    });
+  }, []);
+
+  const renderDesignSection = () => (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-700">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Drawing Tools</h4>
           <button
             type="button"
-            className="w-full px-4 py-3 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700"
+            onClick={() => toggleSubSection('drawing')}
+            className="text-xs px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+          >
+            {subSectionsExpanded.drawing ? 'Hide' : 'Show'}
+          </button>
+        </div>
+        {subSectionsExpanded.drawing && (
+          <div className="px-4 pb-3 space-y-3">
+            <DrawingTools
+              activeTool={drawTools.activeTool}
+              onToolSelect={drawTools.activateDrawingTool}
+              selectedShape={drawTools.selectedShape}
+              onDelete={drawTools.deleteSelectedShape}
+              drawAvailable={!!drawTools.drawInitialized}
+              onRetry={drawTools.reinitializeDrawControls}
+            />
+            {drawTools.selectedShape && (
+              <ShapeProperties
+                shapeLabel={drawTools.shapeLabel}
+                onLabelChange={drawTools.setShapeLabel}
+                onApply={drawTools.updateShapeLabel}
+              />
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className={`rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 ${subSectionsExpanded.drawing ? '' : 'opacity-60 pointer-events-none'}`}>
+        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-700">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Annotations</h4>
+          <button
+            type="button"
+            onClick={() => toggleSubChild('annotations', 'drawing')}
+            className="text-xs px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+            disabled={!subSectionsExpanded.drawing}
+          >
+            {subSectionsExpanded.annotations ? 'Hide' : 'Show'}
+          </button>
+        </div>
+        {subSectionsExpanded.annotations && subSectionsExpanded.drawing && (
+          <div className="px-4 pb-3">
+            <CustomShapesList
+              selectedShape={drawTools.selectedShape}
+              onShapeSelect={drawTools.selectShape}
+              draw={drawTools.draw}
+              onShapeRename={drawTools.renameShape}
+              showLabels={drawTools.showLabels}
+              onToggleLabels={drawTools.setShowLabels}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderObjectsSection = () => (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-700">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Event Objects</h4>
+          <button
+            type="button"
+            onClick={() => toggleSubSection('dropped')}
+            className="text-xs px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+          >
+            {subSectionsExpanded.dropped ? 'Hide' : 'Show'}
+          </button>
+        </div>
+        {subSectionsExpanded.dropped && (
+          <div className="px-4 pb-3">
+            <PlaceableObjectsPanel
+              objects={placeableObjects}
+              onActivation={clickToPlace.activatePlacementMode}
+              placementMode={clickToPlace.placementMode}
+              onRectActivation={(obj) => drawTools.startRectObjectPlacement(obj)}
+              activeRectObjectTypeId={drawTools.activeRectObjectTypeId}
+              onCancelPlacement={typeof clickToPlace.cancelPlacementMode === 'function' ? clickToPlace.cancelPlacementMode : undefined}
+            />
+          </div>
+        )}
+      </div>
+
+      <div className={`rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 ${subSectionsExpanded.dropped ? '' : 'opacity-60 pointer-events-none'}`}>
+        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-700">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Placed Items</h4>
+          <button
+            type="button"
+            onClick={() => toggleSubChild('placed', 'dropped')}
+            className="text-xs px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+            disabled={!subSectionsExpanded.dropped}
+          >
+            {subSectionsExpanded.placed ? 'Hide' : 'Show'}
+          </button>
+        </div>
+        {subSectionsExpanded.placed && subSectionsExpanded.dropped && (
+          <div className="px-4 pb-3">
+            {clickToPlace.droppedObjects.length > 0 ? (
+              <DroppedObjectsList
+                objects={clickToPlace.droppedObjects}
+                placeableObjects={placeableObjects}
+                onRemove={clickToPlace.removeDroppedObject}
+              />
+            ) : (
+              <div className="text-xs text-gray-500 dark:text-gray-400">No objects placed yet.</div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderSectionBody = (id) => {
+    switch (id) {
+      case 'design':
+        return renderDesignSection();
+      case 'objects':
+        return renderObjectsSection();
+      default:
+        return null;
+    }
+  };
+
+  const renderSection = (id) => {
+    const config = SECTION_LOOKUP[id];
+    if (!config) return null;
+    const isActive = activeSection === id;
+    const sectionClasses = `rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 ${isActive ? 'shadow ring-1 ring-blue-500/40' : ''}`;
+
+    return (
+      <section data-sidebar-section={id} key={id} className={sectionClasses}>
+        <div className="px-4 py-4 space-y-4">
+          {renderSectionBody(id)}
+        </div>
+      </section>
+    );
+  };
+
+  const renderExportSection = () => (
+    <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 mt-auto">
+      <div className="space-y-2">
+        <button
+          onClick={onExport}
+          className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2 export-button export-event-plan"
+        >
+          <Download className="w-4 h-4" />
+          <span>Export Plan (JSON)</span>
+        </button>
+        <button
+          onClick={() => onExportSiteplan('pdf')}
+          disabled={!focusedArea}
+          className={`w-full px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center space-x-2 export-button export-siteplan ${
+            focusedArea ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+          }`}
+        >
+          <FileImage className="w-4 h-4" />
+          <span>Export Site Plan (PDF)</span>
+        </button>
+      </div>
+    </div>
+  );
+
+  const sectionsToRender = mode === 'icon-rail' ? [activeSection] : SECTION_CONFIG.map((section) => section.id);
+
+  const renderContent = () => (
+    <div className={sidebarClasses}>
+      {mode !== 'expanded' && (
+        <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+          <div className="text-sm font-medium">Plan Tools</div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-xs px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+          >
+            Close
+          </button>
+        </div>
+      )}
+
+      {mode !== 'icon-rail' && (
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+          <button
+            type="button"
+            className="flex-1 px-3 py-2 rounded-md border border-gray-200 dark:border-gray-700 text-xs font-medium bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700"
             onClick={() => window.dispatchEvent(new CustomEvent('ui:show-event-info'))}
           >
-            Event Information
+            Event Info
           </button>
           <button
             type="button"
-            className="w-full px-4 py-3 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="flex-1 px-3 py-2 rounded-md border border-gray-200 dark:border-gray-700 text-xs font-medium bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700"
             onClick={() => window.dispatchEvent(new CustomEvent('ui:show-export-options'))}
           >
             Plan Options
           </button>
         </div>
+      )}
+
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
+        {sectionsToRender.map((id) => renderSection(id))}
       </div>
 
-      {/* Middle scroll area with flexible panels */}
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        {/* Drawing Tools */}
-        <DrawingTools 
-          activeTool={drawTools.activeTool}
-          onToolSelect={drawTools.activateDrawingTool}
-          selectedShape={drawTools.selectedShape}
-          onDelete={drawTools.deleteSelectedShape}
-          drawAvailable={Boolean(drawTools.draw?.current)}
-          onRetry={drawTools.reinitializeDrawControls}
-        />
-
-        {/* Shape Properties */}
-        {drawTools.selectedShape && (
-          <ShapeProperties
-            shapeLabel={drawTools.shapeLabel}
-            onLabelChange={drawTools.setShapeLabel}
-            onApply={drawTools.updateShapeLabel}
-          />
-        )}
-
-        {/* Placeable Objects Panel (reserve space for at least 3 rows) */}
-        <div className="flex-1 min-h-[20rem] overflow-y-auto">
-          <PlaceableObjectsPanel
-            objects={placeableObjects}
-            onActivation={clickToPlace.activatePlacementMode}
-            placementMode={clickToPlace.placementMode}
-            activeRectObjectTypeId={drawTools.activeRectObjectTypeId}
-            onRectActivation={(obj) => drawTools.startRectObjectPlacement(obj)}
-          />
-        </div>
-
-        {/* Custom Shapes List (Annotations) */}
-        <CustomShapesList
-          selectedShape={drawTools.selectedShape}
-          onShapeSelect={drawTools.selectShape}
-          draw={drawTools.draw}
-          onShapeRename={drawTools.renameShape}
-          showLabels={drawTools.showLabels}
-          onToggleLabels={drawTools.setShowLabels}
-        />
-
-        {/* Dropped Objects List */}
-        {clickToPlace.droppedObjects.length > 0 && (
-          <DroppedObjectsList
-            objects={clickToPlace.droppedObjects}
-            placeableObjects={placeableObjects}
-            onRemove={clickToPlace.removeDroppedObject}
-          />
-        )}
-      </div>
-
-
-      {/* Export Section */}
-      <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 mt-auto">
-        <div className="space-y-2">
-          {/* Export Event Plan */}
-          <button 
-            onClick={onExport}
-            className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2 export-button export-event-plan"
-          >
-            <Download className="w-4 h-4" />
-            <span>Save Digital Plan (JSON)</span>
-          </button>
-          
-          {/* Export Siteplan Menu */}
-          <div className="relative">
-            <button
-              onClick={() => setShowExportMenu(!showExportMenu)}
-              disabled={!focusedArea}
-              className={`w-full px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center space-x-2 export-button export-siteplan ${
-                focusedArea 
-                  ? 'bg-green-600 text-white hover:bg-green-700' 
-                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              }`}
-            >
-              <FileImage className="w-4 h-4" />
-              <span>Export Site Plan</span>
-            </button>
-            
-            {showExportMenu && focusedArea && (
-              <div className="absolute bottom-full left-0 right-0 mb-1 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-[9999]">
-                <div className="p-2">
-                  <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 px-2">Export Site Plan</div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      console.log('Exporting PDF...', { focusedArea, onExportSiteplan });
-                      onExportSiteplan('pdf');
-                      setShowExportMenu(false);
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded flex items-center space-x-2 cursor-pointer"
-                  >
-                    <FileText className="w-4 h-4" />
-                    <span>PDF Document</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-          
-          
-        </div>
-      </div>
+      {mode === 'icon-rail' ? null : renderExportSection()}
     </div>
-
-
-  </>
   );
+
+  if (mode === 'icon-rail') {
+    const drawerWidthClass = isOpen ? 'w-64 max-w-[calc(100vw-5rem)]' : 'w-0';
+    return (
+      <div className="h-full flex">
+        <div className="w-16 min-w-[4rem] h-full flex flex-col items-center justify-between py-8 px-3 bg-white/90 dark:bg-gray-900/80 border-l border-gray-200 dark:border-gray-700 shadow-lg">
+          <div className="flex flex-col items-center space-y-3">
+            <button
+              type="button"
+              className={`p-2 rounded-full transition-colors ${isOpen ? 'bg-blue-600 text-white shadow-sm' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+              onClick={onToggle}
+              title={isOpen ? 'Hide plan tools' : 'Open plan tools'}
+            >
+              <List className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex-1 flex flex-col items-center justify-center space-y-4 mt-6">
+            {SECTION_CONFIG.map(({ id, label, icon: Icon }) => {
+              const isActive = activeSection === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  className={`p-2 rounded-full border transition-colors ${isActive ? 'bg-blue-600 text-white border-blue-500 shadow' : 'border-transparent hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                  onClick={() => handleSectionShortcut(id)}
+                  title={label}
+                >
+                  <Icon className="w-5 h-5" />
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex flex-col items-center space-y-4 mt-6">
+            <button
+              type="button"
+              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+              onClick={() => window.dispatchEvent(new CustomEvent('ui:show-event-info'))}
+              title="Event Information"
+              aria-label="Event Information"
+            >
+              <FileText className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+              onClick={() => window.dispatchEvent(new CustomEvent('ui:show-export-options'))}
+              title="Plan Options"
+              aria-label="Plan Options"
+            >
+              <Download className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+              onClick={onExport}
+              title="Export Plan (JSON)"
+              aria-label="Export Plan (JSON)"
+            >
+              <ClipboardList className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              disabled={!focusedArea}
+              className={`p-2 rounded-full transition-colors ${focusedArea ? 'hover:bg-gray-100 dark:hover:bg-gray-700' : 'opacity-50 cursor-not-allowed'}`}
+              onClick={() => focusedArea && onExportSiteplan('pdf')}
+              title="Export Site Plan (PDF)"
+              aria-label="Export Site Plan (PDF)"
+            >
+              <FileImage className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+        <div className={`h-full overflow-hidden transition-all duration-300 ${drawerWidthClass}`}>
+          {isOpen ? renderContent() : null}
+        </div>
+      </div>
+    );
+  }
+
+  if (!isOpen) return null;
+
+  return renderContent();
 };
 
 export default RightSidebar; 

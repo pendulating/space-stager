@@ -38,16 +38,17 @@ const DroppedObjectsList = ({
         <div className="text-xs text-gray-500 dark:text-gray-400">{objects.length}</div>
       </div>
 
-      <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto pr-1">
+      <div className="grid grid-cols-3 gap-3 max-h-48 overflow-y-auto pr-1">
         {objects.map(obj => {
           const objectType = placeableObjects.find(p => p.id === obj.type);
           const candidates = objectType ? getCandidateSrcs(objectType, 135, 'isometric') : [];
           const src = candidates[0] || objectType?.imageUrl || null;
+          const bg = (src && objectType?.color) ? `${objectType.color}E6` : null;
           return (
             <div
               key={obj.id}
               ref={(el) => { if (el) itemRefs.current.set(obj.id, el); else itemRefs.current.delete(obj.id); }}
-              className={`relative group bg-white dark:bg-gray-800 rounded-lg border p-1.5 flex items-center justify-center hover:shadow-sm transition ${selectedObjectId === obj.id ? 'border-blue-500 ring-2 ring-blue-500' : 'border-gray-200/70 dark:border-gray-700/60'}`}
+              className={`relative group bg-white dark:bg-gray-800 rounded-xl border transition overflow-hidden ${selectedObjectId === obj.id ? 'border-blue-500 ring-2 ring-blue-500' : 'border-gray-200/70 dark:border-gray-700/60'}`}
               onMouseEnter={() => { setHoverLabel(objectType?.name || obj.name || ''); try { hover(obj.id, 'point'); } catch (_) {} }}
               onMouseLeave={() => { setHoverLabel(''); try { clearHover(); } catch (_) {} }}
               onClick={(e) => {
@@ -59,22 +60,25 @@ const DroppedObjectsList = ({
               }}
               title={objectType?.name || obj.name}
             >
-              {src ? (
-                <img
-                  src={src}
-                  alt={objectType?.name}
-                  className="w-8 h-8 object-contain"
-                  draggable={false}
-                  onError={(e) => { try { e.currentTarget.style.display = 'none'; } catch (_) {} }}
-                />
-              ) : (
-                <div 
-                  className="w-8 h-8 rounded flex items-center justify-center text-white text-sm"
-                  style={{ backgroundColor: objectType?.color || '#64748b' }}
-                >
-                  {objectType?.icon}
-                </div>
-              )}
+              <span aria-hidden="true" className="block pb-[100%]" />
+              <div className="absolute inset-1 rounded-lg flex items-center justify-center" style={{ backgroundColor: bg || 'rgba(255,255,255,0.9)' }}>
+                {src ? (
+                  <img
+                    src={src}
+                    alt={objectType?.name}
+                    className="w-[90%] h-[90%] object-contain"
+                    draggable={false}
+                    onError={(e) => { try { e.currentTarget.style.display = 'none'; } catch (_) {} }}
+                  />
+                ) : (
+                  <div 
+                    className="w-full h-full flex items-center justify-center text-white text-sm rounded-lg"
+                    style={{ backgroundColor: objectType?.color || '#64748b' }}
+                  >
+                    {objectType?.icon}
+                  </div>
+                )}
+              </div>
               {onRemove && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onRemove(obj.id); }}

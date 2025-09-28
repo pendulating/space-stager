@@ -23,6 +23,7 @@ import { useCameraRotation } from '../../hooks/useCameraRotation';
 import { useSelectionController } from '../../hooks/useSelectionController';
 import { useDroppedObjects } from '../../contexts/DroppedObjectsContext';
 import { rotateRectanglePolygonMercator, normalizeAngle } from '../../utils/objectGeometry';
+import ViewportInset from './ViewportInset';
 
 const DEBUG = false; // Set to true to enable MapContainer debug logs
 
@@ -46,8 +47,10 @@ const MapContainer = forwardRef(({
   onOverlapDeselect,
   overlapSelector,
   activeTool,
-  isLoading
+  isLoading,
+  responsive
 }, ref) => {
+  const safeResponsive = responsive || { sidebarMode: 'expanded' };
   const { 
     handleMapMouseMove, 
     handleMapClick, 
@@ -62,6 +65,7 @@ const MapContainer = forwardRef(({
   const subFocusArmedRef = useRef(false);
   const derivedSourceId = 'annotations-derived';
   const arrowIconId = 'annotation-arrowhead';
+  const previewSourceId = 'draw-preview';
   const { selectedObjectId, selectedKind, select, clearSelection } = useDroppedObjects();
   // Track current arrow overlay so we can reliably close it on key/delete or draw events
   const arrowOverlayRef = useRef(null);
@@ -387,6 +391,77 @@ const MapContainer = forwardRef(({
     // Also schedule a second pass shortly after to catch late Draw binding after import
     try { setTimeout(() => { try { ensure(); } catch (_) {} }, 100); } catch (_) {}
   }, [map, derivedAnnotations]);
+
+  // Mirror Draw features into a dedicated preview source so lines render during editing
+  useEffect(() => {
+    if (!map) return;
+
+    const ensureSourceAndLayers = () => {
+      try {
+        const fc = drawTools?.draw?.current && drawTools.draw.current.getAll ? drawTools.draw.current.getAll() : { type: 'FeatureCollection', features: [] };
+        const data = { type: 'FeatureCollection', features: Array.isArray(fc.features) ? fc.features : [] };
+
+        if (!map.getSource(previewSourceId)) {
+          map.addSource(previewSourceId, { type: 'geojson', data });
+        } else {
+          const src = map.getSource(previewSourceId);
+          src.setData(data);
+        }
+
+        const style = map.getStyle && map.getStyle();
+        const layers = (style && style.layers) ? style.layers : [];
+        const firstDrawLayer = layers.find((l) => typeof l?.id === 'string' && (l.id.startsWith('mapbox-gl-draw') || l.id.startsWith('gl-draw')));
+        const beforeId = firstDrawLayer ? firstDrawLayer.id : undefined;
+
+        if (!map.getLayer('draw-preview-line')) {
+          map.addLayer({
+            id: 'draw-preview-line',
+            type: 'line',
+            source: previewSourceId,
+            filter: ['all', ['==', ['geometry-type'], 'LineString'], ['!=', ['get', 'type'], 'arrow']],
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+              'line-color': '#2563eb',
+              'line-width': 3,
+              'line-opacity': 0.85
+            }
+          }, beforeId);
+        }
+
+        if (!map.getLayer('draw-preview-polygon-fill')) {
+          map.addLayer({
+            id: 'draw-preview-polygon-fill',
+            type: 'fill',
+            source: previewSourceId,
+            filter: ['==', ['geometry-type'], 'Polygon'],
+            paint: {
+              'fill-color': '#2563eb',
+              'fill-opacity': 0.18
+            }
+          }, beforeId);
+        }
+
+        if (!map.getLayer('draw-preview-polygon-outline')) {
+          map.addLayer({
+            id: 'draw-preview-polygon-outline',
+            type: 'line',
+            source: previewSourceId,
+            filter: ['==', ['geometry-type'], 'Polygon'],
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+              'line-color': '#2563eb',
+              'line-width': 2,
+              'line-opacity': 0.8
+            }
+          }, beforeId);
+        }
+      } catch (err) {
+        console.warn('Failed to maintain draw preview layers', err);
+      }
+    };
+
+    ensureSourceAndLayers();
+  }, [map, drawTools?.draw, annotationsTrigger]);
 
   // Build DOM overlay labels from derived annotations so they can render above all map layers and SVG overlays
   const domAnnotationLabels = useMemo(() => {
@@ -1300,13 +1375,13 @@ const MapContainer = forwardRef(({
                 if (ring.length >= 4 && map && typeof map.project === 'function') {
                   const a = ring[0], b = ring[1], c = ring[2];
                   const dist = (p, q) => {
-                    const R = 6371000; // meters
+                    const R = 6378137; // meters
                     const toRad = (d) => d * Math.PI / 180;
                     const dLat = toRad(q[1] - p[1]);
                     const dLon = toRad(q[0] - p[0]);
                     const lat1 = toRad(p[1]);
                     const lat2 = toRad(q[1]);
-                    const s = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
+                    const s = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
                     const d = 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
                     return d;
                   };
@@ -1321,6 +1396,7 @@ const MapContainer = forwardRef(({
           } catch (_) {}
         }}
       />
+      <ViewportInset map={map} mapLoaded={mapLoaded} permitAreas={permitAreas} responsive={safeResponsive} />
     </div>
   );
 });

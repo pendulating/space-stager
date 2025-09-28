@@ -7,8 +7,9 @@ const PlaceableObjectsPanel = ({
   onActivation, 
   placementMode,
   onRectActivation,
-  activeRectObjectTypeId
-}) => {
+  activeRectObjectTypeId,
+  onCancelPlacement
+ }) => {
   const handleClick = useCallback((e, obj) => {
     if (obj?.geometryType === 'rect') {
       if (onRectActivation) onRectActivation(obj);
@@ -21,6 +22,17 @@ const PlaceableObjectsPanel = ({
   const [bgBySrc, setBgBySrc] = useState({});
   const [hoverLabel, setHoverLabel] = useState('');
   useMapViewState(null);
+
+  useEffect(() => {
+    if (typeof onCancelPlacement !== 'function') return;
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        onCancelPlacement();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onCancelPlacement]);
 
   useEffect(() => {
     if (!objects || !objects.length) return;
@@ -61,7 +73,7 @@ const PlaceableObjectsPanel = ({
         <div className="text-xs text-gray-500 dark:text-gray-400">{objects?.length || 0}</div>
       </div>
 
-      <div className="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto pr-1">
+      <div className="grid grid-cols-3 gap-3 max-h-64 overflow-y-auto pr-1">
         {objects.map((obj) => {
           const active = isActivePoint(obj) || isActiveRect(obj);
           const isBatch = isActivePoint(obj) && placementMode?.isBatchMode;
@@ -74,25 +86,22 @@ const PlaceableObjectsPanel = ({
               onClick={(e) => handleClick(e, obj)}
               onMouseEnter={() => setHoverLabel(obj.name)}
               onMouseLeave={() => setHoverLabel('')}
-              className={`relative group rounded-lg border p-1.5 flex items-center justify-center transition ${
+              className={`relative block w-full aspect-square group rounded-2xl border transition ${
                 active ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-500' : 'bg-white dark:bg-gray-900 border-gray-200/70 dark:border-gray-700/60 hover:bg-gray-50 dark:hover:bg-gray-800'
               } ${isBatch ? 'ring-2 ring-blue-500' : ''}`}
               title={`Click to place ${obj.name}${active ? ' (click again to cancel)' : ''}`}
             >
-              <div
-                className="w-10 h-10 rounded-full flex items-center justify-center"
-                style={{ backgroundColor: bg || 'rgba(255,255,255,0.9)' }}
-              >
+              <div className="absolute inset-1 rounded-xl flex items-center justify-center" style={{ backgroundColor: bg || 'rgba(255,255,255,0.9)' }}>
                 {src ? (
                   <img
                     src={src}
                     alt={obj.name}
-                    className="w-8 h-8 object-contain"
+                    className="w-full h-full object-contain"
                     draggable={false}
                   />
                 ) : (
                   <div 
-                    className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium"
+                    className="w-full h-full flex items-center justify-center text-white text-sm font-medium rounded-xl"
                     style={{ backgroundColor: obj.color || '#64748b' }}
                   >
                     {obj.icon}
@@ -100,7 +109,7 @@ const PlaceableObjectsPanel = ({
                 )}
               </div>
               {active && (
-                <div className="absolute inset-0 rounded-lg ring-2 ring-blue-500 pointer-events-none" />
+                <div className="absolute inset-0 rounded-2xl ring-2 ring-blue-500 pointer-events-none" />
               )}
             </button>
           );

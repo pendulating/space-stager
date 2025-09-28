@@ -87,12 +87,13 @@ describe('MapContainer integration', () => {
             focusedArea={null}
             drawTools={hooks.drawTools}
             clickToPlace={hooks.clickToPlace}
-            permitAreas={hooks.permitAreas}
-            placeableObjects={[]}
-            infrastructure={{ infrastructureData: {} }}
-            nudges={[]}
-            highlightedIds={[]}
-            onDismissNudge={vi.fn()}
+          permitAreas={hooks.permitAreas}
+          placeableObjects={[]}
+          infrastructure={{ infrastructureData: {} }}
+          nudges={[]}
+          highlightedIds={[]}
+          onDismissNudge={vi.fn()}
+          responsive={{ sidebarMode: 'expanded' }}
           />
         </ZoneCreatorProvider>
       </DroppedObjectsProvider>
@@ -116,7 +117,8 @@ describe('MapContainer integration', () => {
             infrastructure={{ infrastructureData: {} }}
             nudges={[]}
             highlightedIds={[]}
-            onDismissNudge={vi.fn()}
+          onDismissNudge={vi.fn()}
+          responsive={{ sidebarMode: 'expanded' }}
           />
         </ZoneCreatorProvider>
       </DroppedObjectsProvider>

@@ -99,6 +99,7 @@ describe('MapContainer subfocus integration', () => {
             nudges={[]}
             highlightedIds={[]}
             onDismissNudge={vi.fn()}
+          responsive={{ sidebarMode: 'expanded' }}
           />
         </ZoneCreatorProvider>
       </DroppedObjectsProvider>

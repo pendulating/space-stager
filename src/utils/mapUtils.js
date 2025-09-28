@@ -1,6 +1,15 @@
 // utils/mapUtils.js
 import { MAP_LIBRARIES, MAP_CONFIG, NYC_BASEMAPS, BASEMAP_OPTIONS } from '../constants/mapConfig';
 
+const dispatchMapboxDrawReady = () => {
+  if (typeof window === 'undefined') return;
+  if (dispatchMapboxDrawReady._fired) return;
+  dispatchMapboxDrawReady._fired = true;
+  try {
+    window.dispatchEvent(new Event('mapboxdraw:ready'));
+  } catch (_) {}
+};
+
 export const loadCSS = () => {
   const cssLinks = [
     { id: 'maplibre-gl.css', href: MAP_LIBRARIES.maplibre.css },
@@ -36,20 +45,45 @@ export const loadScript = (src, checkFn) => {
   });
 };
 
-export const loadMapLibraries = async () => {
-  loadCSS();
-
-  // Load MapLibre first
-  await loadScript(MAP_LIBRARIES.maplibre.js, () => window.maplibregl);
-  console.log('MapLibre loaded');
-
-  // Load other libraries in parallel
-  const loaders = [loadScript(MAP_LIBRARIES.draw.js, () => window.MapboxDraw)];
-  if (!MAP_LIBRARIES.searchBox.optional) {
-    loaders.push(loadScript(MAP_LIBRARIES.searchBox.js, () => window.maplibreSearchBox));
+const ensureDrawLibrary = async () => {
+  if (typeof window === 'undefined') return;
+  if (window.MapboxDraw) {
+    dispatchMapboxDrawReady();
+    return;
   }
-  await Promise.all(loaders);
-  console.log('All libraries loaded');
+  await loadScript(MAP_LIBRARIES.draw.js, () => window.MapboxDraw);
+  dispatchMapboxDrawReady();
+};
+
+let loadLibrariesPromise = null;
+
+export const loadMapLibraries = async () => {
+  if (loadLibrariesPromise) return loadLibrariesPromise;
+
+  loadLibrariesPromise = (async () => {
+    loadCSS();
+
+    // Load MapLibre first
+    await loadScript(MAP_LIBRARIES.maplibre.js, () => window.maplibregl);
+    console.log('MapLibre loaded');
+
+    // Load other libraries in parallel
+    const loaders = [ensureDrawLibrary()];
+    if (!MAP_LIBRARIES.searchBox.optional) {
+      loaders.push(loadScript(MAP_LIBRARIES.searchBox.js, () => window.maplibreSearchBox));
+    }
+    await Promise.all(loaders);
+    console.log('All libraries loaded');
+  })();
+
+  try {
+    await loadLibrariesPromise;
+  } catch (err) {
+    loadLibrariesPromise = null;
+    throw err;
+  }
+
+  return loadLibrariesPromise;
 };
 
 export const initializeMap = async (container) => {

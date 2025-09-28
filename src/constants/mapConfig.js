@@ -43,16 +43,16 @@ export const NYC_BASEMAPS = {
 
 export const MAP_LIBRARIES = {
   maplibre: {
-    css: 'https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.2/dist/maplibre-gl.css',
-    js: 'https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.2/dist/maplibre-gl.js'
+    css: '/vendor/maplibre-gl.css',
+    js: '/vendor/maplibre-gl.js'
   },
   draw: {
-    css: 'https://unpkg.com/@mapbox/mapbox-gl-draw@1.4.3/dist/mapbox-gl-draw.css',
-    js: 'https://unpkg.com/@mapbox/mapbox-gl-draw@1.4.3/dist/mapbox-gl-draw.js'
+    css: '/vendor/mapbox-gl-draw.css',
+    js: '/vendor/mapbox-gl-draw.js'
   },
   searchBox: {
-    css: 'https://unpkg.com/@stadiamaps/maplibre-search-box@2.0.0/dist/maplibre-search-box.css',
-    js: 'https://unpkg.com/@stadiamaps/maplibre-search-box@2.0.0/dist/maplibre-search-box.umd.js',
-    optional: false
+    css: '/vendor/maplibre-search-box.css',
+    js: '/vendor/maplibre-search-box.umd.js',
+    optional: true
   }
 };

@@ -42,17 +42,14 @@ describe('RightSidebar (right)', () => {
         <RightSidebar {...props} />
       </DroppedObjectsProvider>
     );
-    // Export buttons
-    fireEvent.click(screen.getByText(/Save Digital Plan/));
+    // Export buttons via icon rail
+    fireEvent.click(screen.getByRole('button', { name: 'Export Plan (JSON)' }));
     expect(props.onExport).toHaveBeenCalled();
 
-    // Open export menu and select PDF
-    fireEvent.click(screen.getByText('Export Site Plan'));
-    fireEvent.click(screen.getByText('PDF Document'));
+    const exportPdfButton = screen.getByRole('button', { name: 'Export Site Plan (PDF)' });
+    expect(exportPdfButton).not.toBeDisabled();
+    fireEvent.click(exportPdfButton);
     expect(props.onExportSiteplan).toHaveBeenCalledWith('pdf');
-
-    // Event Info button present
-    expect(screen.getByText('Event Information')).toBeInTheDocument();
   });
 
   it('disables siteplan export when no focused area', () => {
@@ -62,7 +59,7 @@ describe('RightSidebar (right)', () => {
         <RightSidebar {...props} />
       </DroppedObjectsProvider>
     );
-    const btn = screen.getByText('Export Site Plan').closest('button');
+    const btn = screen.getByRole('button', { name: 'Export Site Plan (PDF)' });
     expect(btn).toBeDisabled();
   });
 });

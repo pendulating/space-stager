@@ -8,6 +8,7 @@ import FocusInfoPanel from './Modals/FocusInfoPanel';
 import WelcomeOverlay from './Tutorial/WelcomeOverlay';
 import TutorialTooltip from './Tutorial/TutorialTooltip';
 import RightSidebar from './Sidebar/RightSidebar';
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout.js';
 import { DroppedObjectsProvider } from '../contexts/DroppedObjectsContext';
 import NudgeCenter from './Nudges/NudgeCenter';
 import { useMap } from '../hooks/useMap';
@@ -39,6 +40,7 @@ import { BASEMAP_OPTIONS } from '../constants/mapConfig';
 
 const SpaceStager = () => {
   const mapContainerRef = useRef(null);
+  const responsive = useResponsiveLayout();
   const { map, mapLoaded, styleLoaded } = useMap(mapContainerRef);
   const [layers, setLayers] = useState(INITIAL_LAYERS);
   const [showInfo, setShowInfo] = useState(false);
@@ -46,6 +48,7 @@ const SpaceStager = () => {
   const labelSigRef = useRef('');
   const [labelScanFlag, setLabelScanFlag] = useState(false);
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
+  const [isRightDrawerOpen, setIsRightDrawerOpen] = useState(false);
   const [showExamples, setShowExamples] = useState(false);
   const getInitialDark = () => {
     if (typeof window === 'undefined') return false;
@@ -114,14 +117,22 @@ const SpaceStager = () => {
     };
   }, []);
   // Favor UI-aware padding so fitBounds/cameraForBounds doesn't tuck the focus under the left sidebar
-  const focusPadding = { top: 20, right: 20, bottom: 20, left: isLeftSidebarOpen ? 360 : 20 };
+  const focusPadding = { top: 20, right: responsive.isCompact ? 80 : 20, bottom: 20, left: isLeftSidebarOpen ? 360 : 20 };
   const permitAreas = usePermitAreas(map, mapLoaded, { mode: geographyType, focusPadding });
+  const drawTools = useDrawTools(map, permitAreas.focusedArea);
+
+  // Force draw initialization once the platform is ready
+  useEffect(() => {
+    if (!map || !mapLoaded) return;
+    if (!drawTools.forceReinitialize) return;
+    drawTools.forceReinitialize();
+  }, [map, mapLoaded, drawTools.forceReinitialize]);
+
   // Live refs to avoid stale-closure reads inside async import helpers
   const focusedAreaRefLive = useRef(null);
   useEffect(() => { focusedAreaRefLive.current = permitAreas.focusedArea; }, [permitAreas.focusedArea]);
   const permitAreasListRef = useRef([]);
   useEffect(() => { permitAreasListRef.current = Array.isArray(permitAreas.permitAreas) ? permitAreas.permitAreas : []; }, [permitAreas.permitAreas]);
-  const drawTools = useDrawTools(map, permitAreas.focusedArea);
   const infrastructure = useInfrastructure(map, permitAreas.focusedArea, layers, setLayers, { rehydratingImport: isImportingPlan });
   const clickToPlace = useClickToPlace(map);
   const { isSitePlanMode, updateSitePlanMode } = useSitePlan();
@@ -939,6 +950,7 @@ const SpaceStager = () => {
             nudges={nudges}
             highlightedIds={highlightedIds}
             onDismissNudge={dismissNudge}
+            responsive={responsive}
           />
 
           {/* Center-bottom contextual nudges */}
@@ -952,6 +964,10 @@ const SpaceStager = () => {
           {/* Right Sidebar for Site Plan Mode */}
           {isSitePlanMode && (
             <RightSidebar
+              mode={responsive.sidebarMode}
+              isOpen={responsive.sidebarMode !== 'icon-rail' || isRightDrawerOpen}
+              onClose={() => setIsRightDrawerOpen(false)}
+              onToggle={() => setIsRightDrawerOpen((v) => !v)}
               drawTools={drawTools}
               clickToPlace={clickToPlace}
               placeableObjects={PLACEABLE_OBJECTS}
