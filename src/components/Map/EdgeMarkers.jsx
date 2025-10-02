@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import TrainLineCluster from '../MTA/TrainLineCluster';
+import { parseTrainLines } from '../../utils/mtaUtils';
 
 const DEV_MODE = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV;
 
@@ -46,8 +48,9 @@ const CATEGORY_CONFIG = {
     id: 'subwayEntrances',
     icon: '/data/icons/layers/subway-entrance.svg',
     accent: 'bg-indigo-600/95 border-indigo-700 text-white',
-    getPrimaryLabel: (properties = {}) => {
+    getTrainLines: (properties = {}) => {
       const candidates = [
+        properties.train_lines, // Pre-parsed array
         properties.daytime_routes,
         properties.routes,
         properties.line,
@@ -58,14 +61,17 @@ const CATEGORY_CONFIG = {
       for (const value of candidates) {
         if (!value) continue;
         if (Array.isArray(value)) {
-          const first = value.find((item) => typeof item === 'string' && item.trim());
-          if (first) return first.trim().split(/\s|,/)[0].toUpperCase();
+          return value.filter(item => item && String(item).trim());
         }
         if (typeof value === 'string' && value.trim()) {
-          return value.trim().split(/,|\s/).filter(Boolean)[0]?.toUpperCase() || 'SUB';
+          return parseTrainLines(value);
         }
       }
-      return 'SUB';
+      return [];
+    },
+    getPrimaryLabel: (properties = {}) => {
+      const lines = CATEGORY_CONFIG.subwayEntrances.getTrainLines(properties);
+      return lines.length > 0 ? lines.join(' ') : 'SUB';
     },
     getSecondaryLabel: (properties = {}) => {
       const names = [properties.station_name, properties.name, properties.stop_name];
@@ -83,6 +89,14 @@ const DEFAULT_CATEGORIES = ['busStops', 'parkingMeters', 'subwayEntrances'];
 const EARTH_RADIUS_METERS = 6371000;
 const EDGE_PADDING_PX = 24;
 const MAX_MARKERS = 8;
+
+// Priority weights for sorting (lower = higher priority)
+// These weights are multiplied by distance to create a weighted score
+const CATEGORY_WEIGHTS = {
+  subwayEntrances: 0.5,  // Highest priority
+  busStops: 0.75,        // High priority
+  parkingMeters: 1.0     // Normal priority
+};
 
 const toRadians = (deg) => (deg * Math.PI) / 180;
 
@@ -212,33 +226,15 @@ const EdgeMarkers = ({
     const height = container.clientHeight;
     if (!width || !height) return [];
 
-    const bounds = map.getBounds();
-    const [sw, ne] = bounds.toArray();
-    const padLng = (ne[0] - sw[0]) * 0.35;
-    const padLat = (ne[1] - sw[1]) * 0.35;
-    const padded = {
-      minLng: sw[0] - padLng,
-      minLat: sw[1] - padLat,
-      maxLng: ne[0] + padLng,
-      maxLat: ne[1] + padLat
-    };
-
     const centerLngLat = map.getCenter();
     const centerPoint = map.project(centerLngLat);
 
     const candidates = [];
 
     for (const item of features) {
-      if (
-        item.lng < padded.minLng ||
-        item.lng > padded.maxLng ||
-        item.lat < padded.minLat ||
-        item.lat > padded.maxLat
-      ) {
-        continue;
-      }
-
       const projected = map.project([item.lng, item.lat]);
+      
+      // Only show edge markers for features that are outside the visible viewport
       if (
         projected.x >= 0 &&
         projected.x <= width &&
@@ -275,7 +271,15 @@ const EdgeMarkers = ({
       return [];
     }
 
-    candidates.sort((a, b) => a.distanceMeters - b.distanceMeters);
+    // Weighted sort: prioritize subway/bus stops over parking meters
+    // Lower weighted score = higher priority (shown first)
+    candidates.sort((a, b) => {
+      const weightA = CATEGORY_WEIGHTS[a.category] || 1.0;
+      const weightB = CATEGORY_WEIGHTS[b.category] || 1.0;
+      const scoreA = a.distanceMeters * weightA;
+      const scoreB = b.distanceMeters * weightB;
+      return scoreA - scoreB;
+    });
     const limited = candidates.slice(0, MAX_MARKERS);
 
     const halfWidth = width / 2 - EDGE_PADDING_PX;
@@ -298,6 +302,7 @@ const EdgeMarkers = ({
 
       const primaryLabel = item.cfg.getPrimaryLabel(item.properties);
       const secondaryLabel = item.cfg.getSecondaryLabel(item.properties);
+      const trainLines = item.cfg.getTrainLines ? item.cfg.getTrainLines(item.properties) : null;
 
       return {
         id: `${item.category}-${item.featureId}`,
@@ -308,7 +313,9 @@ const EdgeMarkers = ({
         secondaryLabel,
         icon: item.cfg.icon,
         accentClass: item.cfg.accent,
-        distanceText: formatDistance(item.distanceMeters)
+        distanceText: formatDistance(item.distanceMeters),
+        category: item.category,
+        trainLines: trainLines
       };
     });
 
@@ -503,7 +510,11 @@ const EdgeMarkers = ({
             className={`flex items-center gap-2 rounded-full border px-2.5 py-1.5 shadow-md shadow-black/20 backdrop-blur-sm ${marker.accentClass}`}
             style={{ transform: 'translate(-50%, -50%)' }}
           >
-            {marker.icon ? (
+            {marker.category === 'subwayEntrances' && marker.trainLines && marker.trainLines.length > 0 ? (
+              <div className="flex items-center justify-center">
+                <TrainLineCluster lines={marker.trainLines} size="small" maxVisible={3} />
+              </div>
+            ) : marker.icon ? (
               <img
                 src={marker.icon}
                 alt=""
@@ -516,9 +527,11 @@ const EdgeMarkers = ({
               </div>
             )}
             <div className="flex flex-col leading-tight text-white">
-              <span className="text-[11px] font-semibold uppercase tracking-wide">
-                {marker.primaryLabel}
-              </span>
+              {marker.category === 'subwayEntrances' && marker.trainLines && marker.trainLines.length > 0 ? null : (
+                <span className="text-[11px] font-semibold uppercase tracking-wide">
+                  {marker.primaryLabel}
+                </span>
+              )}
               <div className="flex gap-2 text-[10px] font-medium text-white/80">
                 {marker.distanceText && <span>{marker.distanceText}</span>}
                 {marker.secondaryLabel && (

@@ -140,25 +140,56 @@ export const getIconDataUrl = (layerId) => {
   return null;
 };
 
-// Get zoom-independent icon size expression for PNG icons
-export const getZoomIndependentIconSize = (baseSize) => {
-  // Most of our layer icons are SVGs rasterized at large intrinsic sizes (e.g., 512px),
-  // so Maplibre's icon-size must be quite small. Normalize the provided base into a small
-  // scale and interpolate with zoom so icons are readable but not huge.
-  const b = Math.max(0.01, Math.min(1, baseSize));
-  const s = Math.max(0.01, Math.min(0.2, b * 0.04)); // 0.8 -> ~0.032
+// Direct icon size configuration for each infrastructure layer
+// These values directly control the MapLibre icon-size at zoom 14
+export const INFRASTRUCTURE_ICON_SIZES = {
+  // Enhanced rendering layers (high-res PNG sprites) - smaller base sizes
+  trashBaskets: 0.05,
+  hydrants: 0.04,
+  trees: 0.05,
+  benches: 0.06,
+  bikeParking: 0.06,
+  
+  // SVG icon layers - larger base sizes for visibility
+  busStops: 0.15,
+  citibikeStations: 0.15,
+  parkingMeters: 0.12,
+  linknycKiosks: 0.15,
+  publicRestrooms: 0.15,
+  drinkingFountains: 0.12,
+  sprayShowers: 0.13,
+  iceLadders: 0.13,
+  parksSigns: 0.15,
+  pedestrianRamps: 0.13,
+  streetParkingSigns: 0.13,
+  accessiblePedSignals: 0.13,
+  
+  // Special case: dynamic train line icons need larger size for multi-row grids
+  subwayEntrances: 0.25,
+  
+  // Default for any undefined layers
+  default: 0.13
+};
+
+// Get icon size expression with zoom interpolation
+// This is a simplified, predictable sizing system following MapLibre best practices
+export const getIconSizeExpression = (layerId) => {
+  const baseSize = INFRASTRUCTURE_ICON_SIZES[layerId] || INFRASTRUCTURE_ICON_SIZES.default;
+  
+  // Simple zoom interpolation - size grows smoothly with zoom
   return [
     'interpolate', ['linear'], ['zoom'],
-    10, s * 0.7,
-    12, s * 0.85,
-    14, s,
-    16, s * 2.6,
-    18, s * 3.6,
-    20, s * 4.6,
-    22, s * 6.6,
-    24, s * 8.6,
-    30, s * 10.6
+    10, baseSize * 0.7,   // Smaller at far zoom
+    14, baseSize,         // Base size at mid zoom
+    18, baseSize * 2.5,   // Larger at close zoom
+    22, baseSize * 4      // Much larger at very close zoom
   ];
+};
+
+// Deprecated: kept for backwards compatibility, but prefer getIconSizeExpression
+export const getZoomIndependentIconSize = (baseSize) => {
+  console.warn('getZoomIndependentIconSize is deprecated, use getIconSizeExpression instead');
+  return getIconSizeExpression('default');
 };
 
 // Check if a layer uses PNG icons

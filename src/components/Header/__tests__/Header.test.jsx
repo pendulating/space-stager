@@ -39,7 +39,7 @@ describe('Header', () => {
 
   it('renders title and buttons; import click triggers callback', async () => {
     const { onImportClick } = await renderHeaderWithTutorialMock({});
-    expect(screen.getByText('SpaceStager NYC [ALPHA]')).toBeInTheDocument();
+    expect(screen.getByText('SpaceStager.NYC [ALPHA]')).toBeInTheDocument();
     const importBtn = screen.getByLabelText('Import plan');
     fireEvent.click(importBtn);
     expect(onImportClick).toHaveBeenCalledTimes(1);

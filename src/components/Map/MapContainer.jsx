@@ -48,7 +48,9 @@ const MapContainer = forwardRef(({
   overlapSelector,
   activeTool,
   isLoading,
-  responsive
+  responsive,
+  isSitePlanMode = false,
+  isRightSidebarOpen = false
 }, ref) => {
   const safeResponsive = responsive || { sidebarMode: 'expanded' };
   const { 
@@ -1162,27 +1164,34 @@ const MapContainer = forwardRef(({
   });
 
   return (
-    <div className="flex-1 relative">
+    <div className="flex-1 relative transition-all duration-300 ease-in-out">
       {/* Compass + Projection Toggle Overlay */}
       <div
         className="absolute bottom-4 left-4 z-50 flex flex-row items-end gap-2"
         style={{ pointerEvents: 'none' }}
       >
-        <div
-          className="bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 rounded-full w-12 h-12 flex items-center justify-center"
-          style={{
-            transform: `rotate(${-bearing}deg)`,
-            pointerEvents: 'none',
-            transition: 'transform 0.3s cubic-bezier(.4,2,.6,1)'
-          }}
-          aria-hidden="true"
+        <button
+          className="bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 rounded-full w-12 h-12 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
+          style={{ pointerEvents: 'auto' }}
+          title="Reset to North (0°)"
+          onClick={handleCompassClick}
         >
-          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-            <circle cx="16" cy="16" r="15" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" fill="currentColor" fillOpacity="0.9" className="text-white dark:text-gray-800" />
-            <polygon points="16,6 19,18 16,15 13,18" fill="#2563eb" />
-            <text x="16" y="26" textAnchor="middle" fontSize="10" fill="#374151" fontWeight="bold">N</text>
-          </svg>
-        </div>
+          <div
+            style={{
+              transform: `rotate(${-bearing}deg)`,
+              transition: 'transform 0.3s cubic-bezier(.4,2,.6,1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+              <circle cx="16" cy="16" r="15" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" fill="currentColor" fillOpacity="0.9" className="text-white dark:text-gray-800" />
+              <polygon points="16,6 19,18 16,15 13,18" fill="#2563eb" />
+              <text x="16" y="26" textAnchor="middle" fontSize="10" fill="#374151" fontWeight="bold">N</text>
+            </svg>
+          </div>
+        </button>
 
         <button
           className="bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 rounded-full w-12 h-12 flex items-center justify-center hover:scale-105 active:scale-95"
@@ -1191,7 +1200,7 @@ const MapContainer = forwardRef(({
           onClick={handleToggleProjection}
         >
           <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
-            {(pitch > 15) ? '2D' : 'ISO'}
+            {(pitch > 15) ? 'ISO' : '2D'}
           </span>
         </button>
       </div>
@@ -1395,7 +1404,14 @@ const MapContainer = forwardRef(({
           } catch (_) {}
         }}
       />
-      <ViewportInset map={map} mapLoaded={mapLoaded} permitAreas={permitAreas} responsive={safeResponsive} />
+      <ViewportInset 
+        map={map} 
+        mapLoaded={mapLoaded} 
+        permitAreas={permitAreas} 
+        responsive={safeResponsive}
+        isSitePlanMode={isSitePlanMode}
+        isRightSidebarOpen={isRightSidebarOpen}
+      />
     </div>
   );
 });

@@ -20,7 +20,7 @@ export function useResponsiveLayout() {
       isLaptop,
       isCompact,
       isTablet,
-      sidebarMode: isCompact ? 'icon-rail' : isLaptop ? 'condensed' : 'expanded',
+      sidebarMode: isCompact ? 'icon-rail' : 'expanded',
     };
   }, [width]);
 }

@@ -59,7 +59,8 @@ export const NON_RECOMMENDED_INFRASTRUCTURE_LAYERS = new Set([
 
 export const INITIAL_LAYERS = {
   permitAreas: { 
-    visible: true, 
+    visible: true,
+    requested: true,
     name: 'Zone', 
     color: '#f97316', 
     loading: true, 

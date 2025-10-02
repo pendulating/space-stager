@@ -12,6 +12,8 @@ import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
 import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId, getMapViewType, buildSpriteUrl, buildFlatSpriteUrl, computeNearestSegmentClosestPointBearing, computeFeatureSpriteAngle, computeSpriteTransform, extractCameraState, computeCameraBucket } from '../utils/enhancedRenderingUtils.js';
 import { snapBearingRelativeToArea, computeAreaOrientation, quantizeBearingForView, normalizeAngle } from '../utils/bearingUtils';
 import { ensureViewportAlignedSymbols } from '../utils/mapLayerUtils';
+import { parseTrainLines } from '../utils/mtaUtils';
+import { addTrainLineIconToMap, preloadCommonTrainLineIcons } from '../utils/mtaIconGenerator';
 import { useMapViewState } from './useMapViewState';
 import { DISABLED_INFRASTRUCTURE_LAYERS, NON_RECOMMENDED_INFRASTRUCTURE_LAYERS } from '../constants/layers';
 const DEBUG_INFRA = false;
@@ -372,6 +374,52 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     return () => { try { map.off('styleimagemissing', onMissing); } catch (_) {} };
   }, [map, view?.viewType]);
 
+  // Track infrastructure data for rotation updates without triggering re-renders
+  const infraDataRef = useRef(infrastructureData);
+  useEffect(() => {
+    infraDataRef.current = infrastructureData;
+  }, [infrastructureData]);
+
+  // Continuous rotation update for infrastructure in 2D mode: listen to 'rotate' event
+  useEffect(() => {
+    if (!map || view?.viewType !== 'top-down') return;
+    
+    const onRotate = () => {
+      try {
+        const bearingRaw = typeof map.getBearing === 'function' ? map.getBearing() : 0;
+        Object.entries(layers).forEach(([layerId, cfg]) => {
+          if (!cfg?.requested || !cfg?.enhancedRendering?.enabled) return;
+          const data = infraDataRef.current?.[layerId];
+          if (!data || !Array.isArray(data.features) || data.features.length === 0) return;
+
+          let changed = false;
+          const newFeatures = data.features.map((f) => {
+            if (!f || f.geometry?.type !== 'Point' || !f.properties || typeof f.properties.icon_base_rotation !== 'number') return f;
+            const iconRotate = ((f.properties.icon_base_rotation - bearingRaw) % 360 + 360) % 360;
+            if (Math.abs((f.properties.icon_rotate || 0) - iconRotate) < 0.1) return f;
+            changed = true;
+            return { ...f, properties: { ...f.properties, icon_rotate: iconRotate } };
+          });
+
+          if (changed) {
+            const updated = { ...data, features: newFeatures };
+            try {
+              const srcId = `source-${layerId}`;
+              const src = map && typeof map.getSource === 'function' ? map.getSource(srcId) : null;
+              if (src && typeof src.setData === 'function') {
+                src.setData(updated);
+                infraDataRef.current = { ...infraDataRef.current, [layerId]: updated };
+              }
+            } catch (_) {}
+          }
+        });
+      } catch (_) {}
+    };
+    
+    try { map.on('rotate', onRotate); } catch (_) {}
+    return () => { try { map.off('rotate', onRotate); } catch (_) {} };
+  }, [map, view?.viewType, layers]);
+
   // Recompute per-feature icon_image for enhanced infra when bearing/view changes
   // Uses same logic as dropped objects: compensate for map bearing in isometric view
   useEffect(() => {
@@ -418,9 +466,10 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
           });
           const nextImage = transform.imageId || (spriteBase ? `${spriteBase}_000` : p.icon_image);
           const nextRotate = transform.iconRotate || 0;
-          if (p.icon_image !== nextImage || (p.icon_rotate || 0) !== nextRotate) {
+          const baseRotation = displayAngle !== undefined ? ((displayAngle % 360) + 360) % 360 : nextRotate;
+          if (p.icon_image !== nextImage || (p.icon_rotate || 0) !== nextRotate || (p.icon_base_rotation !== baseRotation)) {
             changed = true;
-            return { ...f, properties: { ...p, icon_image: nextImage, icon_rotate: nextRotate } };
+            return { ...f, properties: { ...p, icon_image: nextImage, icon_rotate: nextRotate, icon_base_rotation: baseRotation } };
           }
           return f;
         });
@@ -436,7 +485,9 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
         }
       });
     } catch (_) {}
-  }, [map, layers, infrastructureData, view?.bearing, view?.viewType, view?.pitch, focusedArea]);
+    // In 2D mode, bearing changes don't require data rebuild (icon-rotate with 'map' alignment handles it)
+    // In isometric mode, bearing changes DO require different sprites (perspective changes)
+  }, [map, layers, infrastructureData, ...(view?.viewType === 'top-down' ? [] : [view?.bearing]), view?.viewType, view?.pitch, focusedArea]);
 
   // Add infrastructure layer to map - move this before loadInfrastructureLayer
   const addInfrastructureLayerToMap = useCallback((layerId, data) => {
@@ -651,6 +702,39 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
         features: filteredFeatures,
         crs: data.crs || { type: "name", properties: { name: "urn:ogc:def:crs:OGC:1.3:CRS84" } }
       };
+
+      // Special handling for subway entrances: generate MTA train line icons
+      if (layerId === 'subwayEntrances') {
+        try {
+          // Preload common train line icons
+          preloadCommonTrainLineIcons(map);
+          
+          // Annotate each feature with train lines and custom icon
+          filteredData = {
+            ...filteredData,
+            features: filteredData.features.map((f) => {
+              const props = f.properties || {};
+              const lines = parseTrainLines(
+                props.daytime_routes || props.routes || props.line || props.lines
+              );
+              
+              // Generate and add icon to map
+              const iconId = addTrainLineIconToMap(map, lines);
+              
+              return {
+                ...f,
+                properties: {
+                  ...props,
+                  train_lines: lines,
+                  icon_image: iconId || 'subway-generic'
+                }
+              };
+            })
+          };
+        } catch (error) {
+          console.warn('Error generating subway entrance icons:', error);
+        }
+      }
 
       // Enhanced rendering: annotate features for angle-specific sprite IDs when enabled
       try {

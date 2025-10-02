@@ -3,7 +3,7 @@ import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
 import { DISABLED_INFRASTRUCTURE_LAYERS } from '../constants/layers';
 import proj4 from 'proj4';
 import { expandBounds } from '../utils/geometryUtils';
-import { INFRASTRUCTURE_ICONS, getZoomIndependentIconSize, layerUsesPngIcon } from '../utils/iconUtils';
+import { INFRASTRUCTURE_ICONS, getIconSizeExpression } from '../utils/iconUtils';
 import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, buildSpriteImageId } from '../utils/enhancedRenderingUtils';
 
 export const loadInfrastructureData = async (layerId, bounds) => {
@@ -571,14 +571,12 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
   const baseColor = layerConfig.color;
   const iconDef = INFRASTRUCTURE_ICONS[layerId];
   const hasIconDef = !!iconDef;
-  const areaScale = iconDef?.areaScale ?? 1;
-  const sizeScale = Math.sqrt(areaScale); // icon-size scales linearly; user parameter controls area
+  // Simplified icon sizing: use centralized configuration
+  const iconSize = getIconSizeExpression(layerId);
   
   switch(layerId) {
     case 'trashBaskets':
       if (hasIconDef) {
-        const base = 0.7 * sizeScale;
-        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         const iconImage = (layerConfig?.enhancedRendering?.enabled)
           ? ['coalesce', ['get', 'icon_image'], 'trash-basket-icon']
           : 'trash-basket-icon';
@@ -601,18 +599,16 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
         return {
           type: 'circle',
           paint: {
-            'circle-radius': 4,
+            'circle-radius': 6,  // Increased from 4 to 6 for better visibility
             'circle-color': baseColor,
             'circle-opacity': 0.9,
-            'circle-stroke-width': 1.5,
+            'circle-stroke-width': 2,  // Increased from 1.5 to 2
             'circle-stroke-color': 'white'
           }
         };
       }
     case 'hydrants':
       if (hasIconDef) {
-        const base = 0.55 * sizeScale;
-        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         const iconImage = (layerConfig?.enhancedRendering?.enabled)
           ? ['coalesce', ['get', 'icon_image'], 'hydrant-icon']
           : 'hydrant-icon';
@@ -645,8 +641,6 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     case 'trees':
       if (hasIconDef) {
-        const base = 0.7 * sizeScale;
-        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         const iconImage = (layerConfig?.enhancedRendering?.enabled)
           ? ['coalesce', ['get', 'icon_image'], 'tree-icon']
           : 'tree-icon';
@@ -679,8 +673,6 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     case 'busStops':
       if (hasIconDef) {
-        const base = 0.9 * sizeScale;
-        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         return {
           type: 'symbol',
           layout: {
@@ -710,8 +702,6 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     case 'benches':
       if (hasIconDef) {
-        const base = 0.8 * sizeScale;
-        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         const iconImage = (layerConfig?.enhancedRendering?.enabled)
           ? ['coalesce', ['get', 'icon_image'], 'bench-icon']
           : 'bench-icon';
@@ -768,8 +758,6 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       };
     case 'bikeParking':
       if (hasIconDef) {
-        const base = 0.8 * sizeScale;
-        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         const iconImage = (layerConfig?.enhancedRendering?.enabled)
           ? ['coalesce', ['get', 'icon_image'], 'bike-parking-icon']
           : 'bike-parking-icon';
@@ -802,8 +790,6 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     case 'citibikeStations':
       if (hasIconDef) {
-        const base = 0.8 * sizeScale;
-        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         return {
           type: 'symbol',
           layout: {
@@ -833,12 +819,12 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     case 'subwayEntrances':
       if (hasIconDef) {
-        const base = 1.8 * sizeScale;
-        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
+        // Use dynamic icon_image property (set to MTA train line icons) with fallback
+        const iconImage = ['coalesce', ['get', 'icon_image'], 'subway-entrance-icon'];
         return {
           type: 'symbol',
           layout: {
-            'icon-image': 'subway-entrance-icon',
+            'icon-image': iconImage,
             'icon-size': iconSize,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
@@ -846,8 +832,8 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
             'icon-pitch-alignment': 'viewport'
           },
           paint: {
-            'icon-color': baseColor,
-            'icon-opacity': 0.9
+            // Don't use icon-color for subway entrances - MTA icons are already colored
+            'icon-opacity': 1.0
           }
         };
       } else {
@@ -886,8 +872,6 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       };
     case 'pedestrianRamps':
       if (hasIconDef) {
-        const base = 0.8 * sizeScale;
-        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         return {
           type: 'symbol',
           layout: {
@@ -917,8 +901,6 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     case 'parkingMeters':
       if (hasIconDef) {
-        const base = 0.6 * sizeScale;
-        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         const iconImage = (layerConfig?.enhancedRendering?.enabled)
           ? ['coalesce', ['get', 'icon_image'], 'parking-meter-icon']
           : 'parking-meter-icon';
@@ -951,8 +933,6 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     case 'linknycKiosks':
       if (hasIconDef) {
-        const base = 0.9 * sizeScale;
-        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         // If enhanced rendering is enabled, let per-feature icon_image decide the variant
         const iconImage = (layerConfig?.enhancedRendering?.enabled)
           ? ['coalesce', ['get', 'icon_image'], 'linknyc-kiosk-icon']
@@ -986,8 +966,6 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     case 'publicRestrooms':
       if (hasIconDef) {
-        const base = 0.9 * sizeScale;
-        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         return {
           type: 'symbol',
           layout: {
@@ -1017,8 +995,6 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     case 'drinkingFountains':
       if (hasIconDef) {
-        const base = 0.6 * sizeScale;
-        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         return {
           type: 'symbol',
           layout: {
@@ -1048,8 +1024,6 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     case 'sprayShowers':
       if (hasIconDef) {
-        const base = 0.8 * sizeScale;
-        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         return {
           type: 'symbol',
           layout: {
@@ -1108,8 +1082,6 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       };
     case 'iceLadders':
       if (hasIconDef) {
-        const base = 0.8 * sizeScale;
-        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         return {
           type: 'symbol',
           layout: {
@@ -1139,8 +1111,6 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     case 'parksSigns':
       if (hasIconDef) {
-        const base = 0.9 * sizeScale;
-        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         return {
           type: 'symbol',
           layout: {
@@ -1170,8 +1140,6 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
       }
     default:
       if (hasIconDef) {
-        const base = 0.8 * sizeScale;
-        const iconSize = layerUsesPngIcon(layerId) ? getZoomIndependentIconSize(base) : base;
         return {
           type: 'symbol',
           layout: {
@@ -1191,10 +1159,10 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
         return {
           type: 'circle',
           paint: {
-            'circle-radius': 4,
+            'circle-radius': 6,  // Increased from 4 to 6 for better visibility
             'circle-color': baseColor,
             'circle-opacity': 0.8,
-            'circle-stroke-width': 1,
+            'circle-stroke-width': 1.5,  // Increased from 1 to 1.5
             'circle-stroke-color': 'white'
           }
         };

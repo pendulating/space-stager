@@ -101,6 +101,8 @@ const SpaceStager = () => {
   // Import rehydration guard: skip auto layer resets while importing a plan
   const rehydratingImportRef = useRef(false);
   const [isImportingPlan, setIsImportingPlan] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  
   useEffect(() => {
     const handler = () => setShowGeoSelectorOverride(true);
     window.addEventListener('ui:show-geography-selector', handler);
@@ -127,6 +129,13 @@ const SpaceStager = () => {
     if (!drawTools.forceReinitialize) return;
     drawTools.forceReinitialize();
   }, [map, mapLoaded, drawTools.forceReinitialize]);
+
+  // Track if we've loaded at least once to enable transitions
+  useEffect(() => {
+    if (permitAreas.isLoading) {
+      setHasLoadedOnce(true);
+    }
+  }, [permitAreas.isLoading]);
 
   // Live refs to avoid stale-closure reads inside async import helpers
   const focusedAreaRefLive = useRef(null);
@@ -835,10 +844,14 @@ const SpaceStager = () => {
       <ExportOptionsModal isOpen={showExportOptions} onClose={() => setShowExportOptions(false)} value={exportOptions} onChange={setExportOptions} />
       
 
-      {permitAreas.isLoading && (
-        <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-3 mx-4 mt-2">
+      {hasLoadedOnce && (
+        <div className={`bg-blue-100 border-l-4 border-blue-500 text-blue-700 mx-4 mt-2 transition-all duration-500 overflow-hidden ${
+          permitAreas.isLoading ? 'py-3 max-h-20 opacity-100' : 'py-0 max-h-0 opacity-0'
+        }`}>
           <div className="flex items-center">
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500 mr-2"></div>
+            {permitAreas.isLoading && (
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500 mr-2"></div>
+            )}
             Loading zone geometry...
           </div>
         </div>
@@ -887,26 +900,6 @@ const SpaceStager = () => {
         }}
       />
 
-      {/* Site Plan Mode Indicator */}
-      {isSitePlanMode && (
-        <div className="bg-blue-100 dark:bg-blue-950/30 border-l-4 border-blue-500 dark:border-blue-900 text-blue-700 dark:text-blue-200 p-3 mx-4 mt-2 mb-3 rounded">
-          <div className="flex items-center">
-            <svg className="w-4 h-4 mr-2 text-blue-600 dark:text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-1.447-.894L15 4m0 13V4m-6 3l6-3" />
-            </svg>
-            <span className="font-medium">Site Plan Mode Active</span>
-            <span className="ml-2 text-sm opacity-90">Design tools available on the right</span>
-          </div>
-          {areaWarning && (
-            <div className={`mt-2 text-xs rounded px-2 py-1 inline-flex items-center ${areaWarning.level === 'severe' ? 'bg-amber-200 text-amber-800' : 'bg-amber-100 text-amber-700'}`}>
-              <span className="mr-2">⚠️</span>
-              <span>
-                Area may be too large for 11×17 at sufficient detail. Try “Focus sub-area” or enable “Entire zone PDF (no legend)”.
-              </span>
-            </div>
-          )}
-        </div>
-      )}
       
       <div className="flex flex-1 overflow-hidden">
         {isLeftSidebarOpen ? (
@@ -922,6 +915,7 @@ const SpaceStager = () => {
             isSitePlanMode={isSitePlanMode}
             geographyType={geographyType}
             onCollapse={() => setIsLeftSidebarOpen(false)}
+            drawTools={drawTools}
           />
         ) : (
           // Vertical tab/handle to reopen left sidebar (fixed at top-left)
@@ -951,6 +945,8 @@ const SpaceStager = () => {
             highlightedIds={highlightedIds}
             onDismissNudge={dismissNudge}
             responsive={responsive}
+            isSitePlanMode={isSitePlanMode}
+            isRightSidebarOpen={responsive.sidebarMode !== 'icon-rail' || isRightDrawerOpen}
           />
 
           {/* Center-bottom contextual nudges */}

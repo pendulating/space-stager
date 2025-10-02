@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Map } from 'lucide-react';
 
 const FocusInfoPanel = ({ 
@@ -10,10 +10,27 @@ const FocusInfoPanel = ({
   onBeginSubFocus = null,
   onClearSubFocus = null
 }) => {
+  const [isVisible, setIsVisible] = useState(false);
+
+  // Show panel when focused, auto-hide after 4 seconds
+  useEffect(() => {
+    if (focusedArea && showFocusInfo) {
+      setIsVisible(true);
+      const timer = setTimeout(() => {
+        setIsVisible(false);
+      }, 4000); // Hide after 4 seconds
+      return () => clearTimeout(timer);
+    } else {
+      setIsVisible(false);
+    }
+  }, [focusedArea, showFocusInfo]);
+
   if (!focusedArea || !showFocusInfo) return null;
 
   return (
-    <div className="bg-blue-600 text-white border-b border-blue-700 px-4 py-3">
+    <div className={`bg-blue-600 text-white border-b border-blue-700 px-4 transition-all duration-500 overflow-hidden ${
+      isVisible ? 'py-3 max-h-32 opacity-100' : 'py-0 max-h-0 opacity-0'
+    }`}>
       <div className="flex items-start justify-between">
         <div className="flex items-start space-x-2">
           <Map className="w-5 h-5 text-white flex-shrink-0 mt-0.5" />

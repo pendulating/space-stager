@@ -60,18 +60,7 @@ const PlaceableObjectsPanel = ({
   const isActiveRect = (obj) => activeRectObjectTypeId === obj.id;
 
   return (
-    <div className="p-3 border-b border-gray-200 dark:border-gray-700">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-xs font-semibold tracking-wide text-gray-600 dark:text-gray-300 uppercase">Event Objects</h3>
-        <div className="text-xs text-gray-500 dark:text-gray-400 h-4 inline-flex items-center justify-center min-w-[40%] text-center mx-2">
-          {hoverLabel && (
-            <span className="px-2 py-0.5 rounded-full bg-white/80 dark:bg-gray-800/70 border border-gray-200/60 dark:border-gray-700/60 text-gray-700 dark:text-gray-200 shadow-sm truncate max-w-full">
-              {hoverLabel}
-            </span>
-          )}
-        </div>
-        <div className="text-xs text-gray-500 dark:text-gray-400">{objects?.length || 0}</div>
-      </div>
+    <div className="p-2">
 
       <div className="grid grid-cols-3 gap-3 max-h-64 overflow-y-auto pr-1">
         {objects.map((obj) => {

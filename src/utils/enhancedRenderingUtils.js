@@ -143,7 +143,8 @@ export const addEnhancedSpritesToMap = async (map, options) => {
   const { baseName, publicDir, angles = [0,45,90,135,180,225,270,315], viewType, urlBuilder, replaceExisting = false } = options || {};
   if (!map || !baseName || !publicDir) return;
 
-  const DEBUG = typeof window !== 'undefined' && window.__DEBUG_DROPPED_OBJECTS__;
+  // Disable debug logging by default to avoid performance impact during rotation
+  const DEBUG = false; // typeof window !== 'undefined' && window.__DEBUG_DROPPED_OBJECTS__;
   if (DEBUG) console.log('[addEnhancedSprites]', { baseName, angles, viewType, replaceExisting });
 
   // Load each angle variant via DOM Image

@@ -10,7 +10,7 @@ import { useMapEvents } from '../../hooks/useMapEvents';
 import { X } from 'lucide-react';
 import { useDroppedObjects } from '../../contexts/DroppedObjectsContext';
 
-const DEBUG = true; // Set to true to enable DroppedObjects debug logs
+const DEBUG = false; // Set to true to enable DroppedObjects debug logs
 // Dev-only, namespaced logger with dynamic switches (env/localStorage/window flag)
 const DEV = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.MODE !== 'production')
   || (typeof process !== 'undefined' && process.env && process.env.NODE_ENV !== 'production');
@@ -251,7 +251,9 @@ const DroppedObjects = ({
         debug.error('error in sprite preload', e);
       }
     })();
-  }, [map, objects, placeableObjects, view?.viewType, view?.bearing, areaBearingDeg]);
+    // In 2D mode, bearing changes don't require sprite reloads (we use angle 0 + CSS rotation)
+    // In isometric mode, bearing changes DO require different sprites (perspective changes)
+  }, [map, objects, placeableObjects, view?.viewType, ...(view?.viewType === 'top-down' ? [] : [view?.bearing]), areaBearingDeg]);
 
   // Build and set GeoJSON data for dropped objects (define before effects that use it)
   const rebuildDroppedData = useCallback(() => {
@@ -286,7 +288,7 @@ const DroppedObjects = ({
         if (t.geometryType === 'rect') continue;
         byId.set(obj.id, obj);
         const baseSize = Math.max(t.size?.width || 24, t.size?.height || 24, 24);
-        const props = { id: obj.id, type: t.id, color: t.color || '#64748b', baseSize };
+        const props = { id: obj.id, type: t.id, color: t.color || '#64748b', baseSize, viewType: vt };
         if (t?.enhancedRendering?.enabled && t.enhancedRendering?.spriteBase) {
           const baseAngle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
           const zeroOffset = (t?.enhancedRendering?.zeroOffsetDegByView?.[vt])
@@ -314,6 +316,9 @@ const DroppedObjects = ({
             props.icon_target = imgId;
             debug.log('icon NOT ready', { objId: obj.id, imgId, hasPrevIcon: !!prevIcon });
           }
+          // Store base rotation for 2D lightweight updates; use computed rotation initially
+          const baseRotation = ((baseAngle + zeroOffset) % 360 + 360) % 360;
+          props.icon_base_rotation = baseRotation;
           props.icon_rotate = iconRotate || 0;
         } else if (t?.imageUrl) {
           // Simple (non-enhanced) static icon path: use type id as image id
@@ -341,7 +346,9 @@ const DroppedObjects = ({
       // Cache the FC and indices for fast drag updates without triggering React state
       dataRef.current = { fc, idToIndex };
     } catch (_) {}
-  }, [map, objects, placeableObjects, view?.viewType, view?.bearing, areaBearingDeg]);
+    // In 2D mode, bearing changes are handled via expression in icon-rotate (no rebuild needed)
+    // In isometric mode, bearing changes require different sprites (rebuild needed)
+  }, [map, objects, placeableObjects, view?.viewType, ...(view?.viewType === 'top-down' ? [] : [view?.bearing]), areaBearingDeg]);
 
   // After import rehydration finishes, rebuild once to ensure icons match snapped camera
   useEffect(() => {
@@ -392,9 +399,11 @@ const DroppedObjects = ({
               'icon-allow-overlap': true,
               'icon-ignore-placement': true,
               'icon-anchor': 'center',
-              // Ensure symbols do not rotate with map; we swap sprites ourselves on bearing changes
+              // Icons stay viewport-aligned; we handle rotation via icon-rotate
               'icon-rotation-alignment': 'viewport',
               'icon-pitch-alignment': 'viewport',
+              // Use icon_rotate from feature properties (computed based on viewType)
+              'icon-rotate': ['coalesce', ['get', 'icon_rotate'], 0],
               // Scale sprite bitmap to desired pixel diameter based on baseSize and zoom.
               // Assumes sprite bitmaps are ~512px. Diameter targets: baseSize*0.6 @ z12 → baseSize*1.6 @ z18, with 0.9 inset.
               'icon-size': [
@@ -507,10 +516,41 @@ const DroppedObjects = ({
   useEffect(() => { rebuildDroppedData(); }, [rebuildDroppedData]);
   // Rebuild once sprites are registered for current view
   useEffect(() => { if (spritesReadyNonce) rebuildDroppedData(); }, [spritesReadyNonce, rebuildDroppedData]);
+  // Continuous rotation update for 2D mode: listen to 'rotate' event for real-time updates
   useEffect(() => {
-    // Rebuild when view changes (type/bearing) or area orientation changes
+    if (!map || view?.viewType !== 'top-down') return;
+    
+    const onRotate = () => {
+      const src = (map && typeof map.getSource === 'function') ? map.getSource(DROPPED_SOURCE_ID) : null;
+      if (!src || typeof src.setData !== 'function') return;
+      const cached = dataRef.current?.fc;
+      if (!cached || !cached.features || cached.features.length === 0) return;
+      
+      try {
+        const bearingRaw = typeof map.getBearing === 'function' ? map.getBearing() : 0;
+        const updated = {
+          ...cached,
+          features: cached.features.map(f => {
+            if (!f || !f.properties || typeof f.properties.icon_base_rotation !== 'number') return f;
+            const iconRotate = ((f.properties.icon_base_rotation - bearingRaw) % 360 + 360) % 360;
+            if (Math.abs((f.properties.icon_rotate || 0) - iconRotate) < 0.1) return f;
+            return { ...f, properties: { ...f.properties, icon_rotate: iconRotate } };
+          })
+        };
+        src.setData(updated);
+        dataRef.current = { ...dataRef.current, fc: updated };
+      } catch (_) {}
+    };
+    
+    try { map.on('rotate', onRotate); } catch (_) {}
+    return () => { try { map.off('rotate', onRotate); } catch (_) {} };
+  }, [map, view?.viewType]);
+
+  useEffect(() => {
+    // Rebuild when view type changes or area orientation changes
+    // In isometric mode, also rebuild on bearing changes (for different sprite angles)
     rebuildDroppedData();
-  }, [view?.viewType, view?.bearing, areaBearingDeg]);
+  }, [view?.viewType, ...(view?.viewType === 'top-down' ? [] : [view?.bearing]), areaBearingDeg]);
 
   // Register on-demand missing image handler to load sprites if requested by style before preloading finishes
   useEffect(() => {

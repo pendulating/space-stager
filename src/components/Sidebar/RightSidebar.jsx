@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { ClipboardList, Download, FileImage, FileText, List, PencilRuler, Shapes } from 'lucide-react';
 import DrawingTools from './DrawingTools';
 import ShapeProperties from './ShapeProperties';
@@ -29,6 +29,7 @@ const RightSidebar = ({
   onImport,
   focusedArea
 }) => {
+  const drawerRef = useRef(null);
   const [activeSection, setActiveSection] = useState(
     SECTION_CONFIG.find((section) => section.defaultActive)?.id || SECTION_CONFIG[0].id
   );
@@ -40,6 +41,9 @@ const RightSidebar = ({
     dropped: true,
     placed: true
   });
+  const [hoverLabel, setHoverLabel] = useState('');
+  const [hoverPlacedLabel, setHoverPlacedLabel] = useState('');
+  const [annotationCount, setAnnotationCount] = useState(0);
 
   useEffect(() => {
     if (!clickToPlace) return;
@@ -75,7 +79,6 @@ const RightSidebar = ({
   const sidebarClasses = useMemo(() => {
     const base = 'h-full bg-white dark:bg-gray-800 dark:text-gray-100 shadow-lg z-30 flex flex-col border-l border-gray-200 dark:border-gray-700 sidebar-right transition-all duration-300 ease-in-out';
     if (mode === 'icon-rail') return `${base} w-full`;
-    if (mode === 'condensed') return `${base} w-64`;
     return `${base} w-80`;
   }, [mode]);
 
@@ -106,10 +109,17 @@ const RightSidebar = ({
   }, []);
 
   const renderDesignSection = () => (
-    <div className="space-y-4">
-      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-700">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Drawing Tools</h4>
+    <div className="space-y-0">
+      <div className="bg-white dark:bg-gray-800">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-gray-700">
+          <div className="flex items-center gap-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Annotation Tools</h4>
+            {hoverLabel && (
+              <span className="px-2 py-0.5 rounded-full bg-white/80 dark:bg-gray-800/70 border border-gray-200/60 dark:border-gray-700/60 text-gray-700 dark:text-gray-200 text-[11px] shadow-sm truncate max-w-[12rem]">
+                {hoverLabel}
+              </span>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => toggleSubSection('drawing')}
@@ -119,7 +129,7 @@ const RightSidebar = ({
           </button>
         </div>
         {subSectionsExpanded.drawing && (
-          <div className="px-4 pb-3 space-y-3">
+          <div className="px-2 pb-2 space-y-2">
             <DrawingTools
               activeTool={drawTools.activeTool}
               onToolSelect={drawTools.activateDrawingTool}
@@ -127,7 +137,18 @@ const RightSidebar = ({
               onDelete={drawTools.deleteSelectedShape}
               drawAvailable={!!drawTools.drawInitialized}
               onRetry={drawTools.reinitializeDrawControls}
+              onHoverChange={(label) => setHoverLabel(label)}
             />
+            <div className="flex items-center justify-end px-1">
+              <button
+                type="button"
+                onClick={() => { try { drawTools.setShowLabels && drawTools.setShowLabels(!drawTools.showLabels); } catch (_) {} }}
+                className="flex items-center gap-2 px-2 py-1 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+              >
+                <input type="checkbox" readOnly checked={!!drawTools.showLabels} className="pointer-events-none" />
+                Show Labels
+              </button>
+            </div>
             {drawTools.selectedShape && (
               <ShapeProperties
                 shapeLabel={drawTools.shapeLabel}
@@ -139,20 +160,19 @@ const RightSidebar = ({
         )}
       </div>
 
-      <div className={`rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 ${subSectionsExpanded.drawing ? '' : 'opacity-60 pointer-events-none'}`}>
+      <div className={`${subSectionsExpanded.drawing ? '' : 'opacity-60 pointer-events-none'}`}>
         <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-700">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Annotations</h4>
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Annotations (<span>{annotationCount}</span>)</h4>
           <button
             type="button"
             onClick={() => toggleSubChild('annotations', 'drawing')}
             className="text-xs px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-            disabled={!subSectionsExpanded.drawing}
           >
             {subSectionsExpanded.annotations ? 'Hide' : 'Show'}
           </button>
         </div>
         {subSectionsExpanded.annotations && subSectionsExpanded.drawing && (
-          <div className="px-4 pb-3">
+          <div className="px-2 pb-2">
             <CustomShapesList
               selectedShape={drawTools.selectedShape}
               onShapeSelect={drawTools.selectShape}
@@ -160,6 +180,7 @@ const RightSidebar = ({
               onShapeRename={drawTools.renameShape}
               showLabels={drawTools.showLabels}
               onToggleLabels={drawTools.setShowLabels}
+              onCountChange={(n) => setAnnotationCount(n)}
             />
           </div>
         )}
@@ -168,10 +189,17 @@ const RightSidebar = ({
   );
 
   const renderObjectsSection = () => (
-    <div className="space-y-4">
-      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-700">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Event Objects</h4>
+    <div className="space-y-0">
+      <div className="bg-white dark:bg-gray-800">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-gray-700">
+          <div className="flex items-center gap-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Event Objects</h4>
+            {hoverPlacedLabel && (
+              <span className="px-2 py-0.5 rounded-full bg-white/80 dark:bg-gray-800/70 border border-gray-200/60 dark:border-gray-700/60 text-gray-700 dark:text-gray-200 text-[11px] shadow-sm truncate max-w-[12rem]">
+                {hoverPlacedLabel}
+              </span>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => toggleSubSection('dropped')}
@@ -181,7 +209,7 @@ const RightSidebar = ({
           </button>
         </div>
         {subSectionsExpanded.dropped && (
-          <div className="px-4 pb-3">
+          <div className="px-2 pb-2">
             <PlaceableObjectsPanel
               objects={placeableObjects}
               onActivation={clickToPlace.activatePlacementMode}
@@ -194,7 +222,7 @@ const RightSidebar = ({
         )}
       </div>
 
-      <div className={`rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 ${subSectionsExpanded.dropped ? '' : 'opacity-60 pointer-events-none'}`}>
+      <div className={`${subSectionsExpanded.dropped ? '' : 'opacity-60 pointer-events-none'}`}>
         <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-700">
           <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Placed Items</h4>
           <button
@@ -238,11 +266,11 @@ const RightSidebar = ({
     const config = SECTION_LOOKUP[id];
     if (!config) return null;
     const isActive = activeSection === id;
-    const sectionClasses = `rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 ${isActive ? 'shadow ring-1 ring-blue-500/40' : ''}`;
+    const sectionClasses = `bg-white dark:bg-gray-800`;
 
     return (
       <section data-sidebar-section={id} key={id} className={sectionClasses}>
-        <div className="px-4 py-4 space-y-4">
+        <div className="px-2 py-2 space-y-0">
           {renderSectionBody(id)}
         </div>
       </section>
@@ -309,13 +337,67 @@ const RightSidebar = ({
         </div>
       )}
 
-      <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
-        {sectionsToRender.map((id) => renderSection(id))}
+      <div className="flex-1 min-h-0 overflow-y-auto p-0 space-y-0">
+        {sectionsToRender.map((id, idx) => (
+          <React.Fragment key={id}>
+            {renderSection(id)}
+            {idx < sectionsToRender.length - 1 && (
+              <div className="border-t border-gray-200 dark:border-gray-700 my-2" />
+            )}
+          </React.Fragment>
+        ))}
       </div>
 
       {mode === 'icon-rail' ? null : renderExportSection()}
     </div>
   );
+
+  // Keep a root-level CSS variable in sync with the total right panel width
+  // so map-adjacent UI (like the viewport inset) can glide alongside it.
+  useEffect(() => {
+    const rootEl = typeof document !== 'undefined' ? document.documentElement : null;
+    if (!rootEl) return undefined;
+
+    const updateOverlayWidthVar = () => {
+      try {
+        // In expanded mode, the panel has fixed width (w-80 = 320px). In icon-rail,
+        // use current drawer width (w-64 = 256px) when open, else 0.
+        let widthPx = 0;
+        if (mode === 'icon-rail') {
+          widthPx = (isOpen && drawerRef.current) ? drawerRef.current.getBoundingClientRect().width : 0;
+        } else {
+          widthPx = 320;
+        }
+        rootEl.style.setProperty('--space-stager-right-panel-width', `${Math.round(widthPx)}px`);
+        try {
+          const ev = new CustomEvent('space-stager:right-panel-width', { detail: { width: Math.round(widthPx) } });
+          window.dispatchEvent(ev);
+        } catch (_) {}
+      } catch (_) {
+        // ignore
+      }
+    };
+
+    // Prime immediately
+    updateOverlayWidthVar();
+
+    // Observe the drawer in overlay mode so updates stream during transitions
+    let resizeObserver;
+    if (mode === 'icon-rail' && typeof ResizeObserver !== 'undefined' && drawerRef.current) {
+      resizeObserver = new ResizeObserver(() => updateOverlayWidthVar());
+      try { resizeObserver.observe(drawerRef.current); } catch (_) {}
+    }
+
+    const onWindowResize = () => updateOverlayWidthVar();
+    window.addEventListener('resize', onWindowResize);
+
+    return () => {
+      try { window.removeEventListener('resize', onWindowResize); } catch (_) {}
+      try { resizeObserver && resizeObserver.disconnect(); } catch (_) {}
+      // Reset to 0
+      try { rootEl.style.setProperty('--space-stager-right-panel-width', '0px'); } catch (_) {}
+    };
+  }, [mode, isOpen]);
 
   if (mode === 'icon-rail') {
     const drawerWidthClass = isOpen ? 'w-64 max-w-[calc(100vw-5rem)]' : 'w-0';
@@ -388,7 +470,7 @@ const RightSidebar = ({
             </button>
           </div>
         </div>
-        <div className={`h-full overflow-hidden transition-all duration-300 ${drawerWidthClass}`}>
+        <div ref={drawerRef} className={`h-full overflow-hidden transition-all duration-300 ${drawerWidthClass}`}>
           {isOpen ? renderContent() : null}
         </div>
       </div>

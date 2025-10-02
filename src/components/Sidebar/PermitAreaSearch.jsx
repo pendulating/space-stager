@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search } from 'lucide-react';
+import { Search, Eye, EyeOff, Loader2, CheckCircle, AlertCircle, Circle } from 'lucide-react';
 
 const PermitAreaSearch = ({ 
   searchQuery,
@@ -10,7 +10,10 @@ const PermitAreaSearch = ({
   focusedArea,
   title = 'Search Zones',
   placeholder = 'Search zones...',
-  onChangeMode = null
+  onChangeMode = null,
+  permitAreasLayer = null,
+  onToggleLayer = null,
+  geographyType = 'parks'
 }) => {
   // Function to highlight search term in text
   const highlightSearchTerm = (text, term) => {
@@ -39,7 +42,39 @@ const PermitAreaSearch = ({
 
   return (
     <div className="p-4 border-b border-gray-200 dark:border-gray-800">
-      <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-3">{title}</h3>
+      {/* Zone Geometry Layer Toggle - Acts as Header */}
+      {permitAreasLayer && onToggleLayer && (
+        <div className="mb-3 p-2.5 bg-gray-50 dark:bg-gray-900 rounded-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+              <button
+                onClick={() => onToggleLayer('permitAreas')}
+                className="p-1 rounded flex-shrink-0 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700"
+                disabled={permitAreasLayer.loading}
+              >
+                {permitAreasLayer.requested ? (
+                  <Eye className="w-4 h-4 text-blue-600" />
+                ) : (
+                  <EyeOff className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                )}
+              </button>
+              <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: permitAreasLayer.color || '#f97316' }} />
+              <span className={`text-sm font-medium truncate ${
+                permitAreasLayer.requested ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'
+              }`}>
+                {geographyType === 'plazas' ? 'Plazas' : geographyType === 'intersections' ? 'Intersections' : 'Parks'}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              {permitAreasLayer.error && <AlertCircle className="w-4 h-4 text-red-500" title="Error loading" />}
+              {permitAreasLayer.loading && <Loader2 className="w-4 h-4 text-blue-600 animate-spin" title="Loading" />}
+              {permitAreasLayer.requested && permitAreasLayer.loaded && permitAreasLayer.empty && <Circle className="w-4 h-4 text-gray-300" title="No data" />}
+              {permitAreasLayer.requested && permitAreasLayer.loaded && !permitAreasLayer.empty && <CheckCircle className="w-4 h-4 text-emerald-600" title="Loaded" />}
+              {!permitAreasLayer.requested && <Circle className="w-4 h-4 text-gray-400" title="Hidden" />}
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Search Input */}
       <div className="relative permit-area-search">

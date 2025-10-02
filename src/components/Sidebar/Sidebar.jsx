@@ -18,7 +18,8 @@ const Sidebar = ({
   onStyleChange,
   isSitePlanMode = false,
   geographyType,
-  onCollapse = () => {}
+  onCollapse = () => {},
+  drawTools
 }) => {
   const { isActive, setIsActive } = useZoneCreatorContext();
   return (
@@ -73,6 +74,9 @@ const Sidebar = ({
               window.dispatchEvent(evt);
             } catch (_) {}
           }}
+          permitAreasLayer={layers?.permitAreas}
+          onToggleLayer={onToggleLayer}
+          geographyType={geographyType}
         />
       </div>
 
@@ -92,6 +96,13 @@ const Sidebar = ({
           geographyType={geographyType}
           map={map}
           infrastructure={infrastructure}
+          hasSubFocus={permitAreas?.hasSubFocus}
+          onBeginSubFocus={() => {
+            try { drawTools?.activateDrawingTool?.('subfocus'); } catch (_) {}
+          }}
+          onClearSubFocus={() => {
+            try { permitAreas?.clearSubFocusPolygon?.(); } catch (_) {}
+          }}
         />
       </div>
 

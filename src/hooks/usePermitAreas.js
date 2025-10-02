@@ -473,14 +473,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         // Smoothly move to the point at a sensible zoom
         const targetZoom = 18;
         try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
-        // Enforce the same computation as a single Q/E press from the current snapped grid
-        const areaPitch = map?.getPitch ? map.getPitch() : 0;
-        const aRel = computeAreaOrientation({ map, geometry: permitArea.geometry, pitch: areaPitch });
-        const b0 = getSnappedBearing(map, permitArea.geometry, areaPitch);
-        const centerOffset = getCenterOffsetForPitch(areaPitch);
-        const relQ = quantizeToSlices((b0 - aRel), 8, centerOffset);
-        const snappedBearing = ((aRel + relQ) + 360) % 360;
-        map.easeTo({ center: geom.coordinates, zoom: targetZoom, bearing: snappedBearing, duration: 1100, essential: true, easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) });
+        map.easeTo({ center: geom.coordinates, zoom: targetZoom, duration: 1100, essential: true, easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) });
         // Apply constraints when camera settles, but preserve visual end-center to avoid a jarring jump
         map.once('idle', () => {
           try {
@@ -521,13 +514,8 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       // Prefer cameraForBounds if available to compute a single smooth camera
       try {
         const padding = options.focusPadding || 20;
-        // Enforce same grid computation as one Q/E step from the current grid anchor
-        const areaPitch2 = map?.getPitch ? map.getPitch() : 0;
-        const aRel2 = computeAreaOrientation({ map, geometry: geom, pitch: areaPitch2 });
-        const b0_2 = getSnappedBearing(map, geom, areaPitch2, -angle);
-        const centerOffset2 = getCenterOffsetForPitch(areaPitch2);
-        const relQ2 = quantizeToSlices((b0_2 - aRel2), 8, centerOffset2);
-        const targetBearing = ((aRel2 + relQ2) + 360) % 360;
+        // Use the oriented bounding box angle for optimal fit without quantization
+        const targetBearing = (-angle + 360) % 360;
         if (typeof map.cameraForBounds === 'function') {
           const camera = map.cameraForBounds(orientedBbox, { padding });
           const finalCamera = { ...camera, bearing: targetBearing, duration: 1200, essential: true, easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) };
@@ -545,7 +533,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         map.fitBounds(orientedBbox, { padding: 20, duration: 1200 });
       }
 
-      // When the camera settles, record zoom and apply constraints, then hard-snap bearing
+      // When the camera settles, record zoom and apply constraints
       map.once('idle', () => {
         try {
           const finalZoom = map.getZoom ? map.getZoom() : 16;
@@ -556,13 +544,6 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
           applyFocusConstraints([[minX, minY], [maxX, maxY]], finalZoom);
           // Preserve the exact end-center from the animation to avoid any jump when constraints engage
           try { if (finalCenter && map.setCenter) map.setCenter(finalCenter); } catch (_) {}
-          // Finalize bearing: coerce to area-relative 45° grid using actual area geometry
-          try {
-            const cur = (typeof map.getBearing === 'function') ? map.getBearing() : 0;
-            const snapped = snapCameraBearingToArea(cur, { map, areaGeom: geom, pitch: map?.getPitch ? map.getPitch() : 0, enforceAbsolute45: true });
-            const delta = Math.abs((((snapped - cur) % 360) + 540) % 360 - 180);
-            if (delta > 0.01 && map.rotateTo) map.rotateTo(snapped, { duration: 0, essential: true });
-          } catch (_) {}
         } catch (_) {}
         setIsCameraAnimating(false);
         try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('permit:focus-ready', { detail: { featureId: permitArea?.id || null } })); } catch (_) {}

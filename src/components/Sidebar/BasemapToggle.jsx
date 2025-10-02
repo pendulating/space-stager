@@ -62,14 +62,13 @@ const BasemapToggle = ({ map, onStyleChange }) => {
 
   return (
     <div className="p-4 border-b border-gray-200 dark:border-gray-800">
-      <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-3">Basemap</h3>
-      <div className="flex space-x-2">
+      <div className="flex w-full h-10 gap-2">
         {Object.entries(BASEMAP_OPTIONS).map(([key, basemap]) => (
           <button
             key={key}
             onClick={() => handleBasemapChange(key)}
             disabled={isLoading}
-            className={`flex-1 px-3 py-2 text-xs rounded transition-colors ${
+            className={`flex-1 basis-1/2 h-full text-sm rounded-md flex items-center justify-center transition-colors ${
               currentBasemap === key
                 ? 'bg-blue-500 text-white'
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'

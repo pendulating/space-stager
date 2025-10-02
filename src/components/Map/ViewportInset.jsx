@@ -16,7 +16,7 @@ const isWithinBounds = ({ lng, lat }) => (
   lat <= NYC_BOUNDS.maxLat
 );
 
-const ViewportInset = ({ map, mapLoaded, permitAreas, responsive }) => {
+const ViewportInset = ({ map, mapLoaded, permitAreas, responsive, isSitePlanMode = false, isRightSidebarOpen = false }) => {
   const [center, setCenter] = useState(() => ({ lng: null, lat: null }));
   const [screenSize, setScreenSize] = useState(() => ({ width: typeof window === 'undefined' ? 0 : window.innerWidth }));
 
@@ -85,15 +85,19 @@ const ViewportInset = ({ map, mapLoaded, permitAreas, responsive }) => {
 
   const { within, leftPct, topPct } = markerPosition;
 
-  const offsetX = 16;
-  const offsetY = permitAreas?.focusedArea ? 210 : 56;
+  // Position inset with 16px margin from the right edge of the map container
+  // The parent MapContainer handles its own width transitions when sidebar opens/closes
+  // and the inset glides along with it via CSS transitions
+  const offsetY = 72;
+
+  const insetRight = '16px';
 
   return (
     <div
       className="pointer-events-none select-none absolute"
       style={{
         bottom: offsetY,
-        right: offsetX,
+        right: insetRight,
         width: 150,
         height: 150,
         borderRadius: 16,

@@ -7,7 +7,8 @@ const CustomShapesList = ({
   draw,
   onShapeRename,
   showLabels = true,
-  onToggleLabels
+  onToggleLabels,
+  onCountChange
 }) => {
   // console.log('CustomShapesList render:', { showLabels, onToggleLabels: !!onToggleLabels });
 
@@ -156,32 +157,12 @@ const CustomShapesList = ({
     properties: feature.properties
   }));
 
+  React.useEffect(() => {
+    try { if (typeof onCountChange === 'function') onCountChange(customShapes.length); } catch (_) {}
+  }, [customShapes.length, onCountChange]);
+
   return (
-    <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">
-          Annotations ({customShapes.length})
-        </h3>
-        <div className="flex items-center space-x-2">
-          <button
-            type="button"
-            onClick={() => {
-              if (onToggleLabels) {
-                onToggleLabels(!showLabels);
-              }
-            }}
-            className="flex items-center gap-2 px-2 py-1 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 rounded cursor-pointer labels-toggle"
-          >
-            <input
-              type="checkbox"
-              checked={showLabels}
-              readOnly
-              className="pointer-events-none"
-            />
-            Show Labels
-          </button>
-        </div>
-      </div>
+    <div className="p-0">
       {customShapes.length > 0 && (
         <div className="space-y-1 max-h-[25vh] overflow-y-auto">
           {customShapes.map(shape => (

@@ -9,18 +9,17 @@ const DashedLineIcon = (props) => (
   </svg>
 );
 
-const DrawingTools = ({ activeTool, onToolSelect, selectedShape, onDelete, drawAvailable = true, onRetry }) => {
+const DrawingTools = ({ activeTool, onToolSelect, selectedShape, onDelete, drawAvailable = true, onRetry, onHoverChange }) => {
   const tools = [
-    { id: 'point', icon: Dot, title: 'Add Point' },
-    { id: 'line', icon: DashedLineIcon, title: 'Draw Line' },
-    { id: 'polygon', icon: Square, title: 'Draw Polygon' },
-    { id: 'text', icon: Type, title: 'Text Annotation' },
-    { id: 'arrow', icon: ArrowRight, title: 'Arrow Annotation' }
+    { id: 'point', icon: Dot, title: 'Point' },
+    { id: 'line', icon: DashedLineIcon, title: 'Line' },
+    { id: 'polygon', icon: Square, title: 'Polygon' },
+    { id: 'text', icon: Type, title: 'Text' },
+    { id: 'arrow', icon: ArrowRight, title: 'Arrow' }
   ];
 
   return (
-    <div className="p-4 border-b border-gray-200 dark:border-gray-700 drawing-tools">
-      <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-3">Annotation Tools</h3>
+    <div className="p-2 drawing-tools">
       {!drawAvailable && (
         <div className="mb-3 p-2 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded text-xs text-yellow-700 dark:text-yellow-300">
           Drawing tools are initializing...
@@ -46,19 +45,23 @@ const DrawingTools = ({ activeTool, onToolSelect, selectedShape, onDelete, drawA
       )}
       <div className="grid grid-cols-5 gap-2">
         {tools.map(({ id, icon: Icon, title }) => (
-          <button
-            key={id}
-            onClick={() => onToolSelect(activeTool === id ? null : id)}
-            className={`p-3 rounded-lg transition-all ${
-              activeTool === id 
-                ? 'bg-blue-600 text-white shadow-md' 
-                : 'bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200'
-            } ${!drawAvailable ? 'opacity-50 cursor-not-allowed' : ''}`}
-            title={title}
-            disabled={!drawAvailable}
-          >
-            <Icon className="w-5 h-5" />
-          </button>
+          <div key={id} className="relative group">
+            <span aria-hidden="true" className="block pb-[100%]" />
+            <button
+              onClick={() => onToolSelect(activeTool === id ? null : id)}
+              onMouseEnter={() => { try { onHoverChange && onHoverChange(title); } catch (_) {} }}
+              onMouseLeave={() => { try { onHoverChange && onHoverChange(''); } catch (_) {} }}
+              className={`absolute inset-0 rounded-lg border transition ${
+                activeTool === id
+                  ? 'bg-blue-600 text-white border-blue-500 shadow-md'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 border-gray-200/70 dark:border-gray-700/60'
+              } ${!drawAvailable ? 'opacity-50 cursor-not-allowed' : ''} flex items-center justify-center`}
+              title={title}
+              disabled={!drawAvailable}
+            >
+              <Icon className="w-5 h-5" />
+            </button>
+          </div>
         ))}
       </div>
     </div>

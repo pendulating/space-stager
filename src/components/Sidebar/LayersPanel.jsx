@@ -15,7 +15,10 @@ const LayersPanel = ({
   isSitePlanMode = false,
   geographyType,
   map,
-  infrastructure
+  infrastructure,
+  hasSubFocus = false,
+  onBeginSubFocus = null,
+  onClearSubFocus = null
 }) => {
   const view = useMapViewState(map);
   // State for tracking which groups are expanded
@@ -96,14 +99,14 @@ const LayersPanel = ({
       const src = candidates[0] || null;
       return (
         <div 
-          className={`w-6 h-6 flex items-center justify-center ${config.loading ? 'animate-pulse' : ''}`}
+          className={`w-6 h-6 flex items-center justify-center flex-shrink-0 ${config.loading ? 'animate-pulse' : ''}`}
           style={{ opacity: config.requested ? 1 : 0.3 }}
         >
           {src ? (
             <img 
               src={src}
               alt={config.name}
-              className="w-8 h-8 object-contain"
+              className="w-7 h-7 object-contain"
               style={{
                 filter: config.loading ? 'grayscale(100%)' : 'none',
                 opacity: config.requested ? 1 : 0.6
@@ -132,7 +135,7 @@ const LayersPanel = ({
       // Fallback to colored circle for layers without icons (like bikeLanes)
       return (
         <div
-          className={`w-4 h-4 rounded-full ${config.loading ? 'animate-pulse' : ''}`}
+          className={`w-4 h-4 rounded-full flex-shrink-0 ${config.loading ? 'animate-pulse' : ''}`}
           style={{ 
             backgroundColor: config.loading ? '#9CA3AF' : config.color, 
             opacity: config.requested ? 1 : 0.3 
@@ -145,13 +148,13 @@ const LayersPanel = ({
     if (icon.type === 'svg') {
       return (
         <div 
-          className={`w-6 h-6 flex items-center justify-center ${config.loading ? 'animate-pulse' : ''}`}
+          className={`w-6 h-6 flex items-center justify-center flex-shrink-0 ${config.loading ? 'animate-pulse' : ''}`}
           style={{ opacity: config.requested ? 1 : 0.3 }}
         >
           <img 
             src={svgToDataUrl(icon.svg)} 
             alt={config.name}
-            className="w-8 h-8 object-contain"
+            className="w-7 h-7 object-contain"
             style={{
               filter: config.loading ? 'grayscale(100%)' : 'none',
               opacity: config.requested ? 1 : 0.6
@@ -165,13 +168,13 @@ const LayersPanel = ({
       // For PNG icons, render as image with color overlay using CSS filters
       return (
         <div 
-          className={`w-6 h-6 flex items-center justify-center ${config.loading ? 'animate-pulse' : ''}`}
+          className={`w-6 h-6 flex items-center justify-center flex-shrink-0 ${config.loading ? 'animate-pulse' : ''}`}
           style={{ opacity: config.requested ? 1 : 0.3 }}
         >
           <img 
             src={icon.src} 
             alt={config.name}
-            className="w-8 h-8 object-contain"
+            className="w-7 h-7 object-contain"
             style={{
               filter: config.loading ? 'grayscale(100%)' : 'none',
               opacity: config.requested ? 1 : 0.6
@@ -184,7 +187,7 @@ const LayersPanel = ({
     // Fallback to colored circle
     return (
       <div
-        className={`w-4 h-4 rounded-full ${config.loading ? 'animate-pulse' : ''}`}
+        className={`w-4 h-4 rounded-full flex-shrink-0 ${config.loading ? 'animate-pulse' : ''}`}
         style={{ 
           backgroundColor: config.loading ? '#9CA3AF' : config.color, 
           opacity: config.requested ? 1 : 0.3 
@@ -203,8 +206,8 @@ const LayersPanel = ({
     return (
       <div key={groupId} className="mb-2">
         <div
-          className={`flex items-center justify-between p-2 bg-gray-100 dark:bg-gray-800 rounded-lg cursor-pointer transition-colors ${
-            isEnabled ? 'hover:bg-gray-200 dark:hover:bg-gray-700' : 'opacity-50 cursor-not-allowed'
+          className={`flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800/50 rounded-lg cursor-pointer transition-colors ${
+            isEnabled ? 'hover:bg-gray-100 dark:hover:bg-gray-700/50' : 'opacity-50 cursor-not-allowed'
           }`}
           onClick={() => isEnabled && toggleGroupExpansion(groupId)}
         >
@@ -216,7 +219,7 @@ const LayersPanel = ({
             )}
             <span className="text-sm">{group.icon}</span>
             <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{group.name}</span>
-            <span className="text-xs text-gray-500 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded-full">
+            <span className="text-[11px] text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded-full">
               {effective.length}
             </span>
           </div>
@@ -226,7 +229,7 @@ const LayersPanel = ({
               if (isEnabled) handleGroupToggle(groupId);
             }}
             className={`p-1 rounded ${
-              isEnabled ? 'cursor-pointer hover:bg-gray-300 dark:hover:bg-gray-700' : 'cursor-not-allowed'
+              isEnabled ? 'cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-600' : 'cursor-not-allowed'
             }`}
             disabled={!isEnabled}
             title={!isEnabled ? "Select a permit area first" : `${isActive ? 'Hide' : 'Show'} all ${group.name.toLowerCase()}`}
@@ -273,45 +276,33 @@ const LayersPanel = ({
     return (
       <div
         key={layerId}
-        className={`flex items-center justify-between ${isInGroup ? 'p-2 bg-white dark:bg-gray-800' : 'p-3 bg-gray-50 dark:bg-gray-900'} rounded-lg ${
+        className={`flex items-center justify-between ${isInGroup ? 'p-2 bg-white dark:bg-gray-800/50' : 'p-2.5 bg-gray-50 dark:bg-gray-900'} rounded-lg ${
           isEnabled ? '' : 'opacity-50 cursor-not-allowed'
         }`}
       >
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-2.5 min-w-0 flex-1">
           <button
             onClick={() => isEnabled && !config.disabled && onToggleLayer(layerId)}
-            className={`p-1 rounded ${
+            className={`p-1 rounded flex-shrink-0 ${
               isEnabled ? 'cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700' : 'cursor-not-allowed'
             }`}
             disabled={!isEnabled || isLoading}
           >
             {isRequested ? (
-              <Eye className={`w-5 h-5 ${isEnabled ? 'text-blue-600' : 'text-gray-400 dark:text-gray-500'}`} />
+              <Eye className={`w-4 h-4 ${isEnabled ? 'text-blue-600' : 'text-gray-400 dark:text-gray-500'}`} />
             ) : (
-              <EyeOff className={`w-5 h-5 ${isEnabled ? 'text-gray-600 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'}`} />
+              <EyeOff className={`w-4 h-4 ${isEnabled ? 'text-gray-600 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'}`} />
             )}
           </button>
           {renderLayerIcon(layerId, config)}
-          <span className={`text-sm font-medium ${
+          <span className={`text-sm font-medium truncate ${
             isRequested && isEnabled ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'
           }`}>
             {layerId === 'permitAreas' ? (geographyType === 'plazas' ? 'Plazas' : geographyType === 'intersections' ? 'Intersections' : 'Parks') : (config.name)}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 flex-shrink-0">
           {renderStatusIcon()}
-          {isLoading && (
-            <span className="text-[11px] text-gray-500 dark:text-gray-400">Loading…</span>
-          )}
-          {isRequested && isLoaded && isEmpty && (
-            <span className="text-[11px] text-gray-400">No data</span>
-          )}
-          {isRequested && isLoaded && !isEmpty && (
-            <span className="text-[11px] text-emerald-700 dark:text-emerald-400">Ready</span>
-          )}
-          {isError && (
-            <span className="text-[11px] text-red-500">Error</span>
-          )}
         </div>
       </div>
     );
@@ -333,62 +324,102 @@ const LayersPanel = ({
 
   return (
     <div className="h-full flex flex-col layers-panel">
-      {/* Fixed Header Section */}
-      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 p-4 space-y-3">
-        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">
-          NYC Infrastructure Layers
-        </h3>
-        
-        {/* All Recommended moved below focus panel in scroll area */}
-
-      {/* Zone geometry - Always Fixed */}
-      {permitAreasLayer && renderLayerItem('permitAreas', permitAreasLayer)}
-        
-        {/* Focus Area Info - Enhanced (hidden in intersections mode) */}
+      {/* Compact Header Section */}
+      <div className="bg-white dark:bg-gray-900 p-3 space-y-2">
+        {/* Focused Area Info - Concentric Pill Design */}
         {focusedArea && geographyType !== 'intersections' && (
-          <div className="bg-gradient-to-r from-blue-100 to-blue-50 dark:from-blue-950 dark:to-blue-900 p-3 rounded-lg border-2 border-blue-200 dark:border-blue-900 shadow-sm">
-            <div className="flex justify-between items-center">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center space-x-2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                  <span className="text-sm font-semibold text-blue-900 dark:text-blue-200 tracking-wide">
-                    Focus Active
-                  </span>
+          <div className="relative">
+            {/* Outer ring label */}
+            <div className="bg-blue-600 dark:bg-blue-700 text-white text-[12px] font-medium px-2 py-0.5 rounded-t-lg">
+              Designing a site plan for:
+            </div>
+            {/* Inner content pill */}
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 p-2 rounded-b-lg border border-t-0 border-blue-600 dark:border-blue-700">
+              <div className="flex flex-col gap-2">
+                {/* Zone name - Full width */}
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse flex-shrink-0"></div>
+                  <p className="text-sm font-medium text-blue-800 dark:text-blue-200" title={(focusedArea.properties.name || [focusedArea.properties.FSN_1, focusedArea.properties.FSN_2, focusedArea.properties.FSN_3, focusedArea.properties.FSN_4].filter(Boolean).join(' & ') || 'Unnamed Area')}>
+                    {focusedArea.properties.name || [focusedArea.properties.FSN_1, focusedArea.properties.FSN_2, focusedArea.properties.FSN_3, focusedArea.properties.FSN_4].filter(Boolean).join(' & ') || 'Unnamed Area'}
+                  </p>
                 </div>
-                <div className="mt-1 text-sm font-medium text-blue-800 dark:text-blue-200 truncate" title={(focusedArea.properties.name || [focusedArea.properties.FSN_1, focusedArea.properties.FSN_2, focusedArea.properties.FSN_3, focusedArea.properties.FSN_4].filter(Boolean).join(' & ') || 'Unnamed Area')}>
-                  {focusedArea.properties.name || [focusedArea.properties.FSN_1, focusedArea.properties.FSN_2, focusedArea.properties.FSN_3, focusedArea.properties.FSN_4].filter(Boolean).join(' & ') || 'Unnamed Area'}
+                
+                {/* Buttons row */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    {/* Sub-focus button */}
+                    {onBeginSubFocus && !hasSubFocus && (
+                      <button
+                        onClick={() => {
+                          try { 
+                            const evt = new CustomEvent('subfocus:arm'); 
+                            window.dispatchEvent(evt); 
+                          } catch (_) {}
+                          onBeginSubFocus();
+                        }}
+                        className="flex-shrink-0 text-[11px] px-2 py-1 rounded bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors whitespace-nowrap"
+                        title="Draw sub-area to focus"
+                      >
+                        Focus Sub-Area
+                      </button>
+                    )}
+                    {onClearSubFocus && hasSubFocus && (
+                      <button
+                        onClick={() => {
+                          try { 
+                            const evt = new CustomEvent('subfocus:disarm'); 
+                            window.dispatchEvent(evt); 
+                          } catch (_) {}
+                          onClearSubFocus();
+                        }}
+                        className="flex-shrink-0 text-[11px] px-2 py-1 rounded bg-emerald-600 dark:bg-emerald-700 text-white hover:bg-emerald-700 dark:hover:bg-emerald-600 transition-colors whitespace-nowrap"
+                        title="Clear sub-area focus"
+                      >
+                        Clear Sub-Area
+                      </button>
+                    )}
+                  </div>
+                  
+                  {/* Clear focus X button - More prominent */}
+                  <button 
+                    onClick={onClearFocus}
+                    className="flex items-center gap-1 flex-shrink-0 bg-blue-700 dark:bg-blue-800 hover:bg-blue-800 dark:hover:bg-blue-900 text-white px-2.5 py-1 rounded font-medium transition-colors"
+                    title="Clear Focus"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span className="text-[11px]">Exit without Saving</span>
+                  </button>
                 </div>
               </div>
-              <button 
-                onClick={onClearFocus}
-                className="ml-3 bg-white/80 dark:bg-gray-800/80 hover:bg-white dark:hover:bg-gray-700 border border-blue-300 dark:border-blue-900 hover:border-blue-400 dark:hover:border-blue-800 rounded-md p-2 text-blue-600 dark:text-blue-300 hover:text-blue-700 dark:hover:text-blue-200 transition-all duration-150 shadow-sm hover:shadow focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
-                title="Clear Focus and Return to Map View"
-              >
-                <X className="w-4 h-4" />
-              </button>
             </div>
           </div>
         )}
         
         {!focusedArea && (
-          <div className="bg-amber-50 dark:bg-amber-900/20 p-2 rounded-md text-xs text-amber-700 dark:text-amber-300">
-            Click on the zone geometry to explore overlapping areas.
-            Multiple areas? Use the selector popup.
+          <div className="bg-amber-50 dark:bg-amber-900/20 p-2 rounded text-[11px] text-amber-700 dark:text-amber-300 leading-snug">
+            Select zone geometry to view layers
           </div>
         )}
       </div>
 
       {/* Scrollable Layers Section */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        <div className="p-4 pb-8">
-          <div className="space-y-3">
-            {/* All Recommended Toggle - placed above group toggles */}
+        <div className="p-3 pb-8">
+          {/* Infrastructure Layers Header */}
+          <div className="mb-3">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">
+              Infrastructure Layers
+            </h3>
+          </div>
+          
+          <div className="space-y-2.5">
+            {/* All Recommended Toggle */}
             <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
               isSitePlanMode
                 ? 'max-h-96 opacity-100 transform translate-y-0'
                 : 'max-h-0 opacity-0 transform -translate-y-2'
             }`}>
-              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-900 p-3 rounded-lg border border-blue-200 dark:border-gray-700">
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800/50 dark:to-gray-900/50 p-2.5 rounded-lg border border-blue-200 dark:border-gray-700">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
                     <Layers className="w-4 h-4 text-blue-600" />
@@ -396,7 +427,7 @@ const LayersPanel = ({
                   </div>
                   <button
                     onClick={handleRecommendedToggle}
-                    className="flex items-center space-x-1 text-blue-700 hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200 transition-colors"
+                    className="flex items-center space-x-1 transition-colors"
                     disabled={!focusedArea}
                     title={!focusedArea ? "Select a permit area first" : `${allLayersActive ? 'Hide' : 'Show'} all layers`}
                   >
@@ -405,32 +436,25 @@ const LayersPanel = ({
                     ) : (
                       <ToggleLeft className="w-5 h-5 text-gray-400 dark:text-gray-500" />
                     )}
-                    <span className="text-xs font-medium">
-                      {allLayersActive ? 'ON' : 'OFF'}
-                    </span>
                   </button>
                 </div>
                 {infrastructure && infrastructure.bulkLoading && (
-                  <div className="mt-2">
+                  <div className="mt-2 space-y-1">
                     <div className="text-[11px] text-blue-700 dark:text-blue-300 flex items-center justify-between">
-                      <span>Loading layers… ({infrastructure.bulkProgress.completed}/{infrastructure.bulkProgress.total})</span>
+                      <span>Loading ({infrastructure.bulkProgress.completed}/{infrastructure.bulkProgress.total})</span>
                       <button
                         type="button"
                         onClick={infrastructure.bulkCancelLoading}
-                        className="text-[11px] px-2 py-0.5 rounded border border-blue-300 dark:border-gray-700 text-blue-700 dark:text-blue-200 hover:bg-blue-50 dark:hover:bg-gray-800"
-                        title="Cancel loading"
+                        className="text-[11px] px-2 py-0.5 rounded border border-blue-300 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-gray-800"
                       >
                         Cancel
                       </button>
                     </div>
-                    <div className="w-full h-1.5 bg-blue-100 dark:bg-gray-800 rounded overflow-hidden mt-1">
+                    <div className="w-full h-1.5 bg-blue-100 dark:bg-gray-800 rounded overflow-hidden">
                       <div className="h-1.5 bg-blue-600 transition-all" style={{ width: `${infrastructure.bulkProgress.total > 0 ? Math.round((infrastructure.bulkProgress.completed / infrastructure.bulkProgress.total) * 100) : 0}%` }} />
                     </div>
                   </div>
                 )}
-                <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
-                  Toggle all recommended layers across groups.
-                </p>
               </div>
             </div>
 
