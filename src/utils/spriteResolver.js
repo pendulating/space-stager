@@ -13,7 +13,7 @@
  *  - flat isometric
  *  - legacy isometric (/data/icons/isometric-bw)
  */
-import { buildSpriteFallbacks, VIEW_TYPES, quantizeAngleTo45 } from './enhancedRenderingUtils';
+import { buildSpriteFallbacks, VIEW_TYPES, quantizeAngleTo45, padAngle } from './enhancedRenderingUtils';
 import { getContrastingBackgroundForIcon } from './colorUtils';
 
 // Simple LRU helpers
@@ -38,11 +38,46 @@ export const getFallbacks = (baseName, angle, viewType = VIEW_TYPES.ISOMETRIC) =
   return buildSpriteFallbacks(baseName, angle, viewType);
 };
 
-export const preloadImage = (src) => {
+const hasImage = (map, id) => {
+  try {
+    return !!(map && typeof map.hasImage === 'function' && map.hasImage(id));
+  } catch (_) {
+    return false;
+  }
+};
+
+const markCacheReadyWithImage = (src, img) => {
+  const entry = { status: 'ready', img };
+  cappedSet(imageCache, src, entry, IMAGE_CACHE_MAX);
+  if (img?.__spriteId && img?.__mapRef) {
+    if (!hasImage(img.__mapRef, img.__spriteId)) {
+      try { img.__mapRef.addImage(img.__spriteId, img); } catch (_) {}
+    } else if (img.__replaceExisting) {
+      try {
+        if (typeof img.__mapRef.updateImage === 'function') {
+          img.__mapRef.updateImage(img.__spriteId, img);
+        } else {
+          img.__mapRef.removeImage(img.__spriteId);
+          img.__mapRef.addImage(img.__spriteId, img);
+        }
+      } catch (_) {}
+    }
+  }
+  return entry;
+};
+
+export const __spriteImageCache = imageCache;
+
+export const preloadImage = (src, { map, spriteId, replaceExisting = false } = {}) => {
   if (!src) return Promise.resolve(false);
   const cached = imageCache.get(src);
   if (cached) {
-    if (cached.status === 'ready') return Promise.resolve(true);
+    if (cached.status === 'ready') {
+      if (cached.img && spriteId && map && !hasImage(map, spriteId)) {
+        try { map.addImage(spriteId, cached.img); } catch (_) {}
+      }
+      return Promise.resolve(true);
+    }
     if (cached.status === 'loading' && cached.promise) return cached.promise;
     if (cached.status === 'error') {
       // try again: fall through to recreate
@@ -53,7 +88,12 @@ export const preloadImage = (src) => {
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
-        cappedSet(imageCache, src, { status: 'ready', img }, IMAGE_CACHE_MAX);
+        if (spriteId && map) {
+          img.__spriteId = spriteId;
+          img.__mapRef = map;
+          img.__replaceExisting = replaceExisting;
+        }
+        markCacheReadyWithImage(src, img);
         resolve(true);
       };
       img.onerror = () => {
@@ -70,26 +110,26 @@ export const preloadImage = (src) => {
   return p;
 };
 
-export const preloadChain = async (srcs) => {
+export const preloadChain = async (srcs, options) => {
   if (!Array.isArray(srcs) || srcs.length === 0) return false;
   // Try sequentially; stop after first success
   for (let i = 0; i < srcs.length; i++) {
     // Fire preloads for early elements optimistically
     // but await each in order to short-circuit on first ready
     // eslint-disable-next-line no-await-in-loop
-    const ok = await preloadImage(srcs[i]);
+    const ok = await preloadImage(srcs[i], options);
     if (ok) return true;
   }
   return false;
 };
 
-export const prefetchView = (baseName, angles = [0,45,90,135,180,225,270,315], viewType = VIEW_TYPES.ISOMETRIC) => {
+export const prefetchView = (baseName, angles = [0,45,90,135,180,225,270,315], viewType = VIEW_TYPES.ISOMETRIC, { map, replaceExisting } = {}) => {
   try {
     angles.forEach((angle) => {
       const chain = buildSpriteFallbacks(baseName, angle, viewType);
       // Kick off fetch for primary and first fallback to reduce first-paint flicker
-      if (chain[0]) preloadImage(chain[0]);
-      if (chain[1]) preloadImage(chain[1]);
+      if (chain[0]) preloadImage(chain[0], { map, spriteId: `${baseName}_${padAngle(angle)}`, replaceExisting });
+      if (chain[1]) preloadImage(chain[1], { map, spriteId: `${baseName}_${padAngle(angle)}`, replaceExisting });
     });
   } catch (_) {}
 };

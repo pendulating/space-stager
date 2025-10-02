@@ -143,6 +143,9 @@ export const addEnhancedSpritesToMap = async (map, options) => {
   const { baseName, publicDir, angles = [0,45,90,135,180,225,270,315], viewType, urlBuilder, replaceExisting = false } = options || {};
   if (!map || !baseName || !publicDir) return;
 
+  const DEBUG = typeof window !== 'undefined' && window.__DEBUG_DROPPED_OBJECTS__;
+  if (DEBUG) console.log('[addEnhancedSprites]', { baseName, angles, viewType, replaceExisting });
+
   // Load each angle variant via DOM Image
   await Promise.all(angles.map((angle) => new Promise((resolve) => {
     const id = `${baseName}_${padAngle(angle)}`;
@@ -151,6 +154,7 @@ export const addEnhancedSpritesToMap = async (map, options) => {
         if (replaceExisting) {
           try { map.removeImage(id); } catch (_) {}
         } else {
+          if (DEBUG) console.log('[addEnhancedSprites] already has image', id);
           resolve(true);
           return;
         }
@@ -167,9 +171,12 @@ export const addEnhancedSpritesToMap = async (map, options) => {
     // Legacy fallback
     urls.push(`/data/icons/isometric-bw/${baseName}_${padAngle(angle)}.png`);
 
+    if (DEBUG) console.log('[addEnhancedSprites] loading', { id, urls });
+
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
+      if (DEBUG) console.log('[addEnhancedSprites] loaded successfully', { id, src: img.src });
       try {
         const has = map.hasImage && map.hasImage(id);
         if (replaceExisting && has) {
@@ -187,10 +194,12 @@ export const addEnhancedSpritesToMap = async (map, options) => {
     };
     let i = 0;
     img.onerror = () => {
+      if (DEBUG) console.warn('[addEnhancedSprites] failed to load', { id, failedUrl: urls[i], attemptIndex: i });
       i += 1;
       if (i < urls.length) {
         img.src = urls[i];
       } else {
+        if (DEBUG) console.error('[addEnhancedSprites] all URLs failed for', id);
         resolve(false);
       }
     };

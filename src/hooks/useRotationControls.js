@@ -10,12 +10,12 @@ import { useEffect } from 'react';
  *  - hasSelectedRect: boolean
  *  - rotateSelectedRectBy: (deltaDeg:number)=>void // will be called every frame while key held
  *  - hasSelectedPoint: boolean
- *  - rotateSelectedPointStep: (delta45:number)=>void
+ *  - rotateSelectedPointBy: (deltaDeg:number)=>void // will be called every frame while key held (continuous in 2D)
  *  - clearSelection?: ()=>void
  *
  * Keyboard bindings (consistent with existing app): , . [ ]
  *  - Rectangles: hold for continuous rotation at 90°/s
- *  - Enhanced points: step by 45° per keypress
+ *  - Points (dropped objects): hold for continuous free rotation at 90°/s in 2D mode
  *  - Placement mode: step by 45° per keypress
  */
 export const useRotationControls = (options) => {
@@ -26,7 +26,7 @@ export const useRotationControls = (options) => {
     hasSelectedRect,
     rotateSelectedRectBy,
     hasSelectedPoint,
-    rotateSelectedPointStep,
+    rotateSelectedPointBy,
     clearSelection,
     hasSelectedAnnotation,
     rotateSelectedAnnotationBy
@@ -55,11 +55,21 @@ export const useRotationControls = (options) => {
     };
 
     const step = (ts) => {
-      if (!hasSelectedRect || activeDir === 0) { if (gesturesLocked) enableMapRotationGestures(); rafId = null; return; }
+      if ((!hasSelectedRect && !hasSelectedPoint) || activeDir === 0) { 
+        if (gesturesLocked) enableMapRotationGestures(); 
+        rafId = null; 
+        return; 
+      }
       const dt = lastTs ? Math.max(0, (ts - lastTs) / 1000) : 0;
       lastTs = ts;
       const delta = activeDir * degreesPerSecond * dt;
-      try { if (typeof rotateSelectedRectBy === 'function') rotateSelectedRectBy(delta); } catch (_) {}
+      try { 
+        if (hasSelectedRect && typeof rotateSelectedRectBy === 'function') {
+          rotateSelectedRectBy(delta);
+        } else if (hasSelectedPoint && typeof rotateSelectedPointBy === 'function') {
+          rotateSelectedPointBy(delta);
+        }
+      } catch (_) {}
       rafId = requestAnimationFrame(step);
     };
 
@@ -98,9 +108,15 @@ export const useRotationControls = (options) => {
         return;
       }
 
-      if (hasSelectedPoint && typeof rotateSelectedPointStep === 'function') {
-        // Uniform 8-slice rotation for enhanced points
-        try { rotateSelectedPointStep(dir * 45); } catch (_) {}
+      if (hasSelectedPoint && typeof rotateSelectedPointBy === 'function') {
+        // Continuous free rotation for dropped objects (same as rectangles)
+        try { rotateSelectedPointBy(dir * 12); } catch (_) {}
+        if (activeDir !== dir) {
+          activeDir = dir;
+          lastTs = 0;
+          disableMapRotationGestures();
+          if (rafId == null) rafId = requestAnimationFrame(step);
+        }
         return;
       }
 
@@ -134,7 +150,7 @@ export const useRotationControls = (options) => {
       if (rafId != null) cancelAnimationFrame(rafId);
       try { enableMapRotationGestures(); } catch (_) {}
     };
-  }, [map, isPlacementActive, rotatePlacementStep, hasSelectedRect, rotateSelectedRectBy, hasSelectedPoint, rotateSelectedPointStep, hasSelectedAnnotation, rotateSelectedAnnotationBy, clearSelection]);
+  }, [map, isPlacementActive, rotatePlacementStep, hasSelectedRect, rotateSelectedRectBy, hasSelectedPoint, rotateSelectedPointBy, hasSelectedAnnotation, rotateSelectedAnnotationBy, clearSelection]);
 };
 
 

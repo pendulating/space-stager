@@ -1092,16 +1092,15 @@ const MapContainer = forwardRef(({
       } catch (_) {}
     },
     hasSelectedPoint: selectedKind === 'point' && !!selectedObjectId,
-    rotateSelectedPointStep: (delta45) => {
+    rotateSelectedPointBy: (deltaDeg) => {
       try {
         const id = selectedObjectId;
         clickToPlace.updateDroppedObject(id, (prev) => {
           if (!prev) return prev;
           const cur = Number(prev?.properties?.rotationDeg || 0);
-          let next = normalizeAngle(cur + delta45);
-          // Persist world-facing rotation in 45° increments without applying center offset
-          const snapped = ((quantizeToSlices(next, 8, 0)) + 360) % 360;
-          const nextProps = Object.assign({}, prev.properties || {}, { rotationDeg: snapped });
+          let next = normalizeAngle(cur + deltaDeg);
+          // Free continuous rotation - no snapping in 2D mode
+          const nextProps = Object.assign({}, prev.properties || {}, { rotationDeg: next });
           return { ...prev, properties: nextProps };
         });
       } catch (_) {}

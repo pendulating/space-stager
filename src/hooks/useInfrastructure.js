@@ -287,7 +287,10 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       Object.entries(layers).forEach(([layerId, cfg]) => {
         if (!cfg?.requested || !cfg?.enhancedRendering?.enabled) return;
         const base = cfg.enhancedRendering.spriteBase;
-        const angles = cfg.enhancedRendering.angles || [0,45,90,135,180,225,270,315];
+        // In top-down (2D) mode, only load 0-degree sprite and use continuous rotation
+        // In isometric mode, load all 8 angles to simulate 3D perspective
+        const allAngles = cfg.enhancedRendering.angles || [0,45,90,135,180,225,270,315];
+        const angles = viewType === 'top-down' ? [0] : allAngles;
         // Replace existing images for this sprite family with the current view variant
         addEnhancedSpritesToMap(map, {
           baseName: base,
@@ -298,7 +301,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
           replaceExisting: true
         });
         // Opportunistic prefetch via DOM for sidebar/other consumers
-        try { prefetchView(base, angles, viewType); } catch (_) {}
+        try { prefetchView(base, angles, viewType, { map }); } catch (_) {}
 
         // Force a lightweight layout refresh on the symbol layer so updated images are bound
         try {
@@ -664,7 +667,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
               urlBuilder: buildFlatSpriteUrl
             });
             // Opportunistic prefetch for current view
-            try { prefetchView(cfg.enhancedRendering.spriteBase, cfg.enhancedRendering.angles, viewType); } catch(_) {}
+            try { prefetchView(cfg.enhancedRendering.spriteBase, cfg.enhancedRendering.angles, viewType, { map }); } catch(_) {}
           } catch (_) {}
 
           // For point features, compute a bearing from nearest CSCL centerline when desired

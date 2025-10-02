@@ -142,6 +142,12 @@ const EdgeMarkers = ({
 
   const [markers, setMarkers] = useState([]);
   const frameRef = useRef(null);
+  const isMovingRef = useRef(false);
+  const animationLoopRef = useRef(null);
+  const previousMarkerIdsRef = useRef(new Set());
+  const previousMarkersRef = useRef([]);
+  const [enteringMarkerIds, setEnteringMarkerIds] = useState(new Set());
+  const [exitingMarkers, setExitingMarkers] = useState([]);
 
   const features = useMemo(() => {
     const list = buildFeatureList(infrastructureData, categories);
@@ -330,22 +336,123 @@ const EdgeMarkers = ({
       });
     };
 
-    const events = ['move', 'zoom', 'rotate', 'pitch', 'resize'];
-    events.forEach((event) => {
+    // Continuous animation loop for smooth updates during map movement
+    const animationLoop = () => {
+      if (isMovingRef.current) {
+        setMarkers(computeMarkers());
+        animationLoopRef.current = requestAnimationFrame(animationLoop);
+      }
+    };
+
+    const handleMoveStart = () => {
+      if (!isMovingRef.current) {
+        isMovingRef.current = true;
+        // Cancel any pending single-frame update
+        if (frameRef.current) {
+          cancelAnimationFrame(frameRef.current);
+          frameRef.current = null;
+        }
+        // Start continuous animation loop for smooth 60fps updates
+        animationLoop();
+      }
+    };
+
+    const handleMoveEnd = () => {
+      if (isMovingRef.current) {
+        isMovingRef.current = false;
+        // Cancel the animation loop
+        if (animationLoopRef.current) {
+          cancelAnimationFrame(animationLoopRef.current);
+          animationLoopRef.current = null;
+        }
+        // Do one final update after movement ends
+        updateMarkers();
+      }
+    };
+
+    // Listen to movestart/moveend for smooth continuous updates during movement
+    try { map.on('movestart', handleMoveStart); } catch (_) {}
+    try { map.on('moveend', handleMoveEnd); } catch (_) {}
+
+    // Still listen to other events for non-movement updates (zoom, rotate, pitch, resize)
+    const staticEvents = ['zoom', 'rotate', 'pitch', 'resize'];
+    staticEvents.forEach((event) => {
       try { map.on(event, updateMarkers); } catch (_) {}
     });
 
+    // Initial update
     updateMarkers();
 
     return () => {
+      // Clean up moving state
+      isMovingRef.current = false;
+      
+      // Cancel any pending updates
       if (frameRef.current) {
         cancelAnimationFrame(frameRef.current);
       }
-      events.forEach((event) => {
+      if (animationLoopRef.current) {
+        cancelAnimationFrame(animationLoopRef.current);
+      }
+      
+      // Remove event listeners
+      try { map.off('movestart', handleMoveStart); } catch (_) {}
+      try { map.off('moveend', handleMoveEnd); } catch (_) {}
+      staticEvents.forEach((event) => {
         try { map.off(event, updateMarkers); } catch (_) {}
       });
     };
   }, [map, computeMarkers]);
+
+  // Track entering and exiting markers for smooth transitions
+  useEffect(() => {
+    const currentIds = new Set(markers.map(m => m.id));
+    const previousIds = previousMarkerIdsRef.current;
+    const previousMarkers = previousMarkersRef.current;
+    const newIds = new Set();
+    const departingMarkers = [];
+
+    // Find markers that are new (entering)
+    currentIds.forEach(id => {
+      if (!previousIds.has(id)) {
+        newIds.add(id);
+      }
+    });
+
+    // Find markers that are leaving (exiting)
+    previousMarkers.forEach(marker => {
+      if (!currentIds.has(marker.id)) {
+        departingMarkers.push(marker);
+      }
+    });
+
+    // Handle entering markers
+    if (newIds.size > 0) {
+      setEnteringMarkerIds(newIds);
+      const enterTimer = setTimeout(() => {
+        setEnteringMarkerIds(new Set());
+      }, 200);
+      
+      previousMarkerIdsRef.current = currentIds;
+      previousMarkersRef.current = markers;
+      return () => clearTimeout(enterTimer);
+    }
+
+    // Handle exiting markers
+    if (departingMarkers.length > 0) {
+      setExitingMarkers(departingMarkers);
+      const exitTimer = setTimeout(() => {
+        setExitingMarkers([]);
+      }, 200); // Keep them visible during exit animation
+      
+      previousMarkerIdsRef.current = currentIds;
+      previousMarkersRef.current = markers;
+      return () => clearTimeout(exitTimer);
+    }
+
+    previousMarkerIdsRef.current = currentIds;
+    previousMarkersRef.current = markers;
+  }, [markers]);
 
   useEffect(() => {
     if (!debugEnabled) return;
@@ -354,16 +461,32 @@ const EdgeMarkers = ({
     } catch (_) {}
   }, [markers, debugEnabled]);
 
-  if (!markers.length) return null;
+  // Combine current and exiting markers for rendering
+  const exitingMarkerIds = new Set(exitingMarkers.map(m => m.id));
+  const allMarkers = [
+    ...markers,
+    ...exitingMarkers.filter(m => !markers.some(cm => cm.id === m.id))
+  ];
+
+  if (!allMarkers.length) return null;
 
   return (
     <div className="pointer-events-none absolute inset-0 z-[58] select-none" aria-hidden="true">
-      {markers.map((marker) => (
-        <div
-          key={marker.id}
-          className="pointer-events-none absolute"
-          style={{ left: `${marker.x}px`, top: `${marker.y}px` }}
-        >
+      {allMarkers.map((marker) => {
+        const isEntering = enteringMarkerIds.has(marker.id);
+        const isExiting = exitingMarkerIds.has(marker.id);
+        return (
+          <div
+            key={marker.id}
+            className="pointer-events-none absolute"
+            style={{ 
+              left: `${marker.x}px`, 
+              top: `${marker.y}px`,
+              opacity: isEntering ? 0 : isExiting ? 0 : 1,
+              transform: isEntering ? 'scale(0.8)' : isExiting ? 'scale(0.8)' : 'scale(1)',
+              transition: 'opacity 180ms ease-out, transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1)'
+            }}
+          >
           <svg
             className="absolute left-1/2 top-1/2 text-slate-700/60 dark:text-slate-200/60"
             style={{
@@ -405,7 +528,8 @@ const EdgeMarkers = ({
             </div>
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 };

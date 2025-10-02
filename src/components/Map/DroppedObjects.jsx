@@ -10,7 +10,7 @@ import { useMapEvents } from '../../hooks/useMapEvents';
 import { X } from 'lucide-react';
 import { useDroppedObjects } from '../../contexts/DroppedObjectsContext';
 
-const DEBUG = false; // Set to true to enable DroppedObjects debug logs
+const DEBUG = true; // Set to true to enable DroppedObjects debug logs
 // Dev-only, namespaced logger with dynamic switches (env/localStorage/window flag)
 const DEV = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.MODE !== 'production')
   || (typeof process !== 'undefined' && process.env && process.env.NODE_ENV !== 'production');
@@ -185,7 +185,7 @@ const DroppedObjects = ({
         baseToAngles.get(base).add(angle);
       }
       baseToAngles.forEach((angles, base) => {
-        prefetchView(base, Array.from(angles), view?.viewType);
+        prefetchView(base, Array.from(angles), view?.viewType, { map });
       });
     } catch (_) {}
   }, [objects, placeableObjects, view?.viewType]);
@@ -199,42 +199,57 @@ const DroppedObjects = ({
     (async () => {
       try {
         const vt = view?.viewType || getMapViewType(map);
+        debug.log('preload sprites effect', { viewType: vt, objectCount: objects.length });
         const bearingRaw = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
         const baseToAngles = new Map();
         for (let i = 0; i < objects.length; i++) {
           const obj = objects[i];
           const t = placeableObjects.find(p => p.id === obj.type);
-          if (!t?.enhancedRendering?.enabled || !t.enhancedRendering?.spriteBase) continue;
+          if (!t?.enhancedRendering?.enabled || !t.enhancedRendering?.spriteBase) {
+            debug.log('skip object (no enhanced rendering)', { objId: obj.id, type: obj.type, hasEnhanced: !!t?.enhancedRendering?.enabled });
+            continue;
+          }
           const base = t.enhancedRendering.spriteBase;
           const zeroOffset = (t?.enhancedRendering?.zeroOffsetDegByView?.[vt])
             ?? (t?.enhancedRendering?.zeroOffsetDeg)
             ?? DEFAULT_ZERO_OFFSET_BY_VIEW[vt] ?? 0;
           const baseAngle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
-          // Snap camera bearing relative to area with view-dependent center offset (matches infra)
-          const p = (map?.getPitch ? map.getPitch() : 0);
-          const camQ = quantizeBearingForView(bearingRaw, p);
-          const eff = (((baseAngle + zeroOffset - camQ) % 360) + 360) % 360;
-          const q = quantizeAngleTo45(eff);
+          // In top-down (2D) mode: only load 0-degree sprite, use continuous icon-rotate for smooth rotation
+          // In isometric mode: load segmented 45° sprites to simulate 3D perspective changes
+          let q;
+          if (vt === 'top-down') {
+            q = 0;
+          } else {
+            const p = (map?.getPitch ? map.getPitch() : 0);
+            const camQ = quantizeBearingForView(bearingRaw, p);
+            const eff = (((baseAngle + zeroOffset - camQ) % 360) + 360) % 360;
+            q = quantizeAngleTo45(eff);
+          }
           if (!baseToAngles.has(base)) baseToAngles.set(base, new Set());
           baseToAngles.get(base).add(q);
+          debug.log('will load sprite', { base, angle: q, viewType: vt });
         }
         const promises = [];
         baseToAngles.forEach((anglesSet, base) => {
           const angles = Array.from(anglesSet);
+          debug.log('loading sprites', { base, angles, viewType: vt });
           promises.push(addEnhancedSpritesToMap(map, {
             baseName: base,
             publicDir: `/static/${base}`,
             angles,
             viewType: vt,
             urlBuilder: buildFlatSpriteUrl,
-            replaceExisting: true
+            replaceExisting: false
           }));
         });
         if (promises.length) {
           await Promise.all(promises);
+          debug.log('sprites loaded, incrementing nonce');
           try { setSpritesReadyNonce(n => n + 1); } catch (_) {}
         }
-      } catch (_) {}
+      } catch (e) {
+        debug.error('error in sprite preload', e);
+      }
     })();
   }, [map, objects, placeableObjects, view?.viewType, view?.bearing, areaBearingDeg]);
 
@@ -246,6 +261,7 @@ const DroppedObjects = ({
     try {
       const vt = view?.viewType || getMapViewType(map);
       const bearingRaw = (typeof view?.bearing === 'number') ? view.bearing : (typeof map?.getBearing === 'function' ? map.getBearing() : 0);
+      debug.log('rebuildDroppedData called', { viewType: vt, bearing: bearingRaw, objectCount: objects?.length });
       // Capture previous icon assignments so we can persist the old icon until the new angle is ready
       const prevIconById = new Map();
       try {
@@ -288,12 +304,15 @@ const DroppedObjects = ({
           const imgId = imageId || buildSpriteImageId(t.enhancedRendering.spriteBase, 0);
           let ready = false;
           try { ready = map && typeof map.hasImage === 'function' ? map.hasImage(imgId) : false; } catch (_) { ready = false; }
+          const prevIcon = prevIconById.get(obj.id);
           props.icon_ready = ready ? 1 : 0;
           if (ready) {
             props.icon_image = imgId;
+            debug.log('icon ready', { objId: obj.id, imgId, iconRotate });
           } else {
-            const prevIcon = prevIconById.get(obj.id);
             if (prevIcon) props.icon_image = prevIcon;
+            props.icon_target = imgId;
+            debug.log('icon NOT ready', { objId: obj.id, imgId, hasPrevIcon: !!prevIcon });
           }
           props.icon_rotate = iconRotate || 0;
         } else if (t?.imageUrl) {
@@ -301,12 +320,13 @@ const DroppedObjects = ({
           const imgId = String(t.id);
           let ready = false;
           try { ready = map && typeof map.hasImage === 'function' ? map.hasImage(imgId) : false; } catch (_) { ready = false; }
+          const prevIcon = prevIconById.get(obj.id);
           props.icon_ready = ready ? 1 : 0;
           if (ready) {
             props.icon_image = imgId;
           } else {
-            const prevIcon = prevIconById.get(obj.id);
             if (prevIcon) props.icon_image = prevIcon;
+            props.icon_target = imgId;
           }
         }
         const feature = { type: 'Feature', id: obj.id, geometry: { type: 'Point', coordinates: [obj.position.lng, obj.position.lat] }, properties: props };

@@ -16,19 +16,25 @@ const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects, map
   // Compute angle and its quantized variant early so effects can depend on it
   const angle = typeof placementMode?.rotationDeg === 'number' ? placementMode.rotationDeg : 0;
   const qAngle = useMemo(() => {
-    try { return quantizeAngleTo45(angle || 0); } catch (_) { return 0; }
-  }, [angle]);
+    try { 
+      // In top-down mode, always use 0 (rotation handled by CSS)
+      // In isometric mode, quantize to nearest 45° for 3D simulation
+      return view?.viewType === 'top-down' ? 0 : quantizeAngleTo45(angle || 0);
+    } catch (_) { return 0; }
+  }, [angle, view?.viewType]);
 
   // Prefetch for the current view when enhanced; include quantized angle for immediate candidate readiness
   useEffect(() => {
     try {
       if (objectType?.enhancedRendering?.enabled && objectType.enhancedRendering?.spriteBase && view?.viewType) {
-        const angles = objectType.enhancedRendering.angles || [0,45,90,135,180,225,270,315];
-        // Prefetch primary of current view for all angles and especially current qAngle
-        prefetchView(objectType.enhancedRendering.spriteBase, angles, view.viewType);
+        const allAngles = objectType.enhancedRendering.angles || [0,45,90,135,180,225,270,315];
+        // In top-down mode, only prefetch 0-degree sprite (continuous rotation)
+        // In isometric mode, prefetch all angles for 3D perspective simulation
+        const angles = view.viewType === 'top-down' ? [0] : allAngles;
+        prefetchView(objectType.enhancedRendering.spriteBase, angles, view.viewType, { map });
       }
     } catch (_) {}
-  }, [objectType?.enhancedRendering?.spriteBase, objectType?.enhancedRendering?.enabled, objectType?.enhancedRendering?.angles, view?.viewType, qAngle]);
+  }, [objectType?.enhancedRendering?.spriteBase, objectType?.enhancedRendering?.enabled, objectType?.enhancedRendering?.angles, view?.viewType, qAngle, map]);
 
   // Compute candidate sprite sources and resolve a stable src (hooks must be unconditional)
   const candidates = useMemo(() => {
@@ -57,7 +63,9 @@ const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects, map
     // Fallback: assume public/static/{id} structure when spriteBase missing
     try {
       const base = objectType?.enhancedRendering?.spriteBase || objectType.id;
-      const q = quantizeAngleTo45(angleForSprite || 0);
+      // In top-down mode, always use 0-degree sprite (rotation handled by CSS)
+      // In isometric mode, quantize to nearest 45° angle for 3D simulation
+      const q = view?.viewType === 'top-down' ? 0 : quantizeAngleTo45(angleForSprite || 0);
       if (base) return buildSpriteFallbacks(base, q, view?.viewType);
     } catch (_) {}
     return [];

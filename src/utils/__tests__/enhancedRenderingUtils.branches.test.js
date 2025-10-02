@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { padAngle, quantizeAngleTo45, computeBearingDegrees, computeNearestLineBearing, buildSpriteImageId, addEnhancedSpritesToMap, computeNearestSegmentClosestPointBearing, computeFeatureSpriteAngle, extractCameraState, computeCameraBucket, computeSpriteTransform } from '../enhancedRenderingUtils.js';
+import { padAngle, quantizeAngleTo45, computeBearingDegrees, computeNearestLineBearing, buildSpriteImageId, addEnhancedSpritesToMap, computeNearestSegmentClosestPointBearing, computeFeatureSpriteAngle, extractCameraState, computeCameraBucket, computeSpriteTransform, buildSpriteFallbacks } from '../enhancedRenderingUtils.js';
 
 describe('enhancedRenderingUtils branches', () => {
   it('padAngle/quantize/buildSpriteImageId basic cases', () => {
