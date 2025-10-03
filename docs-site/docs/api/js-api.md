@@ -4,57 +4,95 @@
 
 *   [normalizeAngle][1]
     *   [Parameters][2]
-*   [useStableImageSrc][3]
+*   [ensureViewportAlignedSymbols][3]
     *   [Parameters][4]
-*   [useMapViewState][5]
+*   [useStableImageSrc][5]
     *   [Parameters][6]
-*   [useMapEvents][7]
-    *   [Parameters][8]
-*   [ensureBaseLayers][9]
-    *   [Parameters][10]
-*   [padAngle][11]
-    *   [Parameters][12]
-*   [padAngle][13]
-    *   [Parameters][14]
-*   [useSelectionController][15]
-    *   [Parameters][16]
-*   [buildSpriteFallbacks][17]
-*   [quantizeAngleTo45][18]
+*   [MTA\_COLORS][7]
+*   [useMapViewState][8]
+    *   [Parameters][9]
+*   [useMapEvents][10]
+    *   [Parameters][11]
+*   [ensureBaseLayers][12]
+    *   [Parameters][13]
+*   [padAngle][14]
+    *   [Parameters][15]
+*   [padAngle][16]
+    *   [Parameters][17]
+*   [useCameraRotation][18]
     *   [Parameters][19]
-*   [useRotationControls][20]
+*   [useSelectionController][20]
     *   [Parameters][21]
-*   [quantizeAngleTo90][22]
-    *   [Parameters][23]
-*   [snapToNearest][24]
-    *   [Parameters][25]
-*   [computeBearingDegrees][26]
-    *   [Parameters][27]
-*   [pointToSegmentDistanceSq][28]
-    *   [Parameters][29]
-*   [computeNearestLineBearing][30]
-    *   [Parameters][31]
-*   [addEnhancedSpritesToMap][32]
-    *   [Parameters][33]
-*   [setBaseVisibility][34]
+*   [buildSpriteFallbacks][22]
+*   [quantizeAngleTo45][23]
+    *   [Parameters][24]
+*   [generateTrainLineIcon][25]
+    *   [Parameters][26]
+*   [useRotationControls][27]
+    *   [Parameters][28]
+*   [quantizeAngleTo90][29]
+    *   [Parameters][30]
+*   [snapToNearest][31]
+    *   [Parameters][32]
+*   [MTA\_COLOR\_CLASSES][33]
+*   [computeBearingDegrees][34]
     *   [Parameters][35]
-*   [buildSpriteImageId][36]
-    *   [Parameters][37]
-*   [unload][38]
-    *   [Parameters][39]
-*   [chooseAngleQuantizer][40]
+*   [MTA\_COLOR\_HEX][36]
+*   [pointToSegmentDistanceSq][37]
+    *   [Parameters][38]
+*   [MTA\_TEXT\_COLOR\_HEX][39]
+*   [generateFallbackIcon][40]
     *   [Parameters][41]
-*   [quantizeToSlices][42]
+*   [computeNearestLineBearing][42]
     *   [Parameters][43]
-*   [computeNearestSegmentClosestPointBearing][44]
+*   [parseTrainLines][44]
     *   [Parameters][45]
-*   [computeFeatureSpriteAngle][46]
+*   [generateIconId][46]
     *   [Parameters][47]
-*   [quantizeBearingForSprites][48]
+*   [getTrainLineColor][48]
     *   [Parameters][49]
-*   [computeDominantBearingFromPolygon][50]
-    *   [Parameters][51]
-*   [computeDominantViewportBearing][52]
-    *   [Parameters][53]
+*   [iconCache][50]
+*   [getTrainLineClasses][51]
+    *   [Parameters][52]
+*   [getOrCreateTrainLineIcon][53]
+    *   [Parameters][54]
+*   [addEnhancedSpritesToMap][55]
+    *   [Parameters][56]
+*   [getTrainLineHexColor][57]
+    *   [Parameters][58]
+*   [getTrainLineTextColor][59]
+    *   [Parameters][60]
+*   [clearIconCache][61]
+*   [sortTrainLines][62]
+    *   [Parameters][63]
+*   [preloadCommonTrainLineIcons][64]
+    *   [Parameters][65]
+*   [groupSubwayEntrancesByLocation][66]
+    *   [Parameters][67]
+*   [setBaseVisibility][68]
+    *   [Parameters][69]
+*   [unload][70]
+    *   [Parameters][71]
+*   [buildSpriteImageId][72]
+    *   [Parameters][73]
+*   [createStationFeature][74]
+    *   [Parameters][75]
+*   [addTrainLineIconToMap][76]
+    *   [Parameters][77]
+*   [chooseAngleQuantizer][78]
+    *   [Parameters][79]
+*   [quantizeToSlices][80]
+    *   [Parameters][81]
+*   [computeNearestSegmentClosestPointBearing][82]
+    *   [Parameters][83]
+*   [computeFeatureSpriteAngle][84]
+    *   [Parameters][85]
+*   [quantizeBearingForSprites][86]
+    *   [Parameters][87]
+*   [computeDominantBearingFromPolygon][88]
+    *   [Parameters][89]
+*   [computeDominantViewportBearing][90]
+    *   [Parameters][91]
 
 ## normalizeAngle
 
@@ -63,6 +101,16 @@ Utility functions for object geometry transforms.
 ### Parameters
 
 *   `deg` &#x20;
+
+## ensureViewportAlignedSymbols
+
+Ensure symbol layers are aligned to the viewport so icons/text do not rotate with the map.
+Applies a consistent set of layout properties for provided layer ids.
+
+### Parameters
+
+*   `map` &#x20;
+*   `layerIds`   (optional, default `[]`)
 
 ## useStableImageSrc
 
@@ -75,10 +123,15 @@ then switches atomically. Prevents flicker during perspective switches.
 *   `srcChain` &#x20;
 *   `changeKey` &#x20;
 
+## MTA\_COLORS
+
+Official MTA train line colors
+Based on NYC Core Framework subway icon styles
+
 ## useMapViewState
 
 useMapViewState
-Exposes &#123; zoom, bearing, pitch, viewType, renderTick &#125; for a MapLibre/Mapbox map.
+Exposes `{ zoom, bearing, pitch, viewType, renderTick }` for a MapLibre/Mapbox map.
 
 *   Subscribes primarily to 'render' and coalesces updates via requestAnimationFrame
 *   Also listens to basic camera events to ensure state updates if render is throttled
@@ -94,7 +147,7 @@ useMapEvents
 Centralized lifecycle for MapLibre/Mapbox map events with automatic cleanup
 and optional re-attachment on style reload (useful for layer-bound handlers).
 
-handlers: &#123; \[eventName: string]: Function | &#123; handler: Function, layerId?: string, once?: boolean &#125; &#125;
+handlers: `{ \[eventName: string]: Function | { handler: Function, layerId?: string, once?: boolean } }`
 options:
 
 *   reattachOnStyleLoad?: boolean (default: true) re-attach handlers after style reload
@@ -103,8 +156,8 @@ options:
 ### Parameters
 
 *   `map` &#x20;
-*   `handlers`   (optional, default `&#123;&#125;`)
-*   `options`   (optional, default `&#123;&#125;`)
+*   `handlers`   (optional, default `{}`)
+*   `options`   (optional, default `{}`)
 
 ## ensureBaseLayers
 
@@ -114,9 +167,9 @@ Adds an empty FeatureCollection to start to avoid races with events.
 ### Parameters
 
 *   `map` &#x20;
-*   `idPrefix` **[string][54]** e.g., 'permit-areas' | 'plaza-areas' | 'intersections'
+*   `idPrefix` **[string][92]** e.g., 'permit-areas' | 'plaza-areas' | 'intersections'
 *   `type` **(`"polygon"` | `"point"`)**&#x20;
-*   `options`   (optional, default `&#123;&#125;`)
+*   `options`   (optional, default `{}`)
 
 ## padAngle
 
@@ -138,6 +191,28 @@ Pad an angle integer (0..359) to 3 digits, e.g. 0 -> "000", 45 -> "045".
 
 *   `angle` &#x20;
 
+## useCameraRotation
+
+useCameraRotation
+Centralize camera rotation controls:
+
+*   Q/E keyboard nudge with smooth continuous rotation (no snapping)
+*   rotateend leaves bearing as-is (no forced snap)
+
+options:
+
+*   map: MapLibre/Mapbox map instance (required)
+*   getAreaGeometry: `() => GeoJSON geometry | null (optional)`
+*   isEnabled?: boolean (default true)
+
+### Parameters
+
+*   `$0` **[Object][93]**  (optional, default `{}`)
+
+    *   `$0.map` &#x20;
+    *   `$0.getAreaGeometry` &#x20;
+    *   `$0.isEnabled`   (optional, default `true`)
+
 ## useSelectionController
 
 useSelectionController
@@ -149,12 +224,12 @@ Args:
 *   placeableObjects: catalog array
 *   droppedObjects: current objects array
 *   isPlacementActive: boolean (skip selection when placing)
-*   setSelectedRectId: (id|null)=>void
-*   setSelectedPointId: (id|null)=>void
+*   setSelectedRectId: `(id|null)=>void`
+*   setSelectedPointId: `(id|null)=>void`
 
 ### Parameters
 
-*   `$0` **[Object][55]**&#x20;
+*   `$0` **[Object][93]**&#x20;
 
     *   `$0.map` &#x20;
     *   `$0.placeableObjects` &#x20;
@@ -174,9 +249,9 @@ flicker when switching between ISO/2D or when a candidate fails to load.
 
 Fallback order (by design):
 
-*   nested current-view dir (/static/&#123;base&#125;/&#123;view&#125;/renders/&#123;file&#125;.png)
+*   nested current-view dir (`/static/{base}/{view}/renders/{file}.png`)
 *   nested isometric dir
-*   flat current-view (/static/&#123;base&#125;/&#123;file&#125;.png)
+*   flat current-view (`/static/{base}/{file}.png`)
 *   flat isometric
 *   legacy isometric (/data/icons/isometric-bw)
 
@@ -188,6 +263,20 @@ Given a numeric angle in degrees, quantize to nearest 45-degree bucket (0..315).
 
 *   `angleDeg` &#x20;
 
+## generateTrainLineIcon
+
+Generate a canvas-based icon for one or more train lines
+Used for MapLibre GL symbol layers
+Arranges icons in a grid with max 4 icons per row
+
+### Parameters
+
+*   `lines` `[Array][94]<[string][92]>` Array of train line identifiers
+*   `size` **[number][95]** Size of each icon (default 32px) (optional, default `32`)
+*   `spacing` **[number][95]** Spacing between icons (default 3px) (optional, default `3`)
+
+Returns **[HTMLCanvasElement][96]** Canvas element ready to be added to map
+
 ## useRotationControls
 
 useRotationControls
@@ -196,17 +285,17 @@ Centralized keyboard rotation behavior.
 options:
 
 *   isPlacementActive: boolean
-*   rotatePlacementStep: (delta45:number)=>void
+*   rotatePlacementStep: `(delta45:number)=>void`
 *   hasSelectedRect: boolean
-*   rotateSelectedRectBy: (deltaDeg:number)=>void // will be called every frame while key held
+*   rotateSelectedRectBy: `(deltaDeg:number)=>void // will be called every frame while key held`
 *   hasSelectedPoint: boolean
-*   rotateSelectedPointStep: (delta45:number)=>void
+*   rotateSelectedPointBy: `(deltaDeg:number)=>void // will be called every frame while key held (continuous in 2D)`
 *   clearSelection?: ()=>void
 
 Keyboard bindings (consistent with existing app): , . \[ ]
 
 *   Rectangles: hold for continuous rotation at 90°/s
-*   Enhanced points: step by 45° per keypress
+*   Points (dropped objects): hold for continuous free rotation at 90°/s in 2D mode
 *   Placement mode: step by 45° per keypress
 
 ### Parameters
@@ -231,6 +320,10 @@ Returns a normalized angle in \[0, 360).
 *   `angleDeg` &#x20;
 *   `step`   (optional, default `45`)
 
+## MTA\_COLOR\_CLASSES
+
+Tailwind CSS classes for MTA colors
+
 ## computeBearingDegrees
 
 Compute rhumb bearing from p1 -> p2 in degrees (0=N, 90=E).
@@ -242,6 +335,10 @@ Uses simple approximation suitable for small distances in NYC.
 *   `lat1` &#x20;
 *   `lon2` &#x20;
 *   `lat2` &#x20;
+
+## MTA\_COLOR\_HEX
+
+Hex color values for canvas rendering
 
 ## pointToSegmentDistanceSq
 
@@ -256,9 +353,23 @@ Compute squared distance from point P to segment AB in lon/lat space (rough metr
 *   `bx` &#x20;
 *   `by` &#x20;
 
+## MTA\_TEXT\_COLOR\_HEX
+
+Text colors for each background (for contrast)
+
+## generateFallbackIcon
+
+Generate a fallback generic subway icon
+
+### Parameters
+
+*   `size` **[number][95]** Icon size (optional, default `32`)
+
+Returns **[HTMLCanvasElement][96]**&#x20;
+
 ## computeNearestLineBearing
 
-Given a GeoJSON Feature&lt;Point&gt;, and an array of GeoJSON LineString/MultiLineString features
+Given a GeoJSON `Feature<Point>`, and an array of GeoJSON LineString/MultiLineString features
 (e.g., CSCL centerlines), compute the bearing (0..360) of the nearest segment to the point.
 Returns null if no valid lines are provided.
 
@@ -266,6 +377,67 @@ Returns null if no valid lines are provided.
 
 *   `pointFeature` &#x20;
 *   `lineFeatures` &#x20;
+
+## parseTrainLines
+
+Parse daytime\_routes string into array of individual train lines
+Handles various formats from the NYC subway entrance dataset
+
+### Parameters
+
+*   `routesString` **([string][92] | [array][94])** Routes from subway entrance properties
+
+Returns `[Array][94]<[string][92]>` Array of individual train line identifiersExamples:
+"1 2 3" → \['1', '2', '3']
+"A C E" → \['A', 'C', 'E']
+"4-5-6" → \['4', '5', '6']
+"B,D,F,M" → \['B', 'D', 'F', 'M']
+
+## generateIconId
+
+Generate a unique icon ID for a set of train lines
+
+### Parameters
+
+*   `lines` `[Array][94]<[string][92]>` Array of train line identifiers
+
+Returns **[string][92]** Icon ID for use with MapLibre
+
+## getTrainLineColor
+
+Get the MTA color for a given train line
+
+### Parameters
+
+*   `line` **[string][92]** Train line identifier (e.g., '1', 'A', 'Q')
+
+Returns **[string][92]** Color name
+
+## iconCache
+
+Icon cache to avoid regenerating identical icons
+
+## getTrainLineClasses
+
+Get Tailwind CSS classes for a train line
+
+### Parameters
+
+*   `line` **[string][92]** Train line identifier
+
+Returns **[string][92]** CSS classes
+
+## getOrCreateTrainLineIcon
+
+Get or generate a train line icon
+Caches results for performance
+
+### Parameters
+
+*   `lines` `[Array][94]<[string][92]>` Train line identifiers
+*   `size` **[number][95]** Icon size (optional, default `32`)
+
+Returns **[object][93]** `{ iconId, canvas }`
 
 ## addEnhancedSpritesToMap
 
@@ -277,6 +449,63 @@ Each sprite will be registered under an ID derived from baseName (e.g., "linknyc
 *   `map` &#x20;
 *   `options` &#x20;
 
+## getTrainLineHexColor
+
+Get hex color value for a train line
+
+### Parameters
+
+*   `line` **[string][92]** Train line identifier
+
+Returns **[string][92]** Hex color code
+
+## getTrainLineTextColor
+
+Get text color (for contrast) for a train line
+
+### Parameters
+
+*   `line` **[string][92]** Train line identifier
+
+Returns **[string][92]** Hex color code for text
+
+## clearIconCache
+
+Clear the icon cache
+Useful for testing or memory management
+
+## sortTrainLines
+
+Sort train lines in a logical order (numbers first, then letters)
+
+### Parameters
+
+*   `lines` `[Array][94]<[string][92]>` Array of train line identifiers
+
+Returns `[Array][94]<[string][92]>` Sorted array
+
+## preloadCommonTrainLineIcons
+
+Pre-generate common train line combinations
+Call this when map loads to prepare frequently used icons
+
+### Parameters
+
+*   `map` **[object][93]** MapLibre map instance
+*   `size` **[number][95]** Icon size (optional, default `32`)
+
+## groupSubwayEntrancesByLocation
+
+Group subway entrance features by station location
+Combines entrances that are very close together (same station)
+
+### Parameters
+
+*   `features` `[Array][94]<[object][93]>` GeoJSON features
+*   `tolerance` **[number][95]** Distance tolerance in degrees (default \~10 meters) (optional, default `0.0001`)
+
+Returns **[Map][97]** Map of location key to combined feature data
+
 ## setBaseVisibility
 
 Toggle base (non-focused) layer visibility for a geography.
@@ -284,9 +513,18 @@ Toggle base (non-focused) layer visibility for a geography.
 ### Parameters
 
 *   `map` &#x20;
-*   `idPrefix` **[string][54]**&#x20;
+*   `idPrefix` **[string][92]**&#x20;
 *   `type` **(`"polygon"` | `"point"`)**&#x20;
-*   `visible` **[boolean][56]**&#x20;
+*   `visible` **[boolean][98]**&#x20;
+
+## unload
+
+Remove all base and focused layers and the source for a geography.
+
+### Parameters
+
+*   `map` &#x20;
+*   `idPrefix` **[string][92]**&#x20;
 
 ## buildSpriteImageId
 
@@ -297,14 +535,28 @@ Build the image ID for a given quantized angle using the configured baseName.
 *   `baseName` &#x20;
 *   `angle` &#x20;
 
-## unload
+## createStationFeature
 
-Remove all base and focused layers and the source for a geography.
+Create a consolidated feature for a station with all its train lines
 
 ### Parameters
 
-*   `map` &#x20;
-*   `idPrefix` **[string][54]**&#x20;
+*   `stationData` **[object][93]** Data from groupSubwayEntrancesByLocation
+
+Returns **[object][93]** GeoJSON feature
+
+## addTrainLineIconToMap
+
+Add a train line icon to the map
+Generates if not already in cache
+
+### Parameters
+
+*   `map` **[object][93]** MapLibre map instance
+*   `lines` `[Array][94]<[string][92]>` Train line identifiers
+*   `size` **[number][95]** Icon size (optional, default `32`)
+
+Returns **[string][92]** Icon ID that was added
 
 ## chooseAngleQuantizer
 
@@ -331,7 +583,7 @@ Example: slices=8, centerOffset=22.5 produces centers at 22.5, 67.5, ...
 
 Compute the closest segment to a point and derive a local frame:
 
-*   axisBearing: direction of the segment (A->B) in degrees (0=N, CW+)
+*   axisBearing: `direction of the segment (A->B) in degrees (0=N, CW+)`
 *   side: 'left' | 'right' based on sign of cross(AB, AP) in lon/lat space
 *   normalLeft: axisBearing - 90 (normalized)
 *   normalRight: axisBearing + 90 (normalized)
@@ -352,7 +604,7 @@ Compute final sprite angle and image id for a point feature given base axis, sid
 
 ### Parameters
 
-*   `$0` **[Object][55]**&#x20;
+*   `$0` **[Object][93]**&#x20;
 
     *   `$0.map` &#x20;
     *   `$0.view` &#x20;
@@ -398,110 +650,194 @@ Compute dominant orientation (bearing) in VIEWPORT space for a Polygon/MultiPoly
 
 [2]: #parameters
 
-[3]: #usestableimagesrc
+[3]: #ensureviewportalignedsymbols
 
 [4]: #parameters-1
 
-[5]: #usemapviewstate
+[5]: #usestableimagesrc
 
 [6]: #parameters-2
 
-[7]: #usemapevents
+[7]: #mta_colors
 
-[8]: #parameters-3
+[8]: #usemapviewstate
 
-[9]: #ensurebaselayers
+[9]: #parameters-3
 
-[10]: #parameters-4
+[10]: #usemapevents
 
-[11]: #padangle
+[11]: #parameters-4
 
-[12]: #parameters-5
+[12]: #ensurebaselayers
 
-[13]: #padangle-1
+[13]: #parameters-5
 
-[14]: #parameters-6
+[14]: #padangle
 
-[15]: #useselectioncontroller
+[15]: #parameters-6
 
-[16]: #parameters-7
+[16]: #padangle-1
 
-[17]: #buildspritefallbacks
+[17]: #parameters-7
 
-[18]: #quantizeangleto45
+[18]: #usecamerarotation
 
 [19]: #parameters-8
 
-[20]: #userotationcontrols
+[20]: #useselectioncontroller
 
 [21]: #parameters-9
 
-[22]: #quantizeangleto90
+[22]: #buildspritefallbacks
 
-[23]: #parameters-10
+[23]: #quantizeangleto45
 
-[24]: #snaptonearest
+[24]: #parameters-10
 
-[25]: #parameters-11
+[25]: #generatetrainlineicon
 
-[26]: #computebearingdegrees
+[26]: #parameters-11
 
-[27]: #parameters-12
+[27]: #userotationcontrols
 
-[28]: #pointtosegmentdistancesq
+[28]: #parameters-12
 
-[29]: #parameters-13
+[29]: #quantizeangleto90
 
-[30]: #computenearestlinebearing
+[30]: #parameters-13
 
-[31]: #parameters-14
+[31]: #snaptonearest
 
-[32]: #addenhancedspritestomap
+[32]: #parameters-14
 
-[33]: #parameters-15
+[33]: #mta_color_classes
 
-[34]: #setbasevisibility
+[34]: #computebearingdegrees
 
-[35]: #parameters-16
+[35]: #parameters-15
 
-[36]: #buildspriteimageid
+[36]: #mta_color_hex
 
-[37]: #parameters-17
+[37]: #pointtosegmentdistancesq
 
-[38]: #unload
+[38]: #parameters-16
 
-[39]: #parameters-18
+[39]: #mta_text_color_hex
 
-[40]: #chooseanglequantizer
+[40]: #generatefallbackicon
 
-[41]: #parameters-19
+[41]: #parameters-17
 
-[42]: #quantizetoslices
+[42]: #computenearestlinebearing
 
-[43]: #parameters-20
+[43]: #parameters-18
 
-[44]: #computenearestsegmentclosestpointbearing
+[44]: #parsetrainlines
 
-[45]: #parameters-21
+[45]: #parameters-19
 
-[46]: #computefeaturespriteangle
+[46]: #generateiconid
 
-[47]: #parameters-22
+[47]: #parameters-20
 
-[48]: #quantizebearingforsprites
+[48]: #gettrainlinecolor
 
-[49]: #parameters-23
+[49]: #parameters-21
 
-[50]: #computedominantbearingfrompolygon
+[50]: #iconcache
 
-[51]: #parameters-24
+[51]: #gettrainlineclasses
 
-[52]: #computedominantviewportbearing
+[52]: #parameters-22
 
-[53]: #parameters-25
+[53]: #getorcreatetrainlineicon
 
-[54]: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String
+[54]: #parameters-23
 
-[55]: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object
+[55]: #addenhancedspritestomap
 
-[56]: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Boolean
+[56]: #parameters-24
+
+[57]: #gettrainlinehexcolor
+
+[58]: #parameters-25
+
+[59]: #gettrainlinetextcolor
+
+[60]: #parameters-26
+
+[61]: #cleariconcache
+
+[62]: #sorttrainlines
+
+[63]: #parameters-27
+
+[64]: #preloadcommontrainlineicons
+
+[65]: #parameters-28
+
+[66]: #groupsubwayentrancesbylocation
+
+[67]: #parameters-29
+
+[68]: #setbasevisibility
+
+[69]: #parameters-30
+
+[70]: #unload
+
+[71]: #parameters-31
+
+[72]: #buildspriteimageid
+
+[73]: #parameters-32
+
+[74]: #createstationfeature
+
+[75]: #parameters-33
+
+[76]: #addtrainlineicontomap
+
+[77]: #parameters-34
+
+[78]: #chooseanglequantizer
+
+[79]: #parameters-35
+
+[80]: #quantizetoslices
+
+[81]: #parameters-36
+
+[82]: #computenearestsegmentclosestpointbearing
+
+[83]: #parameters-37
+
+[84]: #computefeaturespriteangle
+
+[85]: #parameters-38
+
+[86]: #quantizebearingforsprites
+
+[87]: #parameters-39
+
+[88]: #computedominantbearingfrompolygon
+
+[89]: #parameters-40
+
+[90]: #computedominantviewportbearing
+
+[91]: #parameters-41
+
+[92]: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String
+
+[93]: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object
+
+[94]: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Array
+
+[95]: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Number
+
+[96]: https://developer.mozilla.org/docs/Web/API/HTMLCanvasElement
+
+[97]: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Map
+
+[98]: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Boolean

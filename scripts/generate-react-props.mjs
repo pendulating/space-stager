@@ -16,12 +16,11 @@ function escapePipe(str = '') {
   return String(str).replace(/\|/g, '\\|');
 }
 
-function escapeMdx(str = '') {
-  return String(str)
-    .replace(/\{/g, '&#123;')
-    .replace(/\}/g, '&#125;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+function wrapInCodeIfNeeded(str = '') {
+  const s = String(str);
+  if (!s) return '';
+  // Wrap in backticks to prevent MDX from parsing as JSX
+  return `\`${s.replace(/`/g, '\\`')}\``;
 }
 
 function renderPropsTable(propsObj) {
@@ -31,9 +30,9 @@ function renderPropsTable(propsObj) {
   const sep = headers.map(() => '---').join(' | ');
   const rows = entries.map(([name, meta]) => {
     const required = meta?.required ? 'Yes' : 'No';
-    const def = escapeMdx(meta?.defaultValue?.value ?? '');
-    const type = escapeMdx(meta?.type?.name ?? meta?.flowType?.name ?? '');
-    return `${escapePipe(name)} | ${required} | ${escapePipe(def)} | ${escapePipe(type)}`;
+    const def = wrapInCodeIfNeeded(meta?.defaultValue?.value ?? '');
+    const type = wrapInCodeIfNeeded(meta?.type?.name ?? meta?.flowType?.name ?? '');
+    return `${escapePipe(name)} | ${required} | ${def} | ${type}`;
   });
   return `\n${headers.join(' | ')}\n${sep}\n${rows.join('\n')}\n`;
 }

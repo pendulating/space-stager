@@ -20,9 +20,9 @@ _No props_
 
 Name | Required | Default | Type
 --- | --- | --- | ---
-isDarkMode | No | false | 
-onToggleDarkMode | No | () =&gt; &#123;&#125; | 
-onImportClick | No | null | 
+isDarkMode | No | `false` | 
+onToggleDarkMode | No | `() => {}` | 
+onImportClick | No | `null` | 
 
 
 ## src/components/Map/ActiveToolIndicator.jsx
@@ -40,7 +40,7 @@ _No props_
 
 Name | Required | Default | Type
 --- | --- | --- | ---
-showLabels | No | true | 
+showLabels | No | `true` | 
 
 
 ## src/components/Map/DroppedObjectNoteEditor.jsx
@@ -58,8 +58,8 @@ _No props_
 
 Name | Required | Default | Type
 --- | --- | --- | ---
-objects | No | [] | 
-placeableObjects | No | [] | 
+objects | No | `[]` | 
+placeableObjects | No | `[]` | 
 
 
 ## src/components/Map/LoadingOverlay.jsx
@@ -69,7 +69,7 @@ placeableObjects | No | [] |
 
 Name | Required | Default | Type
 --- | --- | --- | ---
-showDebugInfo | No | false | 
+showDebugInfo | No | `false` | 
 
 
 ## src/components/Map/MapContainer.jsx
@@ -95,9 +95,9 @@ _No props_
 
 Name | Required | Default | Type
 --- | --- | --- | ---
-nudges | No | [] | 
-objectUpdateTrigger | No | 0 | 
-highlightedIds | No | new Set() | 
+nudges | No | `[]` | 
+objectUpdateTrigger | No | `0` | 
+highlightedIds | No | `new Set()` | 
 
 
 ## src/components/Map/OverlapSelector.jsx
@@ -107,9 +107,9 @@ highlightedIds | No | new Set() |
 
 Name | Required | Default | Type
 --- | --- | --- | ---
-overlappingAreas | No | [] | 
-selectedIndex | No | 0 | 
-clickPosition | No | &#123; x: 0, y: 0 &#125; | 
+overlappingAreas | No | `[]` | 
+selectedIndex | No | `0` | 
+clickPosition | No | `{ x: 0, y: 0 }` | 
 
 
 ## src/components/Map/PlacementPreview.jsx
@@ -135,8 +135,8 @@ _No props_
 
 Name | Required | Default | Type
 --- | --- | --- | ---
-confirmText | No | 'Confirm' | 
-cancelText | No | 'Cancel' | 
+confirmText | No | `'Confirm'` | 
+cancelText | No | `'Cancel'` | 
 
 
 ## src/components/Modals/EventInfoModal.jsx
@@ -178,7 +178,7 @@ _No props_
 
 Name | Required | Default | Type
 --- | --- | --- | ---
-showInfo | No | true | 
+showInfo | No | `true` | 
 
 
 ## src/components/Nudges/NudgeCenter.jsx
@@ -188,7 +188,7 @@ showInfo | No | true |
 
 Name | Required | Default | Type
 --- | --- | --- | ---
-nudges | No | [] | 
+nudges | No | `[]` | 
 
 
 ## src/components/Sidebar/BasemapToggle.jsx
@@ -206,7 +206,7 @@ _No props_
 
 Name | Required | Default | Type
 --- | --- | --- | ---
-showLabels | No | true | 
+showLabels | No | `true` | 
 
 
 ## src/components/Sidebar/DrawingTools.jsx
@@ -216,7 +216,7 @@ showLabels | No | true |
 
 Name | Required | Default | Type
 --- | --- | --- | ---
-drawAvailable | No | true | 
+drawAvailable | No | `true` | 
 
 
 ## src/components/Sidebar/DroppedObjectsList.jsx
@@ -226,8 +226,8 @@ drawAvailable | No | true |
 
 Name | Required | Default | Type
 --- | --- | --- | ---
-objects | No | [] | 
-placeableObjects | No | [] | 
+objects | No | `[]` | 
+placeableObjects | No | `[]` | 
 
 
 ## src/components/Sidebar/GeographyCompactSelector.jsx
@@ -245,7 +245,7 @@ _No props_
 
 Name | Required | Default | Type
 --- | --- | --- | ---
-isSitePlanMode | No | false | 
+isSitePlanMode | No | `false` | 
 
 
 ## src/components/Sidebar/PermitAreaSearch.jsx
@@ -255,9 +255,9 @@ isSitePlanMode | No | false |
 
 Name | Required | Default | Type
 --- | --- | --- | ---
-title | No | 'Search Zones' | 
-placeholder | No | 'Search zones...' | 
-onChangeMode | No | null | 
+title | No | `'Search Zones'` | 
+placeholder | No | `'Search zones...'` | 
+onChangeMode | No | `null` | 
 
 
 ## src/components/Sidebar/PlaceableObjectsPanel.jsx
@@ -291,8 +291,8 @@ _No props_
 
 Name | Required | Default | Type
 --- | --- | --- | ---
-isSitePlanMode | No | false | 
-onCollapse | No | () =&gt; &#123;&#125; | 
+isSitePlanMode | No | `false` | 
+onCollapse | No | `() => {}` | 
 
 
 ## src/components/Sidebar/ZoneCreatorPanel.jsx
