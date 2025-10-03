@@ -94,7 +94,11 @@ function main() {
       lines.push(`### ${name}`);
       lines.push('');
       if (comp.description) {
-        lines.push(comp.description);
+        // Escape curly braces in descriptions (e.g., JSDoc with {string[]})
+        const escapedDesc = comp.description
+          .replace(/\{/g, '\\{')
+          .replace(/\}/g, '\\}');
+        lines.push(escapedDesc);
         lines.push('');
       }
       lines.push(renderPropsTable(comp.props));
