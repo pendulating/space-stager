@@ -17,10 +17,21 @@ function escapePipe(str = '') {
 }
 
 function wrapInCodeIfNeeded(str = '') {
-  const s = String(str);
+  const s = String(str).trim();
   if (!s) return '';
+  
+  // For multiline values or very long values, use a placeholder
+  if (s.includes('\n') || s.length > 200) {
+    return '`[complex value]`';
+  }
+  
   // Wrap in backticks to prevent MDX from parsing as JSX
-  return `\`${s.replace(/`/g, '\\`')}\``;
+  // Escape any backticks inside the string
+  const escaped = s.replace(/`/g, '\\`');
+  
+  // Double-check: if the result still contains unescaped braces at the start, 
+  // it might cause MDX issues. Ensure proper escaping.
+  return `\`${escaped}\``;
 }
 
 function renderPropsTable(propsObj) {
@@ -30,8 +41,11 @@ function renderPropsTable(propsObj) {
   const sep = headers.map(() => '---').join(' | ');
   const rows = entries.map(([name, meta]) => {
     const required = meta?.required ? 'Yes' : 'No';
-    const def = wrapInCodeIfNeeded(meta?.defaultValue?.value ?? '');
-    const type = wrapInCodeIfNeeded(meta?.type?.name ?? meta?.flowType?.name ?? '');
+    const defVal = meta?.defaultValue?.value ?? '';
+    const typeVal = meta?.type?.name ?? meta?.flowType?.name ?? '';
+    // Only wrap non-empty values in backticks
+    const def = defVal ? wrapInCodeIfNeeded(defVal) : '';
+    const type = typeVal ? wrapInCodeIfNeeded(typeVal) : '';
     return `${escapePipe(name)} | ${required} | ${def} | ${type}`;
   });
   return `\n${headers.join(' | ')}\n${sep}\n${rows.join('\n')}\n`;
