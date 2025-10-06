@@ -96,6 +96,7 @@ const Sidebar = ({
           geographyType={geographyType}
           map={map}
           infrastructure={infrastructure}
+          permitAreas={permitAreas}
           hasSubFocus={permitAreas?.hasSubFocus}
           onBeginSubFocus={() => {
             try { drawTools?.activateDrawingTool?.('subfocus'); } catch (_) {}

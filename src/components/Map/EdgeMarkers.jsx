@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import TrainLineCluster from '../MTA/TrainLineCluster';
 import { parseTrainLines } from '../../utils/mtaUtils';
 
-const DEV_MODE = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV;
+const DEV_MODE = false; // Disabled debug messages
 
 const CATEGORY_CONFIG = {
   busStops: {

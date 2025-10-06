@@ -16,6 +16,7 @@ const LayersPanel = ({
   geographyType,
   map,
   infrastructure,
+  permitAreas,
   hasSubFocus = false,
   onBeginSubFocus = null,
   onClearSubFocus = null
@@ -360,8 +361,9 @@ const LayersPanel = ({
                   </p>
                 </div>
                 
-                {/* Buttons row */}
-                <div className="flex items-center justify-between gap-2">
+                {/* Buttons rows */}
+                <div className="flex flex-col gap-2">
+                  {/* First row: Sub-focus and Refocus buttons */}
                   <div className="flex items-center gap-2">
                     {/* Sub-focus button */}
                     {onBeginSubFocus && !hasSubFocus && (
@@ -373,7 +375,7 @@ const LayersPanel = ({
                           } catch (_) {}
                           onBeginSubFocus();
                         }}
-                        className="flex-shrink-0 text-[11px] px-2 py-1 rounded bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors whitespace-nowrap"
+                        className="flex-1 text-[11px] px-2 py-1 rounded bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors whitespace-nowrap"
                         title="Draw sub-area to focus"
                       >
                         Focus Sub-Area
@@ -383,10 +385,25 @@ const LayersPanel = ({
                     {focusedArea && (
                       <button
                         onClick={() => {
-                          try { permitAreas?.refocusActivePermitArea?.(); } catch (_) {}
+                          console.log('[REFOCUS DEBUG] Refocus button clicked', {
+                            permitAreas,
+                            hasRefocusFunc: !!permitAreas?.refocusActivePermitArea,
+                            focusedArea,
+                            allowUnrestrictedZoom: permitAreas?.allowUnrestrictedZoom
+                          });
+                          try { 
+                            permitAreas?.refocusActivePermitArea?.(); 
+                          } catch (error) {
+                            console.error('[REFOCUS DEBUG] Error calling refocus:', error);
+                          }
                         }}
-                        className="flex-shrink-0 text-[11px] px-2 py-1 rounded bg-indigo-600 dark:bg-indigo-700 text-white hover:bg-indigo-700 dark:hover:bg-indigo-600 transition-colors whitespace-nowrap"
-                        title="Recenter to the focused permit area"
+                        disabled={!permitAreas?.allowUnrestrictedZoom}
+                        className={`flex-1 text-[11px] px-2 py-1 rounded transition-colors whitespace-nowrap ${
+                          permitAreas?.allowUnrestrictedZoom
+                            ? 'bg-indigo-600 dark:bg-indigo-700 text-white hover:bg-indigo-700 dark:hover:bg-indigo-600 cursor-pointer'
+                            : 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed opacity-50'
+                        }`}
+                        title={permitAreas?.allowUnrestrictedZoom ? "Recenter to the focused permit area" : "Zoom out past boundary first to enable refocus"}
                       >
                         Refocus
                       </button>
@@ -400,7 +417,7 @@ const LayersPanel = ({
                           } catch (_) {}
                           onClearSubFocus();
                         }}
-                        className="flex-shrink-0 text-[11px] px-2 py-1 rounded bg-emerald-600 dark:bg-emerald-700 text-white hover:bg-emerald-700 dark:hover:bg-emerald-600 transition-colors whitespace-nowrap"
+                        className="flex-1 text-[11px] px-2 py-1 rounded bg-emerald-600 dark:bg-emerald-700 text-white hover:bg-emerald-700 dark:hover:bg-emerald-600 transition-colors whitespace-nowrap"
                         title="Clear sub-area focus"
                       >
                         Clear Sub-Area
@@ -408,10 +425,10 @@ const LayersPanel = ({
                     )}
                   </div>
                   
-                  {/* Clear focus X button - More prominent */}
+                  {/* Second row: Exit without Saving - Full width, softer red */}
                   <button 
                     onClick={onClearFocus}
-                    className="flex items-center gap-1 flex-shrink-0 bg-blue-700 dark:bg-blue-800 hover:bg-blue-800 dark:hover:bg-blue-900 text-white px-2.5 py-1 rounded font-medium transition-colors"
+                    className="w-full flex items-center justify-center gap-1 bg-rose-500 dark:bg-rose-600 hover:bg-rose-600 dark:hover:bg-rose-700 text-white px-2.5 py-1.5 rounded font-medium transition-colors"
                     title="Clear Focus"
                   >
                     <X className="w-3.5 h-3.5" />
