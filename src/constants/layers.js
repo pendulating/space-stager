@@ -53,7 +53,8 @@ export const NON_RECOMMENDED_INFRASTRUCTURE_LAYERS = new Set([
   'parkingLots',
   'iceLadders',
   'fireLanes',
-  'specialDisasterRoutes'
+  'specialDisasterRoutes',
+  'streetParkingSigns'
 ]);
 
 

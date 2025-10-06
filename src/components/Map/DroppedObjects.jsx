@@ -303,7 +303,7 @@ const DroppedObjects = ({
             zeroOffsetDeg: zeroOffset,
             cameraState
           });
-          const imgId = imageId || buildSpriteImageId(t.enhancedRendering.spriteBase, 0);
+          const imgId = imageId || buildSpriteImageId(t.enhancedRendering.spriteBase, 0, vt);
           let ready = false;
           try { ready = map && typeof map.hasImage === 'function' ? map.hasImage(imgId) : false; } catch (_) { ready = false; }
           const prevIcon = prevIconById.get(obj.id);

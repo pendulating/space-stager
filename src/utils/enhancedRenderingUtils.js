@@ -149,7 +149,8 @@ export const addEnhancedSpritesToMap = async (map, options) => {
 
   // Load each angle variant via DOM Image
   await Promise.all(angles.map((angle) => new Promise((resolve) => {
-    const id = `${baseName}_${padAngle(angle)}`;
+    // Build viewType-aware ID that matches buildSpriteImageId
+    const id = buildSpriteImageId(baseName, angle, viewType);
     try {
       if (map.hasImage && map.hasImage(id)) {
         if (replaceExisting) {
@@ -210,8 +211,16 @@ export const addEnhancedSpritesToMap = async (map, options) => {
 
 /**
  * Build the image ID for a given quantized angle using the configured baseName.
+ * In top-down mode, includes 'TOP' to distinguish from isometric sprites.
  */
-export const buildSpriteImageId = (baseName, angle) => `${baseName}_${padAngle(angle)}`;
+export const buildSpriteImageId = (baseName, angle, viewType) => {
+  const angleStr = padAngle(angle);
+  // Include TOP in the ID when in top-down mode to prevent collisions with isometric sprites
+  if (viewType === VIEW_TYPES.TOP_DOWN) {
+    return `${baseName}_TOP_${angleStr}`;
+  }
+  return `${baseName}_${angleStr}`;
+};
 
 // View type helpers
 export const VIEW_TYPES = { ISOMETRIC: 'isometric', TOP_DOWN: 'top-down' };
@@ -353,7 +362,7 @@ export const computeSpriteTransform = ({
   const normalizedBase = normalizeAngle((Number(baseAngleDeg) || 0) + (Number(zeroOffsetDeg) || 0));
   const normalizedDisplay = displayAngleDeg != null ? normalizeAngle(displayAngleDeg) : normalizedBase;
   if (isTopDown) {
-    const imageId = spriteBase ? buildSpriteImageId(spriteBase, 0) : null;
+    const imageId = spriteBase ? buildSpriteImageId(spriteBase, 0, state.viewType) : null;
     const iconRotate = normalizeAngle(normalizedDisplay - normBearing);
     const cameraSlice = computeCameraBucket({ cameraState: state, bucketPrecisionDeg, slices, topDownRotateOffsetDeg: 0 });
     return {
@@ -383,7 +392,7 @@ export const computeSpriteTransform = ({
   const cameraSlice = quantizeToSlices(normBearing, slices, topDownRotateOffsetDeg);
   return {
     viewType: state?.viewType,
-    imageId: isoImageId || (spriteBase ? buildSpriteImageId(spriteBase, spriteAngle) : null),
+    imageId: isoImageId || (spriteBase ? buildSpriteImageId(spriteBase, spriteAngle, state?.viewType) : null),
     iconRotate: 0,
     spriteAngle,
     cameraSlice,
@@ -490,10 +499,10 @@ export const computeFeatureSpriteAngle = ({
     // Effective angle measured against camera slice center
     const eff = norm(baseAngle - camQ);
     const q = quantizeAngleTo45(eff);
-    const imageId = spriteBase ? buildSpriteImageId(spriteBase, q) : null;
+    const imageId = spriteBase ? buildSpriteImageId(spriteBase, q, viewType) : null;
     return { angle: q, imageId };
   } catch (_) {
-    return { angle: 0, imageId: spriteBase ? buildSpriteImageId(spriteBase, 0) : null };
+    return { angle: 0, imageId: spriteBase ? buildSpriteImageId(spriteBase, 0, viewType) : null };
   }
 };
 

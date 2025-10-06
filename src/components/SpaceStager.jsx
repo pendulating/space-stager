@@ -7,6 +7,7 @@ import InfoPanel from './Modals/InfoPanel';
 import FocusInfoPanel from './Modals/FocusInfoPanel';
 import WelcomeOverlay from './Tutorial/WelcomeOverlay';
 import TutorialTooltip from './Tutorial/TutorialTooltip';
+import ZoomBoundaryNudge from './Nudges/ZoomBoundaryNudge';
 import RightSidebar from './Sidebar/RightSidebar';
 import { useResponsiveLayout } from '../hooks/useResponsiveLayout.js';
 import { DroppedObjectsProvider } from '../contexts/DroppedObjectsContext';
@@ -882,6 +883,13 @@ const SpaceStager = () => {
           onClose={() => permitAreas.setShowFocusInfo(false)}
         />
       )}
+
+      {/* Zoom boundary warning when user tries to zoom out past focus boundary */}
+      <ZoomBoundaryNudge
+        isOpen={permitAreas.showZoomBoundaryWarning}
+        onContinue={permitAreas.handleZoomBoundaryConfirm}
+        onCancel={permitAreas.handleZoomBoundaryCancel}
+      />
 
       <ExamplesModal
         isOpen={showExamples}

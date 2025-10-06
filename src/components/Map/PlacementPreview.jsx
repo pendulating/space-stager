@@ -2,7 +2,7 @@ import React, { useMemo, useEffect } from 'react';
 import { useMapViewState } from '../../hooks/useMapViewState';
 import { useStableImageSrc } from '../../hooks/useStableImageSrc';
 import { getCandidateSrcs, prefetchView } from '../../utils/spriteResolver';
-import { buildSpriteFallbacks, quantizeAngleTo45, quantizeToSlices, computeDominantBearingFromPolygon, computeDominantViewportBearing } from '../../utils/enhancedRenderingUtils';
+import { buildSpriteFallbacks, quantizeAngleTo45, quantizeToSlices, computeDominantBearingFromPolygon, computeDominantViewportBearing, computeSpriteTransform, extractCameraState, buildSpriteImageId } from '../../utils/enhancedRenderingUtils';
 import { quantizeBearingForView } from '../../utils/bearingUtils';
 
 const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects, map }) => {
@@ -36,40 +36,49 @@ const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects, map
     } catch (_) {}
   }, [objectType?.enhancedRendering?.spriteBase, objectType?.enhancedRendering?.enabled, objectType?.enhancedRendering?.angles, view?.viewType, qAngle, map]);
 
-  // Compute candidate sprite sources and resolve a stable src (hooks must be unconditional)
+  // Use the EXACT same sprite transform logic as DroppedObjects for perfect alignment
+  const spriteTransform = useMemo(() => {
+    if (!objectType?.enhancedRendering?.enabled) return null;
+    try {
+      const zeroOffset = (objectType?.enhancedRendering?.zeroOffsetDegByView?.[view?.viewType])
+        ?? (objectType?.enhancedRendering?.zeroOffsetDeg)
+        ?? (view?.viewType === 'isometric' ? -90 : 0);
+      const cameraState = extractCameraState({ map, view });
+      return computeSpriteTransform({
+        map,
+        view,
+        cameraState,
+        spriteBase: objectType.enhancedRendering.spriteBase,
+        baseAngleDeg: angle || 0,
+        zeroOffsetDeg: zeroOffset
+      });
+    } catch (_) {
+      return null;
+    }
+  }, [objectType, angle, view?.viewType, view?.bearing, map]);
+
+  // Compute candidate sprite sources using transform result or fallback
   const candidates = useMemo(() => {
     if (!objectType) return [];
-    // Compensate for map bearing so the preview doesn't appear to rotate when the map rotates
-    const bearing = typeof view?.bearing === 'number' ? view.bearing : 0;
-    const areaBearing = (() => {
-      try {
-        const g = (window?.__app?.permitAreas?.hasSubFocus ? window?.__app?.permitAreas?.subFocusArea?.geometry : window?.__app?.permitAreas?.focusedArea?.geometry) || null; // fallback if accessible
-        // Prefer map-linked context when available (MapContainer passes via global __app)
-        if (g) {
-          const isIso = (map?.getPitch ? map.getPitch() : 0) > 15;
-          return (isIso && map) ? (computeDominantViewportBearing(map, g) || 0) : (computeDominantBearingFromPolygon(g) || 0);
-        }
-      } catch (_) {}
-      return 0;
-    })();
-    const zeroOffset = (objectType?.enhancedRendering?.zeroOffsetDegByView?.[view?.viewType])
-      ?? (objectType?.enhancedRendering?.zeroOffsetDeg)
-      ?? (view?.viewType === 'isometric' ? -90 : 0);
-    const p = (map?.getPitch ? map.getPitch() : 0);
-    const camQ = quantizeBearingForView(bearing, p);
-    const angleForSprite = (((angle - camQ + zeroOffset) % 360 + 360) % 360);
-    const primary = getCandidateSrcs(objectType, angleForSprite, view?.viewType) || [];
-    if (primary.length > 0) return primary;
-    // Fallback: assume public/static/{id} structure when spriteBase missing
+    
+    // If enhanced rendering with sprite transform, use the computed imageId
+    if (spriteTransform?.imageId) {
+      const base = objectType?.enhancedRendering?.spriteBase;
+      const spriteAngle = spriteTransform.spriteAngle || 0;
+      if (base) {
+        return buildSpriteFallbacks(base, spriteAngle, view?.viewType);
+      }
+    }
+    
+    // Fallback for non-enhanced or when transform fails
     try {
       const base = objectType?.enhancedRendering?.spriteBase || objectType.id;
-      // In top-down mode, always use 0-degree sprite (rotation handled by CSS)
-      // In isometric mode, quantize to nearest 45° angle for 3D simulation
-      const q = view?.viewType === 'top-down' ? 0 : quantizeAngleTo45(angleForSprite || 0);
+      const q = view?.viewType === 'top-down' ? 0 : quantizeAngleTo45(angle || 0);
       if (base) return buildSpriteFallbacks(base, q, view?.viewType);
     } catch (_) {}
+    
     return [];
-  }, [objectType, angle, view?.viewType]);
+  }, [objectType, spriteTransform, angle, view?.viewType]);
   const src = useStableImageSrc(candidates, `${view?.viewType || ''}:${qAngle}`);
   const previewStyle = useMemo(() => {
     if (!placementMode || !cursorPosition || !placeableObjects) {
@@ -118,6 +127,18 @@ const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects, map
     const iconSize = baseSize * previewScale;
     const fontSize = Math.max(iconSize * 0.6, 14);
 
+    // Use the EXACT iconRotate from computeSpriteTransform (same as DroppedObjects)
+    const iconRotate = spriteTransform?.iconRotate ?? 0;
+
+    const transforms = [];
+    // Apply rotation from sprite transform (in 2D this is continuous, in isometric it's 0)
+    if (iconRotate !== 0) {
+      transforms.push(`rotate(${iconRotate}deg)`);
+    }
+    if (placementMode.isFlipped) {
+      transforms.push('scaleX(-1)');
+    }
+
     return {
       width: iconSize,
       height: iconSize,
@@ -125,9 +146,9 @@ const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects, map
       fontSize: `${fontSize}px`,
       lineHeight: '1',
       opacity: 0.8,
-      transform: placementMode.isFlipped ? 'scaleX(-1)' : undefined
+      transform: transforms.length > 0 ? transforms.join(' ') : undefined
     };
-  }, [placementMode, placeableObjects]);
+  }, [placementMode, placeableObjects, objectType, spriteTransform, view?.viewType]);
 
   if (!placementMode || !cursorPosition) {
     return null;

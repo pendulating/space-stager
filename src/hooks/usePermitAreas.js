@@ -89,7 +89,13 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   const [initialFocusZoom, setInitialFocusZoom] = useState(null); // Track initial zoom when focused
   const [minAllowedZoom, setMinAllowedZoom] = useState(null); // Minimum zoom when focused
   const [isCameraAnimating, setIsCameraAnimating] = useState(false); // Track camera animation state
+  const [showZoomBoundaryWarning, setShowZoomBoundaryWarning] = useState(false); // Show zoom boundary nudge
+  const [allowUnrestrictedZoom, setAllowUnrestrictedZoom] = useState(false); // User confirmed they want to zoom out further
+  const [zoomBoundaryReady, setZoomBoundaryReady] = useState(false); // Track when boundary is set and handler should attach
   const focusedAreaRef = useRef(focusedArea);
+  const zoomBoundaryThreshold = useRef(null); // Store the zoom boundary level
+  const isBouncingRef = useRef(false); // Prevent multiple bounces during animation
+  const showZoomBoundaryWarningRef = useRef(false); // Ref for modal state to avoid handler re-registration
   const prevPermitVisibilityRef = useRef({ fill: null, outline: null });
   // Store and restore map interaction/constraints when entering/exiting focus
   const prevConstraintsRef = useRef({
@@ -97,6 +103,8 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     maxBounds: null,
     rotation: { dragRotate: null, touchRotate: null }
   });
+  // Temporarily store map zoom interaction states while boundary modal is open
+  const prevZoomInteractionsRef = useRef(null);
   const listenerRefs = useRef({
     mouseenterFill: null,
     mouseleaveFill: null,
@@ -162,6 +170,11 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   useEffect(() => {
     focusedAreaRef.current = focusedArea;
   }, [focusedArea]);
+
+  // Keep ref in sync with state for zoom handler
+  useEffect(() => {
+    showZoomBoundaryWarningRef.current = showZoomBoundaryWarning;
+  }, [showZoomBoundaryWarning]);
 
   // Clear sub-focus whenever the main focused area changes
   useEffect(() => {
@@ -373,10 +386,16 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
           ];
         }
       } catch (_) {}
-      try { if (map.setMaxBounds) map.setMaxBounds(union); } catch (_) {}
-      // Set a floor slightly below the focused zoom to prevent zooming too far out
-      const minZoomFloor = Math.max(1, (typeof finalZoom === 'number' ? finalZoom : map.getZoom ? map.getZoom() : 16) - 2);
-      try { if (map.setMinZoom) map.setMinZoom(minZoomFloor); } catch (_) {}
+      // Don't set maxBounds - it prevents zoom out by blocking display of areas outside bounds
+      // Instead we rely on the soft zoom boundary system below
+      // try { if (map.setMaxBounds) map.setMaxBounds(union); } catch (_) {}
+      
+      // Store zoom boundary threshold for soft constraint (no hard minZoom)
+      // Allow only 2 zoom levels of freedom before soft boundary (tighter)
+      const boundaryZoom = Math.max(1, (typeof finalZoom === 'number' ? finalZoom : map.getZoom ? map.getZoom() : 16) - 2);
+      zoomBoundaryThreshold.current = boundaryZoom;
+      setZoomBoundaryReady(true); // Signal that boundary is set and handler should attach
+      // Note: We don't call map.setMinZoom() or setMaxBounds() here - instead we use a zoom event handler for soft boundary
       // Disable rotation interactions in focus to reduce accidental orientation changes
       try { if (map.dragRotate && map.dragRotate.disable) map.dragRotate.disable(); } catch (_) {}
       try {
@@ -572,6 +591,17 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     }
     console.log('Permit area focused successfully');
   }, [map, calculateGeometryBounds, mode]);
+
+  // Refocus the currently focused permit area and re-enable boundary enforcement
+  const refocusActivePermitArea = useCallback(() => {
+    try {
+      const current = focusedAreaRef.current;
+      if (!map || !current) return;
+      // Re-enable boundary enforcement in case user previously continued zooming out
+      try { setAllowUnrestrictedZoom(false); } catch (_) {}
+      focusOnPermitArea(current);
+    } catch (_) {}
+  }, [map, focusOnPermitArea]);
 
   // Set a sub-focus polygon inside the current focused area to scope design view
   const setSubFocusPolygon = useCallback((polygonFeatureOrGeometry) => {
@@ -1422,6 +1452,147 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     }
   }, [map, mode, options.mode, loadPermitAreas]);
 
+  // Zoom event handler for soft boundary enforcement with bounce animation
+  useEffect(() => {
+    // When the modal closes, always restore map interactions using the stored snapshot
+    if (!map) return;
+    if (!showZoomBoundaryWarning && prevZoomInteractionsRef.current) {
+      try {
+        const prev = prevZoomInteractionsRef.current;
+        try { if (map.scrollZoom && map.scrollZoom[prev.scrollZoom ? 'enable' : 'disable']) map.scrollZoom[prev.scrollZoom ? 'enable' : 'disable'](); } catch (_) {}
+        try { if (map.boxZoom && map.boxZoom[prev.boxZoom ? 'enable' : 'disable']) map.boxZoom[prev.boxZoom ? 'enable' : 'disable'](); } catch (_) {}
+        try { if (map.dragPan && map.dragPan[prev.dragPan ? 'enable' : 'disable']) map.dragPan[prev.dragPan ? 'enable' : 'disable'](); } catch (_) {}
+        try { if (map.keyboard && map.keyboard[prev.keyboard ? 'enable' : 'disable']) map.keyboard[prev.keyboard ? 'enable' : 'disable'](); } catch (_) {}
+        try { if (map.doubleClickZoom && map.doubleClickZoom[prev.doubleClickZoom ? 'enable' : 'disable']) map.doubleClickZoom[prev.doubleClickZoom ? 'enable' : 'disable'](); } catch (_) {}
+        try { if (map.touchZoomRotate && map.touchZoomRotate[prev.touchZoomRotate ? 'enable' : 'disable']) map.touchZoomRotate[prev.touchZoomRotate ? 'enable' : 'disable'](); } catch (_) {}
+      } catch (_) {}
+      prevZoomInteractionsRef.current = null;
+    }
+  }, [map, showZoomBoundaryWarning]);
+
+  useEffect(() => {
+    if (!map || !focusedArea || !zoomBoundaryReady || zoomBoundaryThreshold.current === null) {
+      return;
+    }
+    
+    const handleZoom = () => {
+      // Skip if user has allowed unrestricted zoom
+      if (allowUnrestrictedZoom) return;
+      
+      // If currently bouncing or modal is showing, do nothing - let the camera state be
+      if (isBouncingRef.current || showZoomBoundaryWarningRef.current) return;
+      
+      const currentZoom = map.getZoom();
+      const boundary = zoomBoundaryThreshold.current;
+      
+      // Check if user is zooming out below the boundary
+      if (currentZoom < boundary) {
+        // Trigger bounce animation
+        isBouncingRef.current = true;
+        
+        // Target zoom level for bounce (and future blocking reference)
+        const targetZoom = boundary + 0.5;
+        
+        // Bounce back with easing (MapLibre best practice)
+        try {
+          map.stop(); // Stop any ongoing animations first
+        } catch (_) {}
+        
+        map.easeTo({
+          zoom: targetZoom,
+          duration: 400,
+          easing: (t) => {
+            // easeOutBounce from MapLibre examples
+            const n1 = 7.5625;
+            const d1 = 2.75;
+            if (t < 1 / d1) {
+              return n1 * t * t;
+            } else if (t < 2 / d1) {
+              return n1 * (t -= 1.5 / d1) * t + 0.75;
+            } else if (t < 2.5 / d1) {
+              return n1 * (t -= 2.25 / d1) * t + 0.9375;
+            } else {
+              return n1 * (t -= 2.625 / d1) * t + 0.984375;
+            }
+          },
+          essential: true // Essential animation per MapLibre best practices
+        });
+        
+        // Show the warning nudge AFTER the bounce animation completes
+        setTimeout(() => {
+          setShowZoomBoundaryWarning(true);
+          // Freeze map zoom interactions while the modal is open
+          try {
+            if (map) {
+              const prev = {
+                scrollZoom: !!(map.scrollZoom && map.scrollZoom.isEnabled && map.scrollZoom.isEnabled()),
+                boxZoom: !!(map.boxZoom && map.boxZoom.isEnabled && map.boxZoom.isEnabled()),
+                dragPan: !!(map.dragPan && map.dragPan.isEnabled && map.dragPan.isEnabled()),
+                keyboard: !!(map.keyboard && map.keyboard.isEnabled && map.keyboard.isEnabled()),
+                doubleClickZoom: !!(map.doubleClickZoom && map.doubleClickZoom.isEnabled && map.doubleClickZoom.isEnabled()),
+                touchZoomRotate: !!(map.touchZoomRotate && map.touchZoomRotate.isEnabled && map.touchZoomRotate.isEnabled())
+              };
+              prevZoomInteractionsRef.current = prev;
+              try { if (map.scrollZoom && map.scrollZoom.disable) map.scrollZoom.disable(); } catch (_) {}
+              try { if (map.boxZoom && map.boxZoom.disable) map.boxZoom.disable(); } catch (_) {}
+              try { if (map.dragPan && map.dragPan.disable) map.dragPan.disable(); } catch (_) {}
+              try { if (map.keyboard && map.keyboard.disable) map.keyboard.disable(); } catch (_) {}
+              try { if (map.doubleClickZoom && map.doubleClickZoom.disable) map.doubleClickZoom.disable(); } catch (_) {}
+              try { if (map.touchZoomRotate && map.touchZoomRotate.disable) map.touchZoomRotate.disable(); } catch (_) {}
+            }
+          } catch (_) {}
+          // Notify UI to perform a brief shake for friction feedback
+          try { window.dispatchEvent(new Event('ui:zoom-boundary-hit')); } catch (_) {}
+          isBouncingRef.current = false;
+        }, 450); // Slightly after the 400ms animation to ensure visual completion
+      }
+    };
+    
+    // Attach zoom event listener
+    map.on('zoom', handleZoom);
+    
+    return () => {
+      map.off('zoom', handleZoom);
+    };
+  }, [map, focusedArea, zoomBoundaryReady, allowUnrestrictedZoom]);
+
+  // Handlers for zoom boundary warning
+  const handleZoomBoundaryConfirm = useCallback(() => {
+    setAllowUnrestrictedZoom(true);
+    setShowZoomBoundaryWarning(false);
+    // Restore map zoom interactions
+    try {
+      if (map && prevZoomInteractionsRef.current) {
+        const prev = prevZoomInteractionsRef.current;
+        try { if (map.scrollZoom && map.scrollZoom[prev.scrollZoom ? 'enable' : 'disable']) map.scrollZoom[prev.scrollZoom ? 'enable' : 'disable'](); } catch (_) {}
+        try { if (map.boxZoom && map.boxZoom[prev.boxZoom ? 'enable' : 'disable']) map.boxZoom[prev.boxZoom ? 'enable' : 'disable'](); } catch (_) {}
+        try { if (map.dragPan && map.dragPan[prev.dragPan ? 'enable' : 'disable']) map.dragPan[prev.dragPan ? 'enable' : 'disable'](); } catch (_) {}
+        try { if (map.keyboard && map.keyboard[prev.keyboard ? 'enable' : 'disable']) map.keyboard[prev.keyboard ? 'enable' : 'disable'](); } catch (_) {}
+        try { if (map.doubleClickZoom && map.doubleClickZoom[prev.doubleClickZoom ? 'enable' : 'disable']) map.doubleClickZoom[prev.doubleClickZoom ? 'enable' : 'disable'](); } catch (_) {}
+        try { if (map.touchZoomRotate && map.touchZoomRotate[prev.touchZoomRotate ? 'enable' : 'disable']) map.touchZoomRotate[prev.touchZoomRotate ? 'enable' : 'disable'](); } catch (_) {}
+        prevZoomInteractionsRef.current = null;
+      }
+    } catch (_) {}
+  }, [map]);
+
+  const handleZoomBoundaryCancel = useCallback(() => {
+    setShowZoomBoundaryWarning(false);
+    // Camera is already at the boundary from the bounce animation
+    // Keep unrestricted zoom disabled and restore interactions to previous states
+    try {
+      if (map && prevZoomInteractionsRef.current) {
+        const prev = prevZoomInteractionsRef.current;
+        try { if (map.scrollZoom && map.scrollZoom[prev.scrollZoom ? 'enable' : 'disable']) map.scrollZoom[prev.scrollZoom ? 'enable' : 'disable'](); } catch (_) {}
+        try { if (map.boxZoom && map.boxZoom[prev.boxZoom ? 'enable' : 'disable']) map.boxZoom[prev.boxZoom ? 'enable' : 'disable'](); } catch (_) {}
+        try { if (map.dragPan && map.dragPan[prev.dragPan ? 'enable' : 'disable']) map.dragPan[prev.dragPan ? 'enable' : 'disable'](); } catch (_) {}
+        try { if (map.keyboard && map.keyboard[prev.keyboard ? 'enable' : 'disable']) map.keyboard[prev.keyboard ? 'enable' : 'disable'](); } catch (_) {}
+        try { if (map.doubleClickZoom && map.doubleClickZoom[prev.doubleClickZoom ? 'enable' : 'disable']) map.doubleClickZoom[prev.doubleClickZoom ? 'enable' : 'disable'](); } catch (_) {}
+        try { if (map.touchZoomRotate && map.touchZoomRotate[prev.touchZoomRotate ? 'enable' : 'disable']) map.touchZoomRotate[prev.touchZoomRotate ? 'enable' : 'disable'](); } catch (_) {}
+        prevZoomInteractionsRef.current = null;
+      }
+    } catch (_) {}
+  }, [map]);
+
   // Clear focus function
   const clearFocus = useCallback(() => {
     console.log('Clearing focus');
@@ -1433,6 +1604,11 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     setInitialFocusZoom(null);
     setMinAllowedZoom(null);
     setIsCameraAnimating(false);
+    setShowZoomBoundaryWarning(false);
+    setAllowUnrestrictedZoom(false);
+    setZoomBoundaryReady(false); // Reset boundary ready state
+    zoomBoundaryThreshold.current = null;
+    isBouncingRef.current = false;
     clearOverlapHighlights(map);
     // Restore map constraints and interactions
     try {
@@ -1684,6 +1860,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     loadError,
     mode,
     focusOnPermitArea,
+    refocusActivePermitArea,
     clearFocus,
     setSubFocusPolygon,
     clearSubFocusPolygon,
@@ -1696,6 +1873,9 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     isCameraAnimating,
     rehydrateActiveGeography,
     dismissClickedTooltip,
-    focusClickedTooltipArea
+    focusClickedTooltipArea,
+    showZoomBoundaryWarning,
+    handleZoomBoundaryConfirm,
+    handleZoomBoundaryCancel
   };
 };

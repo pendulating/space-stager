@@ -144,17 +144,17 @@ export const getIconDataUrl = (layerId) => {
 // These values directly control the MapLibre icon-size at zoom 14
 export const INFRASTRUCTURE_ICON_SIZES = {
   // Enhanced rendering layers (high-res PNG sprites) - smaller base sizes
-  trashBaskets: 0.05,
+  trashBaskets: 0.04,
   hydrants: 0.04,
   trees: 0.05,
   benches: 0.06,
-  bikeParking: 0.06,
+  bikeParking: 0.05,
   
   // SVG icon layers - larger base sizes for visibility
   busStops: 0.15,
   citibikeStations: 0.15,
-  parkingMeters: 0.12,
-  linknycKiosks: 0.15,
+  parkingMeters: 0.03,
+  linknycKiosks: 0.06,
   publicRestrooms: 0.15,
   drinkingFountains: 0.12,
   sprayShowers: 0.13,

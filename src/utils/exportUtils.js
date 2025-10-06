@@ -494,7 +494,7 @@ export const exportPermitAreaSiteplanV2 = async (
                 const centerOffset = (viewType === 'isometric') ? 22.5 : 0;
                 const eff = (((baseAngle - quantizeToSlices(snappedBearing, 8, centerOffset)) % 360) + 360) % 360;
                 const q = quantizeAngleTo45(eff);
-                const img = buildSpriteImageId(baseName, q);
+                const img = buildSpriteImageId(baseName, q, viewType);
                 if (p.icon_image === img) return f;
                 return { ...f, properties: { ...p, icon_image: img } };
               } catch (_) { return f; }

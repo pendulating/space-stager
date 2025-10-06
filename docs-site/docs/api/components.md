@@ -5,14 +5,6 @@ sidebar_position: 1
 
 Component prop reference generated from source via react-docgen.
 
-## src/App.jsx
-
-### App
-
-
-_No props_
-
-
 ## src/components/Header/Header.jsx
 
 ### Header
@@ -23,11 +15,60 @@ Name | Required | Default | Type
 isDarkMode | No | `false` | 
 onToggleDarkMode | No | `() => {}` | 
 onImportClick | No | `null` | 
+onShowExamples | No | `null` | 
+
+
+## src/components/MTA/TrainLineCluster.jsx
+
+### TrainLineCluster
+
+Cluster of MTA train line icons
+Shows multiple train lines together with smart overflow handling
+
+@param \{string[]\} lines - Array of train line identifiers
+@param \{string\} size - Size variant: 'small', 'medium', 'large'
+@param \{number\} maxVisible - Maximum number of icons to show before overflow
+@param \{string\} className - Additional CSS classes
+
+
+Name | Required | Default | Type
+--- | --- | --- | ---
+lines | No | `[]` | 
+size | No | `'medium'` | 
+maxVisible | No | `4` | 
+className | No | `''` | 
+
+
+## src/components/MTA/TrainLineIcon.jsx
+
+### TrainLineIcon
+
+Individual MTA train line icon component
+Based on NYC Core Framework subway icon styles
+https://www.nyc.gov/assets/oti/html/nyc-core-framework/subway-icons.html
+
+@param \{string\} line - Train line identifier (e.g., '1', 'A', 'Q')
+@param \{string\} size - Size variant: 'small' (16px), 'medium' (20px), 'large' (24px)
+@param \{string\} className - Additional CSS classes
+
+
+Name | Required | Default | Type
+--- | --- | --- | ---
+size | No | `'medium'` | 
+className | No | `''` | 
 
 
 ## src/components/Map/ActiveToolIndicator.jsx
 
 ### ActiveToolIndicator
+
+
+_No props_
+
+
+## src/components/Map/ClickPopover.jsx
+
+### ClickPopover
 
 
 _No props_
@@ -62,6 +103,27 @@ objects | No | `[]` |
 placeableObjects | No | `[]` | 
 
 
+## src/components/Map/DroppedRectangles.jsx
+
+### DroppedRectangles
+
+
+Name | Required | Default | Type
+--- | --- | --- | ---
+objects | No | `[]` | 
+placeableObjects | No | `[]` | 
+
+
+## src/components/Map/EdgeMarkers.jsx
+
+### EdgeMarkers
+
+
+Name | Required | Default | Type
+--- | --- | --- | ---
+categories | No | `['busStops', 'parkingMeters', 'subwayEntrances']` | 
+
+
 ## src/components/Map/LoadingOverlay.jsx
 
 ### LoadingOverlay
@@ -77,7 +139,10 @@ showDebugInfo | No | `false` |
 ### MapContainer
 
 
-_No props_
+Name | Required | Default | Type
+--- | --- | --- | ---
+isSitePlanMode | No | `false` | 
+isRightSidebarOpen | No | `false` | 
 
 
 ## src/components/Map/MapTooltip.jsx
@@ -120,6 +185,17 @@ clickPosition | No | `{ x: 0, y: 0 }` |
 _No props_
 
 
+## src/components/Map/ViewportInset.jsx
+
+### ViewportInset
+
+
+Name | Required | Default | Type
+--- | --- | --- | ---
+isSitePlanMode | No | `false` | 
+isRightSidebarOpen | No | `false` | 
+
+
 ## src/components/MobileLanding.jsx
 
 ### MobileLanding
@@ -147,6 +223,14 @@ cancelText | No | `'Cancel'` |
 _No props_
 
 
+## src/components/Modals/ExamplesModal.jsx
+
+### ExamplesModal
+
+
+_No props_
+
+
 ## src/components/Modals/ExportOptionsModal.jsx
 
 ### ExportOptionsModal
@@ -160,7 +244,11 @@ _No props_
 ### FocusInfoPanel
 
 
-_No props_
+Name | Required | Default | Type
+--- | --- | --- | ---
+hasSubFocus | No | `false` | 
+onBeginSubFocus | No | `null` | 
+onClearSubFocus | No | `null` | 
 
 
 ## src/components/Modals/GeographySelector.jsx
@@ -171,6 +259,16 @@ _No props_
 _No props_
 
 
+## src/components/Modals/ImportProgressModal.jsx
+
+### ImportProgressModal
+
+
+Name | Required | Default | Type
+--- | --- | --- | ---
+steps | No | `[complex value]` | 
+
+
 ## src/components/Modals/InfoPanel.jsx
 
 ### InfoPanel
@@ -179,6 +277,17 @@ _No props_
 Name | Required | Default | Type
 --- | --- | --- | ---
 showInfo | No | `true` | 
+
+
+## src/components/Modals/InfraProgressModal.jsx
+
+### InfraProgressModal
+
+
+Name | Required | Default | Type
+--- | --- | --- | ---
+total | No | `0` | 
+completed | No | `0` | 
 
 
 ## src/components/Nudges/NudgeCenter.jsx
@@ -246,6 +355,9 @@ _No props_
 Name | Required | Default | Type
 --- | --- | --- | ---
 isSitePlanMode | No | `false` | 
+hasSubFocus | No | `false` | 
+onBeginSubFocus | No | `null` | 
+onClearSubFocus | No | `null` | 
 
 
 ## src/components/Sidebar/PermitAreaSearch.jsx
@@ -258,6 +370,9 @@ Name | Required | Default | Type
 title | No | `'Search Zones'` | 
 placeholder | No | `'Search zones...'` | 
 onChangeMode | No | `null` | 
+permitAreasLayer | No | `null` | 
+onToggleLayer | No | `null` | 
+geographyType | No | `'parks'` | 
 
 
 ## src/components/Sidebar/PlaceableObjectsPanel.jsx
@@ -273,7 +388,12 @@ _No props_
 ### RightSidebar
 
 
-_No props_
+Name | Required | Default | Type
+--- | --- | --- | ---
+mode | No | `'expanded'` | 
+isOpen | No | `true` | 
+onClose | No | `() => {}` | 
+onToggle | No | `() => {}` | 
 
 
 ## src/components/Sidebar/ShapeProperties.jsx
@@ -330,38 +450,6 @@ _No props_
 ## src/components/Tutorial/WelcomeOverlay.jsx
 
 ### WelcomeOverlay
-
-
-_No props_
-
-
-## src/contexts/GeographyContext.jsx
-
-### GeographyProvider
-
-
-_No props_
-
-
-## src/contexts/SitePlanContext.jsx
-
-### SitePlanProvider
-
-
-_No props_
-
-
-## src/contexts/TutorialContext.jsx
-
-### TutorialProvider
-
-
-_No props_
-
-
-## src/contexts/ZoneCreatorContext.jsx
-
-### ZoneCreatorProvider
 
 
 _No props_

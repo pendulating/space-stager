@@ -8,7 +8,8 @@ describe('enhancedRenderingUtils branches', () => {
     expect(padAngle(360)).toBe('000');
     expect(quantizeAngleTo45(23)).toBe(45);
     expect(quantizeAngleTo45(67)).toBe(45);
-    expect(buildSpriteImageId('linknyc', 90)).toBe('linknyc_090');
+    expect(buildSpriteImageId('linknyc', 90, 'isometric')).toBe('linknyc_090');
+    expect(buildSpriteImageId('linknyc', 90, 'top-down')).toBe('linknyc_TOP_090');
   });
 
   it('computeBearingDegrees returns 0..360 approx', () => {

@@ -1,7 +1,7 @@
 // components/Sidebar/LayersPanel.jsx
 import React, { useState, useMemo } from 'react';
 import { Eye, EyeOff, X, Layers, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Loader2, CheckCircle, AlertCircle, Circle } from 'lucide-react';
-import { LAYER_GROUPS } from '../../constants/layers';
+import { LAYER_GROUPS, DISABLED_INFRASTRUCTURE_LAYERS, NON_RECOMMENDED_INFRASTRUCTURE_LAYERS } from '../../constants/layers';
 import { INFRASTRUCTURE_ICONS, svgToDataUrl } from '../../utils/iconUtils';
 import { getCandidateSrcs } from '../../utils/spriteResolver';
 
@@ -24,11 +24,22 @@ const LayersPanel = ({
   // State for tracking which groups are expanded
   const [expandedGroups, setExpandedGroups] = useState(new Set(['public-infrastructure', 'nyc-parks'])); // Start with some groups expanded
 
-  // Check if all layers are currently requested (recommended = all layers)
+  // Check if all recommended layers are currently requested
   const allLayersActive = useMemo(() => {
-    return Object.entries(layers)
-      .filter(([id, cfg]) => id !== 'permitAreas' && cfg && !cfg.disabled)
-      .every(([id, cfg]) => cfg && !!cfg.requested);
+    const recommendedLayers = Object.entries(layers)
+      .filter(([id, cfg]) => 
+        id !== 'permitAreas' && 
+        cfg && 
+        !cfg.disabled && 
+        !DISABLED_INFRASTRUCTURE_LAYERS.has(id) && 
+        !NON_RECOMMENDED_INFRASTRUCTURE_LAYERS.has(id)
+      );
+    
+    // If there are no recommended layers, return false
+    if (recommendedLayers.length === 0) return false;
+    
+    // Check if all recommended layers are requested
+    return recommendedLayers.every(([id, cfg]) => cfg && !!cfg.requested);
   }, [layers]);
 
   // Toggle all layers on/off (recommended = all)
@@ -268,7 +279,12 @@ const LayersPanel = ({
     const renderStatusIcon = () => {
       if (isError) return <AlertCircle className="w-4 h-4 text-red-500" title="Error loading" />;
       if (isLoading) return <Loader2 className="w-4 h-4 text-blue-600 animate-spin" title="Loading" />;
-      if (isRequested && isLoaded && isEmpty) return <Circle className="w-4 h-4 text-gray-300" title="No data" />;
+      if (isRequested && isLoaded && isEmpty) return (
+        <div 
+          className="w-3 h-3 rounded-full bg-gray-400 dark:bg-gray-500" 
+          title="No data in this area"
+        />
+      );
       if (isRequested && isLoaded && !isEmpty) return <CheckCircle className="w-4 h-4 text-emerald-600" title="Loaded" />;
       return <Circle className="w-4 h-4 text-gray-400" title="Hidden" />;
     };
@@ -361,6 +377,18 @@ const LayersPanel = ({
                         title="Draw sub-area to focus"
                       >
                         Focus Sub-Area
+                      </button>
+                    )}
+                    {/* Refocus button */}
+                    {focusedArea && (
+                      <button
+                        onClick={() => {
+                          try { permitAreas?.refocusActivePermitArea?.(); } catch (_) {}
+                        }}
+                        className="flex-shrink-0 text-[11px] px-2 py-1 rounded bg-indigo-600 dark:bg-indigo-700 text-white hover:bg-indigo-700 dark:hover:bg-indigo-600 transition-colors whitespace-nowrap"
+                        title="Recenter to the focused permit area"
+                      >
+                        Refocus
                       </button>
                     )}
                     {onClearSubFocus && hasSubFocus && (
