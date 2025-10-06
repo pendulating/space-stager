@@ -671,18 +671,29 @@ def main():
             cam_obj.data.ortho_scale = max(0.1, cam_obj.data.ortho_scale * factor)
 
         def render_top_down_view(cam_obj, angle_deg, model_stem, model_output_dir):
-            """Render a top-down view from the given angle around the Z-axis."""
+            """Render a top-down view from the given angle around the Z-axis.
+            The world_up vector should point perpendicular (90° CCW) to the isometric camera direction
+            to align the image orientations correctly.
+            """
+            # Use the SAME yaw calculation as isometric for perfect alignment
             yaw_rad = math.radians(angle_deg) + base_yaw_rad
             
-            # Position camera directly above the center, looking straight down
-            cam_obj.location = Vector((anchor_loc.x, anchor_loc.y, anchor_loc.z + radius))
+            # Position camera directly above the anchor, looking straight down
+            cam_loc = Vector((anchor_loc.x, anchor_loc.y, anchor_loc.z + radius))
             
-            # Rotate camera to look down at the target
-            # Camera looks along its -Z; with location above and zero X-tilt, this is top-down.
-            # Apply yaw as a roll around world Z to rotate the view.
-            cam_obj.rotation_euler = (0, 0, yaw_rad)
+            # world_up points 90° CCW from isometric camera direction (the camera's "right" vector)
+            # If camera comes from angle θ, world_up points at angle θ + 90°
+            cos_yaw = math.cos(yaw_rad)
+            sin_yaw = math.sin(yaw_rad)
+            world_up = Vector((-sin_yaw, cos_yaw, 0))
             
+            # Use the proven set_camera_look_at function
+            set_camera_look_at(cam_obj, cam_loc, anchor_loc, world_up=world_up)
             bpy.context.view_layer.update()
+            
+            # Fit ortho scale to maintain consistent size across rotations
+            world_pts = get_world_corners(mesh_objects)
+            set_ortho_scale_to_target_radius(scene, cam_obj, world_pts, anchor_loc, target_radius=0.46, border_px_local=border_px)
             
             if output_format in ("PNG", "BOTH"):
                 scene.render.image_settings.file_format = 'PNG'
@@ -757,13 +768,7 @@ def main():
         if export_top_down:
             # Render all 8 top-down rotated views with constant perceived size (rotation-invariant measure)
             for angle in angles:
-                yaw_rad = math.radians(angle) + base_yaw_rad
-                cam.location = Vector((center.x, center.y, center.z + radius))
-                cam.rotation_euler = (0, 0, yaw_rad)
-                bpy.context.view_layer.update()
-                world_pts = get_world_corners(mesh_objects)
-                # Target a constant pixel radius from anchor for rotation invariance
-                set_ortho_scale_to_target_radius(scene, cam, world_pts, anchor_loc, target_radius=0.46, border_px_local=border_px)
+                # render_top_down_view handles camera setup with 90° alignment offset
                 render_top_down_view(cam, angle, model_stem, model_output_dir)
 
 
