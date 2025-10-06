@@ -9,6 +9,7 @@ import { computeDominantBearingFromPolygon, computeDominantViewportBearing, quan
 import { computeAreaOrientation, snapBearingRelativeToArea, getCenterOffsetForPitch } from '../../utils/bearingUtils';
 import DroppedRectangles from './DroppedRectangles';
 import DroppedObjectNoteEditor from './DroppedObjectNoteEditor';
+import RectangleDimensionsEditor from './RectangleDimensionsEditor';
 import CustomShapeLabels from './CustomShapeLabels';
 import NudgeMarkers from './NudgeMarkers';
 import ActiveToolIndicator from './ActiveToolIndicator';
@@ -62,6 +63,7 @@ const MapContainer = forwardRef(({
   } = clickToPlace;
   const mapContainerRef = useRef(null);
   const [noteEditingObject, setNoteEditingObject] = useState(null);
+  const [dimensionsEditingObject, setDimensionsEditingObject] = useState(null);
   const [textEditorFeatureId, setTextEditorFeatureId] = useState(null);
   const [annotationsTrigger, setAnnotationsTrigger] = useState(0);
   const subFocusArmedRef = useRef(false);
@@ -1074,6 +1076,22 @@ const MapContainer = forwardRef(({
     setSelectedPointId: (id) => select(id, 'point')
   });
 
+  // Keyboard handler for dimensions editor (press 'D' when rectangle is selected)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'd' || e.key === 'D') {
+        if (selectedKind === 'rect' && selectedObjectId) {
+          const obj = droppedObjects?.find(o => o.id === selectedObjectId);
+          if (obj) {
+            setDimensionsEditingObject(obj);
+          }
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedKind, selectedObjectId, droppedObjects]);
+
   // Rotation controller (handles placement mode and selected objects)
   useRotationControls({
     map,
@@ -1299,6 +1317,88 @@ const MapContainer = forwardRef(({
           />
         </div>
       )}
+
+      {dimensionsEditingObject && (
+        <div className="absolute inset-0" style={{ pointerEvents: 'none' }}>
+          <div className="absolute inset-0" style={{ pointerEvents: 'auto' }} onWheel={(e) => e.preventDefault()} onMouseDown={(e) => e.preventDefault()} />
+          <RectangleDimensionsEditor
+            map={map}
+            object={dimensionsEditingObject}
+            placeableObjects={placeableObjects}
+            objectUpdateTrigger={clickToPlace.objectUpdateTrigger}
+            onSave={(widthMeters, heightMeters) => {
+              // Resize rectangle to exact dimensions
+              try {
+                clickToPlace.updateDroppedObject(dimensionsEditingObject.id, (prev) => {
+                  if (!prev || prev?.geometry?.type !== 'Polygon') return prev;
+                  
+                  // Get current geometry and rotation
+                  const ring = prev?.geometry?.coordinates?.[0] || [];
+                  if (ring.length < 4) return prev;
+                  
+                  const centroid = prev.position || { 
+                    lng: (ring[0][0] + ring[2][0]) / 2, 
+                    lat: (ring[0][1] + ring[2][1]) / 2 
+                  };
+                  const rotationDeg = Number(prev?.properties?.rotationDeg || 0);
+                  
+                  // Build new rectangle with exact dimensions
+                  // Convert to Web Mercator for accurate sizing
+                  const R = 6378137;
+                  const toMerc = (lng, lat) => {
+                    const x = R * (lng * Math.PI / 180);
+                    const y = R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2));
+                    return { x, y };
+                  };
+                  const toLngLat = (x, y) => {
+                    const lng = (x / R) * 180 / Math.PI;
+                    const lat = (2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * 180 / Math.PI;
+                    return [lng, lat];
+                  };
+                  
+                  const center = toMerc(centroid.lng, centroid.lat);
+                  const halfW = widthMeters / 2;
+                  const halfH = heightMeters / 2;
+                  
+                  // Create corners relative to center
+                  const rad = (rotationDeg * Math.PI) / 180;
+                  const cos = Math.cos(rad);
+                  const sin = Math.sin(rad);
+                  
+                  const corners = [
+                    [-halfW, -halfH],
+                    [halfW, -halfH],
+                    [halfW, halfH],
+                    [-halfW, halfH]
+                  ].map(([dx, dy]) => {
+                    const rx = dx * cos - dy * sin;
+                    const ry = dx * sin + dy * cos;
+                    return toLngLat(center.x + rx, center.y + ry);
+                  });
+                  
+                  const newGeom = {
+                    type: 'Polygon',
+                    coordinates: [[...corners, corners[0]]]
+                  };
+                  
+                  return { 
+                    ...prev, 
+                    geometry: newGeom,
+                    properties: {
+                      ...prev.properties,
+                      dimensions: { width: widthMeters, height: heightMeters }
+                    }
+                  };
+                });
+              } catch (err) {
+                console.error('Failed to update rectangle dimensions:', err);
+              }
+              setDimensionsEditingObject(null);
+            }}
+            onCancel={() => setDimensionsEditingObject(null)}
+          />
+        </div>
+      )}
       
       {/* Labels now rendered via map symbol layer from derivedAnnotations; disable HTML overlay */}
 
@@ -1400,6 +1500,20 @@ const MapContainer = forwardRef(({
               } catch (_) {}
               const nextProps = Object.assign({}, prev.properties || {}, { dimensions: dims });
               return { ...prev, geometry: newGeom, properties: nextProps };
+            });
+          } catch (_) {}
+        }}
+        onMoveRect={(id, newGeom) => {
+          try {
+            clickToPlace.updateDroppedObject(id, (prev) => {
+              if (!prev) return prev;
+              // Update geometry and centroid position when moving
+              const ring = Array.isArray(newGeom?.coordinates?.[0]) ? newGeom.coordinates[0] : [];
+              const centroid = ring.length >= 4 ? { 
+                lng: (ring[0][0] + ring[2][0]) / 2, 
+                lat: (ring[0][1] + ring[2][1]) / 2 
+              } : prev.position;
+              return { ...prev, geometry: newGeom, position: centroid };
             });
           } catch (_) {}
         }}

@@ -17,30 +17,40 @@ const isWithinBounds = ({ lng, lat }) => (
 );
 
 const ViewportInset = ({ map, mapLoaded, permitAreas, responsive, isSitePlanMode = false, isRightSidebarOpen = false }) => {
-  const [center, setCenter] = useState(() => ({ lng: null, lat: null }));
+  const [viewportBounds, setViewportBounds] = useState(() => ({ 
+    north: null, 
+    south: null, 
+    east: null, 
+    west: null 
+  }));
   const [screenSize, setScreenSize] = useState(() => ({ width: typeof window === 'undefined' ? 0 : window.innerWidth }));
 
   useEffect(() => {
     if (!map || !mapLoaded) return undefined;
 
-    const updateCenter = () => {
+    const updateViewportBounds = () => {
       try {
-        const c = map.getCenter();
-        if (!c) return;
-        setCenter({ lng: c.lng, lat: c.lat });
+        const bounds = map.getBounds();
+        if (!bounds) return;
+        setViewportBounds({
+          north: bounds.getNorth(),
+          south: bounds.getSouth(),
+          east: bounds.getEast(),
+          west: bounds.getWest()
+        });
       } catch (_) {
         // ignore
       }
     };
 
     // Prime immediately once ready, then subscribe to camera updates
-    updateCenter();
-    map.on('move', updateCenter);
-    map.on('moveend', updateCenter);
+    updateViewportBounds();
+    map.on('move', updateViewportBounds);
+    map.on('moveend', updateViewportBounds);
 
     return () => {
-      try { map.off('move', updateCenter); } catch (_) {}
-      try { map.off('moveend', updateCenter); } catch (_) {}
+      try { map.off('move', updateViewportBounds); } catch (_) {}
+      try { map.off('moveend', updateViewportBounds); } catch (_) {}
     };
   }, [map, mapLoaded]);
 
@@ -55,35 +65,58 @@ const ViewportInset = ({ map, mapLoaded, permitAreas, responsive, isSitePlanMode
     return () => window.removeEventListener('resize', updateSize);
   }, []);
 
-  const markerPosition = useMemo(() => {
-    if (center.lng == null || center.lat == null) return null;
+  const viewportRect = useMemo(() => {
+    if (viewportBounds.north == null || viewportBounds.south == null || 
+        viewportBounds.east == null || viewportBounds.west == null) return null;
 
-    const within = isWithinBounds(center);
-    // Normalize to 0..1 in both axes with north at top
-    const nx = (center.lng - NYC_BOUNDS.minLng) / (NYC_BOUNDS.maxLng - NYC_BOUNDS.minLng);
-    const ny = (NYC_BOUNDS.maxLat - center.lat) / (NYC_BOUNDS.maxLat - NYC_BOUNDS.minLat);
-    const clampedX = clamp(nx, 0, 1);
-    const clampedY = clamp(ny, 0, 1);
+    // Check if any part of the viewport is within NYC bounds
+    const overlaps = !(
+      viewportBounds.east < NYC_BOUNDS.minLng ||
+      viewportBounds.west > NYC_BOUNDS.maxLng ||
+      viewportBounds.north < NYC_BOUNDS.minLat ||
+      viewportBounds.south > NYC_BOUNDS.maxLat
+    );
+
+    // Calculate the center to determine if fully within bounds
+    const centerLng = (viewportBounds.west + viewportBounds.east) / 2;
+    const centerLat = (viewportBounds.north + viewportBounds.south) / 2;
+    const fullyWithin = isWithinBounds({ lng: centerLng, lat: centerLat });
+
+    // Normalize viewport bounds to 0..1 in both axes with north at top
+    // Clamp to NYC bounds for rendering
+    const westClamped = clamp(viewportBounds.west, NYC_BOUNDS.minLng, NYC_BOUNDS.maxLng);
+    const eastClamped = clamp(viewportBounds.east, NYC_BOUNDS.minLng, NYC_BOUNDS.maxLng);
+    const northClamped = clamp(viewportBounds.north, NYC_BOUNDS.minLat, NYC_BOUNDS.maxLat);
+    const southClamped = clamp(viewportBounds.south, NYC_BOUNDS.minLat, NYC_BOUNDS.maxLat);
+
+    // Convert to normalized coordinates (0..1)
+    const leftNorm = (westClamped - NYC_BOUNDS.minLng) / (NYC_BOUNDS.maxLng - NYC_BOUNDS.minLng);
+    const rightNorm = (eastClamped - NYC_BOUNDS.minLng) / (NYC_BOUNDS.maxLng - NYC_BOUNDS.minLng);
+    const topNorm = (NYC_BOUNDS.maxLat - northClamped) / (NYC_BOUNDS.maxLat - NYC_BOUNDS.minLat);
+    const bottomNorm = (NYC_BOUNDS.maxLat - southClamped) / (NYC_BOUNDS.maxLat - NYC_BOUNDS.minLat);
 
     return {
-      within,
-      leftPct: clampedX * 100,
-      topPct: clampedY * 100
+      overlaps,
+      fullyWithin,
+      leftPct: leftNorm * 100,
+      topPct: topNorm * 100,
+      widthPct: (rightNorm - leftNorm) * 100,
+      heightPct: (bottomNorm - topNorm) * 100
     };
-  }, [center]);
+  }, [viewportBounds]);
 
   const shouldRender = useMemo(() => {
     if (!map || !mapLoaded) return false;
-    if (!markerPosition) return false;
+    if (!viewportRect) return false;
     if (!responsive || responsive.sidebarMode === 'icon-rail') {
       return screenSize.width > 768;
     }
     return true;
-  }, [map, mapLoaded, markerPosition, responsive, screenSize.width]);
+  }, [map, mapLoaded, viewportRect, responsive, screenSize.width]);
 
   if (!shouldRender) return null;
 
-  const { within, leftPct, topPct } = markerPosition;
+  const { overlaps, fullyWithin, leftPct, topPct, widthPct, heightPct } = viewportRect;
 
   // Position inset with 16px margin from the right edge of the map container
   // The parent MapContainer handles its own width transitions when sidebar opens/closes
@@ -119,20 +152,29 @@ const ViewportInset = ({ map, mapLoaded, permitAreas, responsive, isSitePlanMode
       >
         <div className="absolute inset-0" style={{ background: 'linear-gradient(145deg, rgba(148, 163, 184, 0.45), rgba(15, 23, 42, 0.2))' }} />
         <div className="absolute inset-3 rounded-lg border border-white/20" />
+        {/* Viewport rectangle indicator */}
         <div
           className="absolute"
           style={{
             left: `${leftPct}%`,
             top: `${topPct}%`,
-            transform: 'translate(-50%, -50%) scale(1)',
-            transition: 'transform 0.2s ease-out'
+            width: `${widthPct}%`,
+            height: `${heightPct}%`,
+            pointerEvents: 'none'
           }}
         >
           <div
-            className="w-5 h-5 rounded-full"
+            className="w-full h-full rounded-sm"
             style={{
-              boxShadow: '0 0 0 5px rgba(255, 255, 255, 0.85)',
-              background: within ? 'linear-gradient(135deg, #f97316, #ea580c)' : 'linear-gradient(135deg, #94a3b8, #475569)'
+              border: fullyWithin 
+                ? '2px solid rgba(249, 115, 22, 0.9)' 
+                : '2px solid rgba(148, 163, 184, 0.9)',
+              backgroundColor: fullyWithin
+                ? 'rgba(249, 115, 22, 0.15)'
+                : 'rgba(148, 163, 184, 0.15)',
+              boxShadow: fullyWithin
+                ? '0 0 0 1px rgba(255, 255, 255, 0.6), inset 0 0 8px rgba(249, 115, 22, 0.3)'
+                : '0 0 0 1px rgba(255, 255, 255, 0.6), inset 0 0 8px rgba(148, 163, 184, 0.3)'
             }}
           />
         </div>
@@ -141,7 +183,14 @@ const ViewportInset = ({ map, mapLoaded, permitAreas, responsive, isSitePlanMode
         >
           Context
         </div>
-        {!within && (
+        {!fullyWithin && overlaps && (
+          <div
+            className="absolute inset-x-3 top-3 text-[11px] font-medium text-yellow-100 bg-amber-500/80 px-2 py-1 rounded"
+          >
+            Partially outside bounds
+          </div>
+        )}
+        {!overlaps && (
           <div
             className="absolute inset-x-3 top-3 text-[11px] font-medium text-yellow-100 bg-amber-500/80 px-2 py-1 rounded"
           >

@@ -5,11 +5,45 @@ import { distance as turfDistance, rhumbBearing as turfRhumbBearing, rhumbDestin
 
 // Compute rectangle corners given start and end lngLat, with optional rotation (degrees)
 // Returns corners in clockwise order without closing point: [A, B, C, D]
-function computeAxisAlignedCorners(startLngLat, endLngLat) {
-  const minLng = Math.min(startLngLat[0], endLngLat[0]);
-  const maxLng = Math.max(startLngLat[0], endLngLat[0]);
-  const minLat = Math.min(startLngLat[1], endLngLat[1]);
-  const maxLat = Math.max(startLngLat[1], endLngLat[1]);
+// If constrainToSquare is true, forces width and height to be equal (uses larger dimension)
+function computeAxisAlignedCorners(startLngLat, endLngLat, constrainToSquare = false) {
+  let minLng = Math.min(startLngLat[0], endLngLat[0]);
+  let maxLng = Math.max(startLngLat[0], endLngLat[0]);
+  let minLat = Math.min(startLngLat[1], endLngLat[1]);
+  let maxLat = Math.max(startLngLat[1], endLngLat[1]);
+  
+  if (constrainToSquare) {
+    // Convert to Web Mercator for accurate pixel-based measurements
+    const R = 6378137;
+    const toMerc = (lng, lat) => {
+      const x = R * (lng * Math.PI / 180);
+      const y = R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2));
+      return { x, y };
+    };
+    const toLngLat = (x, y) => {
+      const lng = (x / R) * 180 / Math.PI;
+      const lat = (2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * 180 / Math.PI;
+      return { lng, lat };
+    };
+    
+    const start = toMerc(startLngLat[0], startLngLat[1]);
+    const end = toMerc(endLngLat[0], endLngLat[1]);
+    
+    const width = Math.abs(end.x - start.x);
+    const height = Math.abs(end.y - start.y);
+    const size = Math.max(width, height);
+    
+    // Preserve direction relative to start point
+    const dirX = end.x >= start.x ? 1 : -1;
+    const dirY = end.y >= start.y ? 1 : -1;
+    
+    const newEnd = toLngLat(start.x + dirX * size, start.y + dirY * size);
+    minLng = Math.min(startLngLat[0], newEnd.lng);
+    maxLng = Math.max(startLngLat[0], newEnd.lng);
+    minLat = Math.min(startLngLat[1], newEnd.lat);
+    maxLat = Math.max(startLngLat[1], newEnd.lat);
+  }
+  
   // A: bottom-left, B: bottom-right, C: top-right, D: top-left
   return [
     [minLng, minLat],
@@ -70,6 +104,17 @@ function computeDimensionsMeters(corners) {
   }
 }
 
+// Global shift key tracker (shared across all instances)
+let globalShiftPressed = false;
+if (typeof window !== 'undefined') {
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Shift') globalShiftPressed = true;
+  }, { capture: true });
+  window.addEventListener('keyup', (e) => {
+    if (e.key === 'Shift') globalShiftPressed = false;
+  }, { capture: true });
+}
+
 const RectObjectMode = {};
 
 RectObjectMode.onSetup = function(opts) {
@@ -95,8 +140,9 @@ RectObjectMode.onClick = function(state, e) {
     state.start = point;
     return;
   }
-  // Finalize rectangle
-  const axisCorners = computeAxisAlignedCorners(state.start, point);
+  // Finalize rectangle (check shift at moment of click)
+  const constrainToSquare = globalShiftPressed;
+  const axisCorners = computeAxisAlignedCorners(state.start, point, constrainToSquare);
   const corners = computeRotatedCorners(axisCorners, state.rotationDeg);
   const closed = corners.concat([corners[0]]);
   const dims = computeDimensionsMeters(corners);
@@ -121,7 +167,9 @@ RectObjectMode.onMouseMove = function(state, e) {
   if (!state.start) return;
   const cur = [e.lngLat.lng, e.lngLat.lat];
   state.last = cur;
-  const axisCorners = computeAxisAlignedCorners(state.start, cur);
+  // Check if shift is pressed to constrain to square
+  const constrainToSquare = globalShiftPressed;
+  const axisCorners = computeAxisAlignedCorners(state.start, cur, constrainToSquare);
   const corners = computeRotatedCorners(axisCorners, state.rotationDeg);
   const closed = corners.concat([corners[0]]);
   try { state.tempRect.setCoordinates([closed]); state.tempRect.changed(); } catch (_) {}
@@ -140,16 +188,31 @@ RectObjectMode.onKeyDown = function(state, e) {
     this.changeMode('simple_select');
     return;
   }
-  // If we're mid-placement, update the preview immediately using the last mouse position
-  try {
-    if (state.start && state.last) {
-      const axisCorners = computeAxisAlignedCorners(state.start, state.last);
-      const corners = computeRotatedCorners(axisCorners, state.rotationDeg);
-      const closed = corners.concat([corners[0]]);
-      state.tempRect.setCoordinates([closed]);
-      state.tempRect.changed();
-    }
-  } catch (_) {}
+  // If we're mid-placement and shift was just pressed/released, update the preview
+  if (k === 'Shift' && state.start && state.last) {
+    const axisCorners = computeAxisAlignedCorners(state.start, state.last, globalShiftPressed);
+    const corners = computeRotatedCorners(axisCorners, state.rotationDeg);
+    const closed = corners.concat([corners[0]]);
+    try { state.tempRect.setCoordinates([closed]); state.tempRect.changed(); } catch (_) {}
+  }
+  // If we're mid-placement and rotation key was pressed, update the preview immediately
+  if ((k === '[' || k === ',' || k === ']' || k === '.') && state.start && state.last) {
+    const axisCorners = computeAxisAlignedCorners(state.start, state.last, globalShiftPressed);
+    const corners = computeRotatedCorners(axisCorners, state.rotationDeg);
+    const closed = corners.concat([corners[0]]);
+    try { state.tempRect.setCoordinates([closed]); state.tempRect.changed(); } catch (_) {}
+  }
+};
+
+RectObjectMode.onKeyUp = function(state, e) {
+  const k = e.key;
+  // Update preview when shift is released
+  if (k === 'Shift' && state.start && state.last) {
+    const axisCorners = computeAxisAlignedCorners(state.start, state.last, globalShiftPressed);
+    const corners = computeRotatedCorners(axisCorners, state.rotationDeg);
+    const closed = corners.concat([corners[0]]);
+    try { state.tempRect.setCoordinates([closed]); state.tempRect.changed(); } catch (_) {}
+  }
 };
 
 RectObjectMode.onStop = function(state) {

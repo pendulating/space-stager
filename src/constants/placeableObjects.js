@@ -13,6 +13,18 @@ export const PLACEABLE_OBJECTS = [
     texture: { url: '/data/textures/stage.png', size: 48 }
   },
   {
+    id: 'tent',
+    name: 'Tent',
+    category: 'Structures',
+    icon: '⛺',
+    color: '#f8f9fa',
+    size: { width: 48, height: 48 },
+    geometryType: 'rect',
+    units: 'ft',
+    defaults: { min: { w: 10, h: 10 } },
+    texture: { url: '/data/textures/tent.svg', size: 64 }
+  },
+  {
     id: 'grill',
     name: 'Grill',
     category: 'Equipment',

@@ -1,10 +1,11 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import { useMapViewState } from '../../hooks/useMapViewState';
 
-const DroppedRectangles = ({ objects = [], placeableObjects = [], map, objectUpdateTrigger, selectedId, onSelectRect, onResizeRect }) => {
+const DroppedRectangles = ({ objects = [], placeableObjects = [], map, objectUpdateTrigger, selectedId, onSelectRect, onResizeRect, onMoveRect }) => {
   const view = useMapViewState(map);
   const dragRef = useRef(null);
   const [dragging, setDragging] = useState(null);
+  const [moveDragging, setMoveDragging] = useState(null);
 
   const rects = useMemo(() => {
     const out = [];
@@ -23,7 +24,7 @@ const DroppedRectangles = ({ objects = [], placeableObjects = [], map, objectUpd
   }, [objects, placeableObjects, map, objectUpdateTrigger, view?.renderTick]);
 
   // Helper: build resize geometry given screen-space target for a corner
-  const buildResizedGeometry = useCallback((r, handleIndex, mouse) => {
+  const buildResizedGeometry = useCallback((r, handleIndex, mouse, constrainToSquare = false) => {
     try {
       const pts = r.points; // screen-space corner points in ring order
       const c = { x: (pts[0].x + pts[2].x) / 2, y: (pts[0].y + pts[2].y) / 2 };
@@ -52,8 +53,16 @@ const DroppedRectangles = ({ objects = [], placeableObjects = [], map, objectUpd
       const md = { x: mouse.x - c.x, y: mouse.y - c.y };
       let du = md.x * u.x + md.y * u.y;
       let dv = md.x * v.x + md.y * v.y;
-      const nHalfW = Math.max(6, Math.abs(du));
-      const nHalfH = Math.max(6, Math.abs(dv));
+      let nHalfW = Math.max(6, Math.abs(du));
+      let nHalfH = Math.max(6, Math.abs(dv));
+      
+      // Constrain to square if shift is pressed
+      if (constrainToSquare) {
+        const size = Math.max(nHalfW, nHalfH);
+        nHalfW = size;
+        nHalfH = size;
+      }
+      
       const corner = (sgn) => [
         c.x + sgn.su * nHalfW * u.x + sgn.sv * nHalfH * v.x,
         c.y + sgn.su * nHalfW * u.y + sgn.sv * nHalfH * v.y
@@ -72,7 +81,23 @@ const DroppedRectangles = ({ objects = [], placeableObjects = [], map, objectUpd
     } catch (_) { return r.obj?.geometry; }
   }, [map]);
 
-  // Global mouse listeners during drag
+  // Helper: build moved geometry given screen-space delta from initial position
+  const buildMovedGeometry = useCallback((originalCoords, deltaX, deltaY) => {
+    try {
+      if (!Array.isArray(originalCoords?.[0]) || originalCoords[0].length < 4) return null;
+      // Project original coordinates to screen space, apply delta, then unproject back
+      const ring = originalCoords[0];
+      const newRing = ring.map(([lng, lat]) => {
+        const screenPt = map.project([lng, lat]);
+        const movedPt = { x: screenPt.x + deltaX, y: screenPt.y + deltaY };
+        const newLL = map.unproject([movedPt.x, movedPt.y]);
+        return [newLL.lng, newLL.lat];
+      });
+      return { type: 'Polygon', coordinates: [newRing] };
+    } catch (_) { return null; }
+  }, [map]);
+
+  // Global mouse listeners during resize drag
   useEffect(() => {
     if (!dragging) return;
     const onMove = (e) => {
@@ -82,7 +107,8 @@ const DroppedRectangles = ({ objects = [], placeableObjects = [], map, objectUpd
         const x = e.clientX - (offset?.left || 0);
         const y = e.clientY - (offset?.top || 0);
         const mouse = { x, y };
-        const newGeom = buildResizedGeometry(rect, handleIndex, mouse);
+        const constrainToSquare = e.shiftKey || false;
+        const newGeom = buildResizedGeometry(rect, handleIndex, mouse, constrainToSquare);
         if (typeof onResizeRect === 'function') onResizeRect(rect.id, newGeom);
       } catch (_) {}
     };
@@ -94,6 +120,30 @@ const DroppedRectangles = ({ objects = [], placeableObjects = [], map, objectUpd
       window.removeEventListener('mouseup', onUp);
     };
   }, [dragging, buildResizedGeometry, onResizeRect]);
+
+  // Global mouse listeners during move drag
+  useEffect(() => {
+    if (!moveDragging) return;
+    const onMove = (e) => {
+      try {
+        if (!moveDragging) return;
+        const { id, originalCoords, startX, startY, offset } = moveDragging;
+        const currentX = e.clientX - (offset?.left || 0);
+        const currentY = e.clientY - (offset?.top || 0);
+        const deltaX = currentX - startX;
+        const deltaY = currentY - startY;
+        const newGeom = buildMovedGeometry(originalCoords, deltaX, deltaY);
+        if (newGeom && typeof onMoveRect === 'function') onMoveRect(id, newGeom);
+      } catch (_) {}
+    };
+    const onUp = (e) => { e && e.preventDefault && e.preventDefault(); setMoveDragging(null); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp, { once: true });
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [moveDragging, buildMovedGeometry, onMoveRect]);
 
   if (!rects.length) return null;
 
@@ -164,8 +214,25 @@ const DroppedRectangles = ({ objects = [], placeableObjects = [], map, objectUpd
                 stroke={selected ? '#2563eb' : '#111827'}
                 strokeWidth={selected ? 3 : 2}
                 opacity={0.95}
-                style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                style={{ pointerEvents: 'auto', cursor: selected ? 'move' : 'pointer' }}
                 onClick={(e) => { e.stopPropagation(); if (typeof onSelectRect === 'function') onSelectRect(id); }}
+                onMouseDown={(e) => {
+                  // Only allow moving when selected
+                  if (!selected) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const container = map && map.getContainer ? map.getContainer() : null;
+                  const offset = container && container.getBoundingClientRect ? container.getBoundingClientRect() : { left: 0, top: 0 };
+                  const startX = e.clientX - offset.left;
+                  const startY = e.clientY - offset.top;
+                  setMoveDragging({ 
+                    id, 
+                    originalCoords: obj?.geometry?.coordinates,
+                    startX, 
+                    startY, 
+                    offset 
+                  });
+                }}
               />
               <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle" fontSize="12" fill="#111827" stroke="#ffffff" strokeWidth="2" paintOrder="stroke">
                 {label}
