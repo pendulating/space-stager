@@ -943,6 +943,7 @@ const SpaceStager = () => {
             ref={mapContainerRef}
             map={map}
             mapLoaded={mapLoaded}
+            styleLoaded={styleLoaded}
             focusedArea={permitAreas.focusedArea}
             drawTools={drawTools}
             clickToPlace={clickToPlace}

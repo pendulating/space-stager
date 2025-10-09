@@ -28,7 +28,7 @@ describe('spriteResolver.getCandidateSrcs', () => {
 
   it('falls back to imageUrl for non-enhanced', () => {
     const objectType = { id: 'chair', name: 'Chair', imageUrl: '/data/icons/isometric-bw/chair_000.png', size: { width: 24, height: 24 } };
-    const candidates = getCandidateSrcs(objectType, 135, 'isometric');
+    const candidates = getCandidateSrcs(objectType, 315, 'isometric');
     expect(candidates[0]).toBe('/data/icons/isometric-bw/chair_000.png');
   });
 });

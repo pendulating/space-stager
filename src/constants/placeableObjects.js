@@ -10,7 +10,7 @@ export const PLACEABLE_OBJECTS = [
     geometryType: 'rect',
     units: 'ft',
     defaults: { min: { w: 8, h: 6 } },
-    texture: { url: '/data/textures/stage.png', size: 48 }
+    // Removed SVG texture; rely on solid fill color for rectangles
   },
   {
     id: 'tent',
@@ -22,7 +22,18 @@ export const PLACEABLE_OBJECTS = [
     geometryType: 'rect',
     units: 'ft',
     defaults: { min: { w: 10, h: 10 } },
-    texture: { url: '/data/textures/tent.svg', size: 64 }
+    // Removed SVG texture; rely on solid fill color for rectangles
+  },
+  {
+    id: 'fire-lane',
+    name: 'Fire Lane',
+    category: 'Safety',
+    icon: '🚒',
+    color: '#dc2626',
+    size: { width: 48, height: 48 },
+    geometryType: 'rect',
+    units: 'ft',
+    defaults: { min: { w: 12, h: 8 } }
   },
   {
     id: 'grill',
@@ -38,15 +49,6 @@ export const PLACEABLE_OBJECTS = [
       publicDir: '/static/charcoal-grill/isometric/renders',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
-  },
-  {
-    id: 'trash-bag',
-    name: 'Trash Bag',
-    category: 'Waste Management',
-    icon: '🗑️', // Fallback
-    imageUrl: '/data/icons/dropped-objects/trash.svg',
-    color: '#374151',
-    size: { width: 32, height: 32 }
   },
   {
     id: 'chair',
@@ -109,15 +111,6 @@ export const PLACEABLE_OBJECTS = [
       publicDir: '/data/icons/isometric-bw',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
-  },
-  {
-    id: 'balloons',
-    name: 'Balloons',
-    category: 'Decor',
-    icon: '🎈',
-    imageUrl: '/data/icons/dropped-objects/balloons.svg',
-    color: '#ef4444',
-    size: { width: 32, height: 32 }
   },
   {
     id: 'banner',

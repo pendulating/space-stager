@@ -7,7 +7,7 @@ import OverlapSelector from './OverlapSelector';
 import DroppedObjects from './DroppedObjects';
 import { computeDominantBearingFromPolygon, computeDominantViewportBearing, quantizeToSlices } from '../../utils/enhancedRenderingUtils';
 import { computeAreaOrientation, snapBearingRelativeToArea, getCenterOffsetForPitch } from '../../utils/bearingUtils';
-import DroppedRectangles from './DroppedRectangles';
+import DroppedRectanglesMapLibre from './DroppedRectanglesMapLibre';
 import DroppedObjectNoteEditor from './DroppedObjectNoteEditor';
 import RectangleDimensionsEditor from './RectangleDimensionsEditor';
 import CustomShapeLabels from './CustomShapeLabels';
@@ -31,6 +31,7 @@ const DEBUG = false; // Set to true to enable MapContainer debug logs
 const MapContainer = forwardRef(({ 
   map,
   mapLoaded, 
+  styleLoaded,
   focusedArea, 
   drawTools, 
   clickToPlace, 
@@ -1464,16 +1465,74 @@ const MapContainer = forwardRef(({
           onClose={permitAreas.clearOverlapSelector}
         />
       )}
-      {/* Ensure rectangles overlay renders on top of other overlays */}
-      <DroppedRectangles
-        objects={droppedObjects}
-        placeableObjects={placeableObjects}
-        map={map}
-        objectUpdateTrigger={clickToPlace.objectUpdateTrigger}
-        selectedId={selectedKind === 'rect' ? selectedObjectId : null}
-        onSelectRect={(id) => select(id, 'rect')}
-        onResizeRect={(id, newGeom) => {
+      {/* MapLibre-based rectangle rendering for proper z-ordering */}
+      {/* Rectangle action buttons overlay (edit dimensions, delete) - updates with map view */}
+      {selectedKind === 'rect' && selectedObjectId && map && (() => {
+        const rect = droppedObjects.find(o => o.id === selectedObjectId);
+        if (!rect || !rect.geometry?.coordinates?.[0] || rect.geometry.coordinates[0].length < 4) return null;
+        
+        // Calculate centroid for button positioning
+        const ring = rect.geometry.coordinates[0];
+        const centroid = [
+          (ring[0][0] + ring[2][0]) / 2,
+          (ring[0][1] + ring[2][1]) / 2
+        ];
+        
+        try {
+          const screenPos = map.project(centroid);
+          // Consume view.renderTick to force re-render on camera move
+          const _ = view?.renderTick;
+          return (
+            <div 
+              className="absolute flex gap-1 z-50 pointer-events-auto"
+              style={{
+                left: screenPos.x,
+                top: screenPos.y - 40,
+                transform: 'translateX(-50%)'
+              }}
+            >
+              <button
+                type="button"
+                className="bg-white/90 dark:bg-gray-900/80 border border-gray-300 dark:border-gray-700 rounded-full px-2 py-1 text-[10px] shadow hover:bg-white"
+                title="Edit dimensions (D)"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDimensionsEditingObject(rect);
+                }}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                className="bg-red-500 text-white rounded-full px-2 py-1 shadow text-[10px] hover:bg-red-600"
+                title="Delete (Delete key)"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  clickToPlace.removeDroppedObject(rect.id);
+                  clearSelection();
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          );
+        } catch (_) {
+          return null;
+        }
+      })()}
+      
+      {map && (
+        <DroppedRectanglesMapLibre
+          objects={droppedObjects}
+          placeableObjects={placeableObjects}
+          map={map}
+          objectUpdateTrigger={clickToPlace.objectUpdateTrigger}
+          selectedId={selectedKind === 'rect' ? selectedObjectId : null}
+          isPlacementActive={!!placementMode}
+          onSelectRect={(id) => select(id, 'rect')}
+          onResizeRect={(id, newGeom) => {
           try {
+            // Use silent mode - MapLibre source is already updated via direct manipulation
             clickToPlace.updateDroppedObject(id, (prev) => {
               if (!prev) return prev;
               // Update dimensions label from new geometry using great-circle distances on sides
@@ -1500,11 +1559,12 @@ const MapContainer = forwardRef(({
               } catch (_) {}
               const nextProps = Object.assign({}, prev.properties || {}, { dimensions: dims });
               return { ...prev, geometry: newGeom, properties: nextProps };
-            });
+            }, true); // silent=true - don't trigger objectUpdateTrigger
           } catch (_) {}
-        }}
-        onMoveRect={(id, newGeom) => {
+          }}
+          onMoveRect={(id, newGeom) => {
           try {
+            // Use silent mode - MapLibre source is already updated via direct manipulation
             clickToPlace.updateDroppedObject(id, (prev) => {
               if (!prev) return prev;
               // Update geometry and centroid position when moving
@@ -1514,10 +1574,11 @@ const MapContainer = forwardRef(({
                 lat: (ring[0][1] + ring[2][1]) / 2 
               } : prev.position;
               return { ...prev, geometry: newGeom, position: centroid };
-            });
+            }, true); // silent=true - don't trigger objectUpdateTrigger
           } catch (_) {}
-        }}
-      />
+          }}
+        />
+      )}
       <ViewportInset 
         map={map} 
         mapLoaded={mapLoaded} 

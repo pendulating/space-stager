@@ -77,6 +77,7 @@ const DroppedObjects = ({
   onMoveObject,
   areaBearingDeg
 }) => {
+  const rectanglesOverlayEnabled = Boolean(map?.getLayer && map.getLayer('dropped-rectangles-fill'));
   if (shouldDebug()) {
     // Light-weight render marker; disable by default
     // debug.log('render', { count: objects.length, hasMap: !!map });
@@ -495,14 +496,29 @@ const DroppedObjects = ({
           });
         }
         // Enforce z-order: circle below symbol, selected above all
-        try { if (map.getLayer(DROPPED_SYMBOL_LAYER_ID)) map.moveLayer(DROPPED_CIRCLE_LAYER_ID, DROPPED_SYMBOL_LAYER_ID); } catch (_) {}
-        try { map.moveLayer(DROPPED_SELECTED_LAYER_ID); } catch (_) {}
-        try { map.moveLayer(DROPPED_HOVERED_LAYER_ID); } catch (_) {}
+        // Move to top of layer stack (no beforeId = top)
+        try {
+          const hasCircle = !!(map.getLayer && map.getLayer(DROPPED_CIRCLE_LAYER_ID));
+          const hasSymbol = !!(map.getLayer && map.getLayer(DROPPED_SYMBOL_LAYER_ID));
+          if (hasCircle && hasSymbol) {
+            map.moveLayer(DROPPED_CIRCLE_LAYER_ID, DROPPED_SYMBOL_LAYER_ID);
+          }
+        } catch (_) {}
+        try { if (map.getLayer && map.getLayer(DROPPED_SYMBOL_LAYER_ID)) map.moveLayer(DROPPED_SYMBOL_LAYER_ID); } catch (_) {}  // Move symbol to top
+        try { if (map.getLayer && map.getLayer(DROPPED_SELECTED_LAYER_ID)) map.moveLayer(DROPPED_SELECTED_LAYER_ID); } catch (_) {}
+        try { if (map.getLayer && map.getLayer(DROPPED_HOVERED_LAYER_ID)) map.moveLayer(DROPPED_HOVERED_LAYER_ID); } catch (_) {}
         // Repeat shortly after to win races with late-added layers (draw/infrastructure)
         setTimeout(() => {
-          try { if (map.getLayer(DROPPED_SYMBOL_LAYER_ID)) map.moveLayer(DROPPED_CIRCLE_LAYER_ID, DROPPED_SYMBOL_LAYER_ID); } catch (_) {}
-          try { map.moveLayer(DROPPED_SELECTED_LAYER_ID); } catch (_) {}
-          try { map.moveLayer(DROPPED_HOVERED_LAYER_ID); } catch (_) {}
+          try {
+            const hasCircle = !!(map.getLayer && map.getLayer(DROPPED_CIRCLE_LAYER_ID));
+            const hasSymbol = !!(map.getLayer && map.getLayer(DROPPED_SYMBOL_LAYER_ID));
+            if (hasCircle && hasSymbol) {
+              map.moveLayer(DROPPED_CIRCLE_LAYER_ID, DROPPED_SYMBOL_LAYER_ID);
+            }
+          } catch (_) {}
+          try { if (map.getLayer && map.getLayer(DROPPED_SYMBOL_LAYER_ID)) map.moveLayer(DROPPED_SYMBOL_LAYER_ID); } catch (_) {}  // Move symbol to top
+          try { if (map.getLayer && map.getLayer(DROPPED_SELECTED_LAYER_ID)) map.moveLayer(DROPPED_SELECTED_LAYER_ID); } catch (_) {}
+          try { if (map.getLayer && map.getLayer(DROPPED_HOVERED_LAYER_ID)) map.moveLayer(DROPPED_HOVERED_LAYER_ID); } catch (_) {}
         }, 50);
         // After ensuring layers, push current data (defer to rebuild)
         try { setTimeout(() => { try { rebuildDroppedData(); } catch (_) {} }, 0); } catch (_) {}
@@ -1006,8 +1022,8 @@ const DroppedObjects = ({
     return objects.map((obj) => {
       const objectType = placeableObjects.find(p => p.id === obj.type);
       if (!objectType) return null;
-      // Skip rectangle-type objects; rendered by DroppedRectangles overlay
-      if (objectType.geometryType === 'rect') return null;
+      // Skip rectangle-type objects when the MapLibre overlay is active
+      if (objectType.geometryType === 'rect' && rectanglesOverlayEnabled) return null;
       
       const style = { ...getObjectStyle(obj) };
       if (style.display === 'none') return null;
@@ -1126,7 +1142,7 @@ const DroppedObjects = ({
   }, [map, objects, view?.viewType]);
 
   // Render DOM overlay if enabled or if map source APIs are unavailable (test env)
-  if (USE_DOM_OVERLAY || !map || typeof map.getSource !== 'function') {
+  if ((USE_DOM_OVERLAY && !rectanglesOverlayEnabled) || !map || typeof map.getSource !== 'function') {
     return (
       <div className="pointer-events-none">
         {renderedObjects}

@@ -99,3 +99,5 @@ const RectangleDimensionsEditor = ({ map, object, placeableObjects, onSave, onCa
 };
 
 export default RectangleDimensionsEditor;
+
+

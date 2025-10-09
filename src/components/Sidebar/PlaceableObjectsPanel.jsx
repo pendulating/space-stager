@@ -38,7 +38,7 @@ const PlaceableObjectsPanel = ({
     if (!objects || !objects.length) return;
     const needed = {};
     objects.forEach((obj) => {
-      const candidates = getCandidateSrcs(obj, 135, 'isometric');
+      const candidates = getCandidateSrcs(obj, 315, 'isometric');
       const src = candidates[0] || obj.imageUrl || null;
       if (src && !bgBySrc[src]) needed[src] = obj.color || '#64748b';
     });
@@ -66,7 +66,7 @@ const PlaceableObjectsPanel = ({
         {objects.map((obj) => {
           const active = isActivePoint(obj) || isActiveRect(obj);
           const isBatch = isActivePoint(obj) && placementMode?.isBatchMode;
-          const candidates = getCandidateSrcs(obj, 135, 'isometric');
+          const candidates = getCandidateSrcs(obj, 315, 'isometric');
           const src = candidates[0] || obj.imageUrl || null;
           const bg = (src && bgBySrc[src]) || (obj.color ? `${obj.color}E6` : undefined);
           return (
@@ -90,7 +90,9 @@ const PlaceableObjectsPanel = ({
                   />
                 ) : (
                   <div 
-                    className="w-full h-full flex items-center justify-center text-white text-sm font-medium rounded-xl"
+                    className={`w-full h-full flex items-center justify-center text-white font-medium rounded-xl ${
+                      obj?.geometryType === 'rect' ? 'text-4xl' : 'text-sm'
+                    }`}
                     style={{ backgroundColor: obj.color || '#64748b' }}
                   >
                     {obj.icon}

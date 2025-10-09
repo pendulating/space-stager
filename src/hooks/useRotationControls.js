@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 /**
  * useRotationControls
@@ -32,11 +32,28 @@ export const useRotationControls = (options) => {
     rotateSelectedAnnotationBy
   } = options || {};
 
+  // Use refs for callbacks so useEffect doesn't restart when they change
+  const rotateRectRef = useRef(rotateSelectedRectBy);
+  const rotatePointRef = useRef(rotateSelectedPointBy);
+  const rotatePlacementRef = useRef(rotatePlacementStep);
+  const rotateAnnotationRef = useRef(rotateSelectedAnnotationBy);
+  const clearSelectionRef = useRef(clearSelection);
+
+  useEffect(() => {
+    rotateRectRef.current = rotateSelectedRectBy;
+    rotatePointRef.current = rotateSelectedPointBy;
+    rotatePlacementRef.current = rotatePlacementStep;
+    rotateAnnotationRef.current = rotateSelectedAnnotationBy;
+    clearSelectionRef.current = clearSelection;
+  });
+
   useEffect(() => {
     let rafId = null;
     let activeDir = 0; // -1 CCW, +1 CW
     let lastTs = 0;
-    const degreesPerSecond = 90;
+    let startTs = 0; // Track when rotation started
+    const targetDegreesPerSecond = 180; // Target rotation speed
+    const accelerationTime = 0.3; // Seconds to reach full speed
     let gesturesLocked = false;
 
     const disableMapRotationGestures = () => {
@@ -60,14 +77,30 @@ export const useRotationControls = (options) => {
         rafId = null; 
         return; 
       }
-      const dt = lastTs ? Math.max(0, (ts - lastTs) / 1000) : 0;
+      
+      // Initialize timestamps
+      if (!lastTs) {
+        lastTs = ts;
+        startTs = ts;
+        rafId = requestAnimationFrame(step);
+        return;
+      }
+      
+      const dt = Math.max(0, (ts - lastTs) / 1000);
+      const elapsed = (ts - startTs) / 1000;
       lastTs = ts;
-      const delta = activeDir * degreesPerSecond * dt;
+      
+      // Smooth acceleration with easing (ease-out cubic)
+      const progress = Math.min(elapsed / accelerationTime, 1);
+      const easedProgress = 1 - Math.pow(1 - progress, 3); // Cubic ease-out
+      const currentSpeed = targetDegreesPerSecond * easedProgress;
+      
+      const delta = activeDir * currentSpeed * dt;
       try { 
-        if (hasSelectedRect && typeof rotateSelectedRectBy === 'function') {
-          rotateSelectedRectBy(delta);
-        } else if (hasSelectedPoint && typeof rotateSelectedPointBy === 'function') {
-          rotateSelectedPointBy(delta);
+        if (hasSelectedRect && typeof rotateRectRef.current === 'function') {
+          rotateRectRef.current(delta);
+        } else if (hasSelectedPoint && typeof rotatePointRef.current === 'function') {
+          rotatePointRef.current(delta);
         }
       } catch (_) {}
       rafId = requestAnimationFrame(step);
@@ -84,45 +117,49 @@ export const useRotationControls = (options) => {
       const isLeftBracket = e.code === 'BracketLeft' || e.key === '[';
       const isRightBracket = e.code === 'BracketRight' || e.key === ']';
       const isEsc = e.key === 'Escape';
-      if (isEsc) { try { clearSelection && clearSelection(); } catch (_) {} return; }
+      if (isEsc) { try { clearSelectionRef.current && clearSelectionRef.current(); } catch (_) {} return; }
       if (!(isComma || isPeriod || isLeftBracket || isRightBracket)) return;
       e.preventDefault();
 
       const dir = (isPeriod || isRightBracket) ? 1 : -1;
 
-      if (isPlacementActive && typeof rotatePlacementStep === 'function') {
+      if (isPlacementActive && typeof rotatePlacementRef.current === 'function') {
         // Uniform 8-slice rotation for placement
-        try { rotatePlacementStep(dir * 45); } catch (_) {}
+        try { rotatePlacementRef.current(dir * 45); } catch (_) {}
         return;
       }
 
-      if (hasSelectedRect && typeof rotateSelectedRectBy === 'function') {
-        // Immediate small nudge so a quick tap rotates visibly
-        try { rotateSelectedRectBy(dir * 12); } catch (_) {}
+      if (hasSelectedRect && typeof rotateRectRef.current === 'function') {
+        // Smooth acceleration to continuous rotation
         if (activeDir !== dir) {
-          activeDir = dir;
+          // Reset timestamps when starting fresh or changing direction
           lastTs = 0;
+          startTs = 0;
+          activeDir = dir;
           disableMapRotationGestures();
           if (rafId == null) rafId = requestAnimationFrame(step);
         }
+        // Don't process repeated keydown events while already rotating in same direction
         return;
       }
 
-      if (hasSelectedPoint && typeof rotateSelectedPointBy === 'function') {
+      if (hasSelectedPoint && typeof rotatePointRef.current === 'function') {
         // Continuous free rotation for dropped objects (same as rectangles)
-        try { rotateSelectedPointBy(dir * 12); } catch (_) {}
         if (activeDir !== dir) {
-          activeDir = dir;
+          // Reset timestamps when starting fresh or changing direction
           lastTs = 0;
+          startTs = 0;
+          activeDir = dir;
           disableMapRotationGestures();
           if (rafId == null) rafId = requestAnimationFrame(step);
         }
+        // Don't process repeated keydown events while already rotating in same direction
         return;
       }
 
-      if (hasSelectedAnnotation && typeof rotateSelectedAnnotationBy === 'function') {
+      if (hasSelectedAnnotation && typeof rotateAnnotationRef.current === 'function') {
         // Step rotation for annotations (lines/polygons) per keypress
-        try { rotateSelectedAnnotationBy(dir * 12); } catch (_) {}
+        try { rotateAnnotationRef.current(dir * 12); } catch (_) {}
         return;
       }
     };
@@ -134,9 +171,10 @@ export const useRotationControls = (options) => {
       const isRightBracket = e.code === 'BracketRight' || e.key === ']';
       if (!(isComma || isPeriod || isLeftBracket || isRightBracket)) return;
       e.preventDefault();
-      if (hasSelectedRect) {
+      if (hasSelectedRect || hasSelectedPoint) {
         activeDir = 0;
         lastTs = 0;
+        startTs = 0;
         enableMapRotationGestures();
         if (rafId != null) { cancelAnimationFrame(rafId); rafId = null; }
       }
@@ -150,7 +188,7 @@ export const useRotationControls = (options) => {
       if (rafId != null) cancelAnimationFrame(rafId);
       try { enableMapRotationGestures(); } catch (_) {}
     };
-  }, [map, isPlacementActive, rotatePlacementStep, hasSelectedRect, rotateSelectedRectBy, hasSelectedPoint, rotateSelectedPointBy, hasSelectedAnnotation, rotateSelectedAnnotationBy, clearSelection]);
+  }, [map, isPlacementActive, hasSelectedRect, hasSelectedPoint, hasSelectedAnnotation]);
 };
 
 

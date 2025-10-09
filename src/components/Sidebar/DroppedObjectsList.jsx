@@ -41,7 +41,7 @@ const DroppedObjectsList = ({
       <div className="grid grid-cols-3 gap-3 max-h-48 overflow-y-auto pr-1">
         {objects.map(obj => {
           const objectType = placeableObjects.find(p => p.id === obj.type);
-          const candidates = objectType ? getCandidateSrcs(objectType, 135, 'isometric') : [];
+          const candidates = objectType ? getCandidateSrcs(objectType, 315, 'isometric') : [];
           const src = candidates[0] || objectType?.imageUrl || null;
           const bg = (src && objectType?.color) ? `${objectType.color}E6` : null;
           return (

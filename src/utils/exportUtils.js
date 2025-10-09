@@ -2069,6 +2069,9 @@ const getPermitAreaBounds = (focusedArea) => {
 
 // Preload PNG icons for visible layers; returns a map { layerId: src }
 export const rasterizeToPngDataUrl = async (src, size = 64) => {
+  if (typeof src === 'string' && src.toLowerCase().endsWith('.svg')) {
+    throw new Error('SVG not supported for rasterizeToPngDataUrl');
+  }
   const img = await loadImage(src);
   const dpr = Math.max(2, Math.floor(window.devicePixelRatio || 1));
   const canvas = document.createElement('canvas');

@@ -114,9 +114,11 @@ export const useClickToPlace = (map) => {
   }, []);
 
   // Update a dropped object by id
-  const updateDroppedObject = useCallback((objectId, updater) => {
+  const updateDroppedObject = useCallback((objectId, updater, silent = false) => {
     setDroppedObjects(prev => prev.map(obj => obj.id === objectId ? (typeof updater === 'function' ? updater(obj) : { ...obj, ...updater }) : obj));
-    setObjectUpdateTrigger(v => v + 1);
+    if (!silent) {
+      setObjectUpdateTrigger(v => v + 1);
+    }
   }, []);
 
   // Set a note on a dropped object (stored under properties.note)
