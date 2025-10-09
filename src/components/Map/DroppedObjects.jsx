@@ -363,6 +363,13 @@ const DroppedObjects = ({
     if (!map) return;
     const ensure = () => {
       try {
+        // Bail out if style is not fully realized yet
+        try {
+          const st = map.getStyle && map.getStyle();
+          const layers = st && st.layers;
+          if (!st || !Array.isArray(layers) || layers.length === 0) return;
+          if (typeof map.isStyleLoaded === 'function' && !map.isStyleLoaded()) return;
+        } catch (_) { return; }
         if (!map.getSource(DROPPED_SOURCE_ID)) {
           map.addSource(DROPPED_SOURCE_ID, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         }
@@ -524,8 +531,17 @@ const DroppedObjects = ({
         try { setTimeout(() => { try { rebuildDroppedData(); } catch (_) {} }, 0); } catch (_) {}
       } catch (_) {}
     };
-    const ready = typeof map.isStyleLoaded === 'function' ? map.isStyleLoaded() : true;
-    if (ready) ensure(); else map.once('style.load', ensure);
+    const styleReady = (() => {
+      try {
+        const st = map.getStyle && map.getStyle();
+        const ls = st && st.layers;
+        const loaded = (typeof map.isStyleLoaded === 'function') ? map.isStyleLoaded() : true;
+        return !!st && Array.isArray(ls) && ls.length > 0 && loaded;
+      } catch (_) { return false; }
+    })();
+    if (styleReady) ensure(); else {
+      try { map.once('style.load', () => setTimeout(() => { try { ensure(); } catch (_) {} }, 0)); } catch (_) {}
+    }
   }, [map, rebuildDroppedData]);
 
   // Update source data based on objects/view

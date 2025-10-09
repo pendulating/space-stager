@@ -24,12 +24,7 @@ export const loadPolygonAreas = async (map, { idPrefix, url, fillColor = '#f9731
     try {
       if (!map || typeof map.addSource !== 'function') throw new Error('Invalid map instance');
       if (!map.getStyle()) throw new Error('Map style not loaded');
-      if (!map.loaded()) {
-        await new Promise((resolve) => {
-          const checkLoaded = () => { if (map.loaded()) resolve(); else setTimeout(checkLoaded, 50); };
-          checkLoaded();
-        });
-      }
+      // Proceed without waiting for map.loaded(); style layers exist once getStyle() is available
       const styleLayers = map.getStyle().layers;
       let firstSymbolId;
       for (let i = 0; i < styleLayers.length; i++) {
@@ -37,6 +32,14 @@ export const loadPolygonAreas = async (map, { idPrefix, url, fillColor = '#f9731
       }
       // Delegate base layer creation to geographyLayerManager for a single source of truth
       ensureBaseLayers(map, sourceId, 'polygon', { fillColor, focusColor });
+      // Ensure base layers visible after creation (robust against style reloads)
+      try {
+        const vis = 'visible';
+        if (map.getLayer(`${sourceId}-fill`)) map.setLayoutProperty(`${sourceId}-fill`, 'visibility', vis);
+        if (map.getLayer(`${sourceId}-outline`)) map.setLayoutProperty(`${sourceId}-outline`, 'visibility', vis);
+        if (map.getLayer(`${sourceId}-focused-fill`)) map.setLayoutProperty(`${sourceId}-focused-fill`, 'visibility', 'visible');
+        if (map.getLayer(`${sourceId}-focused-outline`)) map.setLayoutProperty(`${sourceId}-focused-outline`, 'visibility', 'visible');
+      } catch (_) {}
 
       const response = await fetch(`${url}?_ts=${Date.now()}`, { cache: 'no-store', signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -44,21 +47,7 @@ export const loadPolygonAreas = async (map, { idPrefix, url, fillColor = '#f9731
       const src = map.getSource(sourceId);
       if (src && src.setData) src.setData(data);
 
-      await new Promise((resolve, reject) => {
-        const start = Date.now();
-        const timeoutMs = isTest ? 1000 : 10000;
-        const check = () => {
-          try { if (map.isSourceLoaded && map.isSourceLoaded(sourceId)) { resolve(); return; } } catch (_) {}
-          if (Date.now() - start > timeoutMs) reject(new Error('Timed out waiting for source to load')); else setTimeout(check, 50);
-        };
-        check();
-      });
-
-      await new Promise((resolve, reject) => {
-        let timeout = setTimeout(() => reject(new Error('Timed out waiting for idle')), isTest ? 1000 : 10000);
-        function onIdle() { map.off('idle', onIdle); clearTimeout(timeout); resolve(); }
-        map.on('idle', onIdle);
-      });
+      // For GeoJSON sources, setData is synchronous; avoid waiting on isSourceLoaded/idle to reduce stalls
 
       return { sourceId, fillId, outlineId, focusedFillId, focusedOutlineId, features: data.features || [] };
     } catch (err) {
@@ -90,12 +79,7 @@ export const loadPointAreas = async (map, { idPrefix, url, circleColor = '#f9731
     try {
       if (!map || typeof map.addSource !== 'function') throw new Error('Invalid map instance');
       if (!map.getStyle()) throw new Error('Map style not loaded');
-      if (!map.loaded()) {
-        await new Promise((resolve) => {
-          const checkLoaded = () => { if (map.loaded()) resolve(); else setTimeout(checkLoaded, 50); };
-          checkLoaded();
-        });
-      }
+      // Do not block on map.loaded(); ensureBaseLayers and setData are safe after getStyle()
       const styleLayers = map.getStyle().layers;
       let firstSymbolId;
       for (let i = 0; i < styleLayers.length; i++) {
@@ -103,6 +87,11 @@ export const loadPointAreas = async (map, { idPrefix, url, circleColor = '#f9731
       }
       // Delegate base point layer creation to geographyLayerManager to avoid duplication
       ensureBaseLayers(map, sourceId, 'point', { fillColor: circleColor, focusColor });
+      // Ensure base point layers visible
+      try {
+        if (map.getLayer(`${sourceId}-points`)) map.setLayoutProperty(`${sourceId}-points`, 'visibility', 'visible');
+        if (map.getLayer(`${sourceId}-focused-points`)) map.setLayoutProperty(`${sourceId}-focused-points`, 'visibility', 'visible');
+      } catch (_) {}
 
       const response = await fetch(`${url}?_ts=${Date.now()}`, { cache: 'no-store', signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -110,21 +99,7 @@ export const loadPointAreas = async (map, { idPrefix, url, circleColor = '#f9731
       const src = map.getSource(sourceId);
       if (src && src.setData) src.setData(data);
 
-      await new Promise((resolve, reject) => {
-        const start = Date.now();
-        const timeoutMs = isTest ? 1000 : 10000;
-        const check = () => {
-          try { if (map.isSourceLoaded && map.isSourceLoaded(sourceId)) { resolve(); return; } } catch (_) {}
-          if (Date.now() - start > timeoutMs) reject(new Error('Timed out waiting for source to load')); else setTimeout(check, 50);
-        };
-        check();
-      });
-
-      await new Promise((resolve, reject) => {
-        let timeout = setTimeout(() => reject(new Error('Timed out waiting for idle')), isTest ? 1000 : 10000);
-        function onIdle() { map.off('idle', onIdle); clearTimeout(timeout); resolve(); }
-        map.on('idle', onIdle);
-      });
+      // For GeoJSON, avoid waiting on isSourceLoaded/idle which may not resolve during active animations
 
       // Make sure ordering is correct
       try { map.moveLayer(circleId); } catch (_) {}

@@ -1299,22 +1299,15 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     setLoadError(null);
 
     try {
-      // Use a more defensive approach - wait for map to be truly ready
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('Timeout waiting for map to be ready'));
-        }, 10000);
-        
-        const checkReady = () => {
-          if (map && map.loaded() && map.isStyleLoaded() && map.getStyle()) {
-            clearTimeout(timeout);
-            resolve();
-          } else {
-            setTimeout(checkReady, 50);
-          }
-        };
-        
-        checkReady();
+      // Relaxed readiness: proceed when a style exists; otherwise wait for a short style.load or fallback
+      await new Promise((resolve) => {
+        try {
+          if (map && typeof map.getStyle === 'function' && map.getStyle()) { resolve(); return; }
+        } catch (_) {}
+        const onStyle = () => { try { map.off('style.load', onStyle); } catch (_) {} resolve(); };
+        try { map.once('style.load', onStyle); } catch (_) { resolve(); }
+        // Fallback after 2s to avoid deadlocks on edge styles
+        setTimeout(() => { try { map.off('style.load', onStyle); } catch (_) {} resolve(); }, 2000);
       });
 
       const activeMode = options.mode || mode;

@@ -28,6 +28,9 @@ export function ensureBaseLayers(map, idPrefix, type, options = {}) {
   for (let i = 0; i < styleLayers.length; i++) {
     if (styleLayers[i].type === 'symbol') { firstSymbolId = styleLayers[i].id; break; }
   }
+  const safeBeforeId = (() => {
+    try { return firstSymbolId && map.getLayer && map.getLayer(firstSymbolId) ? firstSymbolId : undefined; } catch (_) { return undefined; }
+  })();
 
   if (type === 'polygon') {
     const fillId = `${idPrefix}-fill`;
@@ -37,22 +40,26 @@ export function ensureBaseLayers(map, idPrefix, type, options = {}) {
 
     try {
       if (!map.getLayer(fillId)) {
-        map.addLayer({ id: fillId, type: 'fill', source: idPrefix, layout: { visibility: 'visible' }, paint: { 'fill-color': fillColor, 'fill-opacity': 0.2 } }, firstSymbolId);
+        const def = { id: fillId, type: 'fill', source: idPrefix, layout: { visibility: 'visible' }, paint: { 'fill-color': fillColor, 'fill-opacity': 0.2 } };
+        if (safeBeforeId) map.addLayer(def, safeBeforeId); else map.addLayer(def);
       }
     } catch (_) {}
     try {
       if (!map.getLayer(outlineId)) {
-        map.addLayer({ id: outlineId, type: 'line', source: idPrefix, layout: { visibility: 'visible' }, paint: { 'line-color': fillColor, 'line-width': 1 } }, firstSymbolId);
+        const def = { id: outlineId, type: 'line', source: idPrefix, layout: { visibility: 'visible' }, paint: { 'line-color': fillColor, 'line-width': 1 } };
+        if (safeBeforeId) map.addLayer(def, safeBeforeId); else map.addLayer(def);
       }
     } catch (_) {}
     try {
       if (!map.getLayer(focusedFillId)) {
-        map.addLayer({ id: focusedFillId, type: 'fill', source: idPrefix, filter: ['==', ['id'], ''], layout: { visibility: 'visible' }, paint: { 'fill-color': focusColor, 'fill-opacity': 0.3 } }, firstSymbolId);
+        const def = { id: focusedFillId, type: 'fill', source: idPrefix, filter: ['==', ['id'], ''], layout: { visibility: 'visible' }, paint: { 'fill-color': focusColor, 'fill-opacity': 0.3 } };
+        if (safeBeforeId) map.addLayer(def, safeBeforeId); else map.addLayer(def);
       }
     } catch (_) {}
     try {
       if (!map.getLayer(focusedOutlineId)) {
-        map.addLayer({ id: focusedOutlineId, type: 'line', source: idPrefix, filter: ['==', ['id'], ''], layout: { visibility: 'visible' }, paint: { 'line-color': focusColor, 'line-width': 3, 'line-dasharray': [2, 2], 'line-opacity': 1 } }, firstSymbolId);
+        const def = { id: focusedOutlineId, type: 'line', source: idPrefix, filter: ['==', ['id'], ''], layout: { visibility: 'visible' }, paint: { 'line-color': focusColor, 'line-width': 3, 'line-dasharray': [2, 2], 'line-opacity': 1 } };
+        if (safeBeforeId) map.addLayer(def, safeBeforeId); else map.addLayer(def);
       }
     } catch (_) {}
   } else if (type === 'point') {
@@ -61,7 +68,7 @@ export function ensureBaseLayers(map, idPrefix, type, options = {}) {
     try {
       if (!map.getLayer(circleId)) {
         // Subtle filled dot with ring; grow on hover via feature-state
-        map.addLayer({
+        const def = {
           id: circleId,
           type: 'circle',
           source: idPrefix,
@@ -122,13 +129,14 @@ export function ensureBaseLayers(map, idPrefix, type, options = {}) {
             ],
             'circle-pitch-scale': 'viewport'
           }
-        });
+        };
+        map.addLayer(def);
       }
     } catch (_) {}
     try {
       if (!map.getLayer(focusedId)) {
         // Focus ring: subtle filled dot, larger base and hover sizes
-        map.addLayer({
+        const def = {
           id: focusedId,
           type: 'circle',
           source: idPrefix,
@@ -174,13 +182,14 @@ export function ensureBaseLayers(map, idPrefix, type, options = {}) {
             ],
             'circle-pitch-scale': 'viewport'
           }
-        });
+        };
+        map.addLayer(def);
       }
     } catch (_) {}
 
     // Ensure ordering: focused on top, then base points
-    try { map.moveLayer(circleId); } catch (_) {}
-    try { map.moveLayer(focusedId); } catch (_) {}
+    try { if (map.getLayer(circleId)) map.moveLayer(circleId); } catch (_) {}
+    try { if (map.getLayer(focusedId)) map.moveLayer(focusedId); } catch (_) {}
   }
 }
 

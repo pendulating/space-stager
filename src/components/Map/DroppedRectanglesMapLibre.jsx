@@ -34,6 +34,10 @@ const DroppedRectanglesMapLibre = ({
   const [moving, setMoving] = useState(null); // { rectId, startLngLat, offset }
   const dataRef = useRef({ fc: null }); // Cache for direct data manipulation during drag
   const rectsRef = useRef([]); // Stable reference for drag handlers
+  const resizeRafRef = useRef(null);
+  const pendingResizeRef = useRef(null);
+  const moveRafRef = useRef(null);
+  const pendingMoveRef = useRef(null);
   
   // Filter rectangles from objects
   const rects = useMemo(() => {
@@ -428,11 +432,9 @@ const DroppedRectanglesMapLibre = ({
     reorder();
     try { setTimeout(reorder, 60); } catch (_) {}
     try { map.on('style.load', reorder); } catch (_) {}
-    try { map.on('styledata', reorder); } catch (_) {}
     try { map.on('idle', reorder); } catch (_) {}
     return () => {
       try { map.off('style.load', reorder); } catch (_) {}
-      try { map.off('styledata', reorder); } catch (_) {}
       try { map.off('idle', reorder); } catch (_) {}
     };
   }, [map, layersInitialized]);
@@ -647,6 +649,7 @@ const DroppedRectanglesMapLibre = ({
       });
       
       e.preventDefault();
+      try { map && map.dragPan && map.dragPan.disable && map.dragPan.disable(); } catch (_) {}
       map.getCanvas().style.cursor = 'grabbing';
     };
 
@@ -779,28 +782,36 @@ const DroppedRectanglesMapLibre = ({
   useEffect(() => {
     if (!map || !dragging) return;
 
+    const tick = () => {
+      try {
+        const pending = pendingResizeRef.current;
+        if (!pending || !dragging) { resizeRafRef.current = null; return; }
+        const source = map.getSource(SOURCE_ID);
+        if (source && dataRef.current.fc) {
+          const fc = dataRef.current.fc;
+          const featureIndex = fc.features.findIndex(f => f.properties.id === dragging.rectId);
+          if (featureIndex !== -1) {
+            fc.features[featureIndex] = {
+              ...fc.features[featureIndex],
+              geometry: pending
+            };
+            source.setData(fc);
+          }
+        }
+        resizeRafRef.current = requestAnimationFrame(tick);
+      } catch (_) { resizeRafRef.current = null; }
+    };
+
+    const ensureTick = () => { if (!resizeRafRef.current) resizeRafRef.current = requestAnimationFrame(tick); };
+
     const handleMouseMove = (e) => {
       const rect = rectsRef.current.find(r => r.id === dragging.rectId);
       if (!rect) return;
-
       const constrainToSquare = e.originalEvent?.shiftKey || false;
       const newGeom = buildResizedGeometry(rect, dragging.handleIndex, e.lngLat, constrainToSquare);
-      
       if (!newGeom) return;
-      
-      // Direct manipulation of source data for smooth drag (no React re-render)
-      const source = map.getSource(SOURCE_ID);
-      if (source && dataRef.current.fc) {
-        const fc = dataRef.current.fc;
-        const featureIndex = fc.features.findIndex(f => f.properties.id === dragging.rectId);
-        if (featureIndex !== -1) {
-          fc.features[featureIndex] = {
-            ...fc.features[featureIndex],
-            geometry: newGeom
-          };
-          source.setData(fc);
-        }
-      }
+      pendingResizeRef.current = newGeom;
+      ensureTick();
     };
 
     const handleMouseUp = () => {
@@ -816,6 +827,10 @@ const DroppedRectanglesMapLibre = ({
       }
       setDragging(null);
       map.getCanvas().style.cursor = '';
+      try { if (resizeRafRef.current) cancelAnimationFrame(resizeRafRef.current); } catch (_) {}
+      resizeRafRef.current = null;
+      pendingResizeRef.current = null;
+      try { map && map.dragPan && map.dragPan.enable && map.dragPan.enable(); } catch (_) {}
       // Handles and labels will update via normal effect cycle when dragging state changes
     };
 
@@ -823,6 +838,9 @@ const DroppedRectanglesMapLibre = ({
     map.on('mouseup', handleMouseUp);
 
     return () => {
+      try { if (resizeRafRef.current) cancelAnimationFrame(resizeRafRef.current); } catch (_) {}
+      resizeRafRef.current = null;
+      pendingResizeRef.current = null;
       map.off('mousemove', handleMouseMove);
       map.off('mouseup', handleMouseUp);
     };
@@ -832,27 +850,34 @@ const DroppedRectanglesMapLibre = ({
   useEffect(() => {
     if (!map || !moving) return;
 
+    const tick = () => {
+      try {
+        const pending = pendingMoveRef.current;
+        if (!pending || !moving) { moveRafRef.current = null; return; }
+        const source = map.getSource(SOURCE_ID);
+        if (source && dataRef.current.fc) {
+          const fc = dataRef.current.fc;
+          const featureIndex = fc.features.findIndex(f => f.properties.id === moving.rectId);
+          if (featureIndex !== -1) {
+            fc.features[featureIndex] = {
+              ...fc.features[featureIndex],
+              geometry: pending
+            };
+            source.setData(fc);
+          }
+        }
+        moveRafRef.current = requestAnimationFrame(tick);
+      } catch (_) { moveRafRef.current = null; }
+    };
+    const ensureTick = () => { if (!moveRafRef.current) moveRafRef.current = requestAnimationFrame(tick); };
+
     const handleMouseMove = (e) => {
       const rect = rectsRef.current.find(r => r.id === moving.rectId);
       if (!rect) return;
-
       const newGeom = buildMovedGeometry(rect, moving.startLngLat, e.lngLat);
-      
       if (!newGeom) return;
-      
-      // Direct manipulation of source data for smooth drag (no React re-render)
-      const source = map.getSource(SOURCE_ID);
-      if (source && dataRef.current.fc) {
-        const fc = dataRef.current.fc;
-        const featureIndex = fc.features.findIndex(f => f.properties.id === moving.rectId);
-        if (featureIndex !== -1) {
-          fc.features[featureIndex] = {
-            ...fc.features[featureIndex],
-            geometry: newGeom
-          };
-          source.setData(fc);
-        }
-      }
+      pendingMoveRef.current = newGeom;
+      ensureTick();
     };
 
     const handleMouseUp = () => {
@@ -868,6 +893,9 @@ const DroppedRectanglesMapLibre = ({
       }
       setMoving(null);
       map.getCanvas().style.cursor = '';
+      try { if (moveRafRef.current) cancelAnimationFrame(moveRafRef.current); } catch (_) {}
+      moveRafRef.current = null;
+      pendingMoveRef.current = null;
       // Handles and labels will update via normal effect cycle when moving state changes
     };
 
@@ -875,10 +903,25 @@ const DroppedRectanglesMapLibre = ({
     map.on('mouseup', handleMouseUp);
 
     return () => {
+      try { if (moveRafRef.current) cancelAnimationFrame(moveRafRef.current); } catch (_) {}
+      moveRafRef.current = null;
+      pendingMoveRef.current = null;
       map.off('mousemove', handleMouseMove);
       map.off('mouseup', handleMouseUp);
     };
   }, [map, moving, onMoveRect, buildMovedGeometry]);
+
+  // During drag/move, simplify rendering for performance
+  useEffect(() => {
+    if (!map) return;
+    const active = !!dragging || !!moving;
+    try { if (map.getLayer(PATTERN_LAYER_ID)) map.setLayoutProperty(PATTERN_LAYER_ID, 'visibility', active ? 'none' : 'visible'); } catch (_) {}
+    try { if (map.getLayer(FILL_LAYER_ID)) map.setPaintProperty(FILL_LAYER_ID, 'fill-antialias', active ? false : true); } catch (_) {}
+    return () => {
+      try { if (map.getLayer(PATTERN_LAYER_ID)) map.setLayoutProperty(PATTERN_LAYER_ID, 'visibility', 'visible'); } catch (_) {}
+      try { if (map.getLayer(FILL_LAYER_ID)) map.setPaintProperty(FILL_LAYER_ID, 'fill-antialias', true); } catch (_) {}
+    };
+  }, [map, dragging, moving]);
 
   // Move drag initiation (on fill layer, when selected)
   useEffect(() => {
