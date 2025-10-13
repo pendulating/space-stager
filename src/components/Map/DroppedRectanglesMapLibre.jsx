@@ -1,6 +1,8 @@
 // components/Map/DroppedRectanglesMapLibre.jsx
 // MapLibre-based rectangle rendering for proper z-ordering with dropped objects
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+import { useMapEvents } from '../../hooks/useMapEvents';
+import { ensureLayersBetweenPermitAreasAndDroppedObjects } from '../../utils/mapLayerUtils';
 
 const DEBUG = false;
 const shouldDebug = () => DEBUG || Boolean(typeof window !== 'undefined' && window.__RECT_DEBUG__);
@@ -13,6 +15,9 @@ const HANDLES_SOURCE_ID = 'dropped-rectangles-handles';
 const LABELS_LAYER_ID = 'dropped-rectangles-labels';
 const LABELS_SOURCE_ID = 'dropped-rectangles-labels';
 const PATTERN_LAYER_ID = 'dropped-rectangles-pattern';
+const MOVE_SOURCE_ID = 'dropped-rectangles-moving';
+const MOVE_FILL_LAYER_ID = 'dropped-rectangles-moving-fill';
+const MOVE_LINE_LAYER_ID = 'dropped-rectangles-moving-line';
 
 /**
  * Renders dropped rectangular objects as MapLibre GeoJSON layers
@@ -38,6 +43,7 @@ const DroppedRectanglesMapLibre = ({
   const pendingResizeRef = useRef(null);
   const moveRafRef = useRef(null);
   const pendingMoveRef = useRef(null);
+  const activeRectIdRef = useRef(null);
   
   // Filter rectangles from objects
   const rects = useMemo(() => {
@@ -81,6 +87,7 @@ const DroppedRectanglesMapLibre = ({
       if (!textureMap[id]) return;
       
       const path = textureMap[id];
+      try { if (String(path).toLowerCase().endsWith('.svg')) return; } catch (_) {}
       
       console.log(`[DroppedRectanglesMapLibre] Loading missing texture ${id} from:`, path);
       
@@ -163,7 +170,8 @@ const DroppedRectanglesMapLibre = ({
       if (!map.getSource(SOURCE_ID)) {
         map.addSource(SOURCE_ID, {
           type: 'geojson',
-          data: { type: 'FeatureCollection', features: [] }
+          data: { type: 'FeatureCollection', features: [] },
+          promoteId: 'id'
         });
       }
 
@@ -212,8 +220,9 @@ const DroppedRectanglesMapLibre = ({
             // When a texture pattern is present, let the pattern layer render the fill; keep only outline here
             'fill-opacity': [
               'case',
-              ['has', 'fillPattern'],
-              0,
+              // Hide an individual rect when feature-state hidden=true
+              ['boolean', ['feature-state', 'hidden'], false], 0,
+              ['has', 'fillPattern'], 0,
               0.45
             ]
           }
@@ -229,7 +238,12 @@ const DroppedRectanglesMapLibre = ({
           type: 'fill',
           source: SOURCE_ID,
           paint: {
-            'fill-pattern': ['get', 'fillPattern']
+            'fill-pattern': ['get', 'fillPattern'],
+            'fill-opacity': [
+              'case',
+              ['boolean', ['feature-state', 'hidden'], false], 0,
+              1
+            ]
           },
           filter: ['has', 'fillPattern']
         };
@@ -256,6 +270,11 @@ const DroppedRectanglesMapLibre = ({
               3,
               2
             ],
+            'line-opacity': [
+              'case',
+              ['boolean', ['feature-state', 'hidden'], false], 0,
+              1
+            ],
             'line-dasharray': [
               'case',
               ['boolean', ['get', 'selected'], false],
@@ -266,6 +285,37 @@ const DroppedRectanglesMapLibre = ({
         };
         if (insertBeforeId) map.addLayer(layerDef, insertBeforeId); else map.addLayer(layerDef);
         try { map.setLayoutProperty(LINE_LAYER_ID, 'visibility', 'visible'); } catch (_) {}
+      }
+
+      // Add moving overlay source and layers (single feature while dragging/moving)
+      if (!map.getSource(MOVE_SOURCE_ID)) {
+        map.addSource(MOVE_SOURCE_ID, { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, promoteId: 'id' });
+      }
+      if (!map.getLayer(MOVE_FILL_LAYER_ID)) {
+        const def = {
+          id: MOVE_FILL_LAYER_ID,
+          type: 'fill',
+          source: MOVE_SOURCE_ID,
+          paint: {
+            'fill-color': ['coalesce', ['get', 'fillColor'], '#888888'],
+            'fill-outline-color': ['coalesce', ['get', 'strokeColor'], '#111827'],
+            'fill-opacity': 0.35
+          }
+        };
+        if (insertBeforeId) map.addLayer(def, insertBeforeId); else map.addLayer(def);
+      }
+      if (!map.getLayer(MOVE_LINE_LAYER_ID)) {
+        const def = {
+          id: MOVE_LINE_LAYER_ID,
+          type: 'line',
+          source: MOVE_SOURCE_ID,
+          paint: {
+            'line-color': ['coalesce', ['get', 'strokeColor'], '#111827'],
+            'line-width': 2,
+            'line-opacity': 1
+          }
+        };
+        if (insertBeforeId) map.addLayer(def, insertBeforeId); else map.addLayer(def);
       }
 
       // Add resize handles layer (circles at corners)
@@ -359,9 +409,12 @@ const DroppedRectanglesMapLibre = ({
       try {
         if (map.getLayer(LABELS_LAYER_ID)) map.removeLayer(LABELS_LAYER_ID);
         if (map.getLayer(HANDLES_LAYER_ID)) map.removeLayer(HANDLES_LAYER_ID);
+        if (map.getLayer(MOVE_LINE_LAYER_ID)) map.removeLayer(MOVE_LINE_LAYER_ID);
+        if (map.getLayer(MOVE_FILL_LAYER_ID)) map.removeLayer(MOVE_FILL_LAYER_ID);
         if (map.getLayer(LINE_LAYER_ID)) map.removeLayer(LINE_LAYER_ID);
         if (map.getLayer(PATTERN_LAYER_ID)) map.removeLayer(PATTERN_LAYER_ID);
         if (map.getLayer(FILL_LAYER_ID)) map.removeLayer(FILL_LAYER_ID);
+        if (map.getSource(MOVE_SOURCE_ID)) map.removeSource(MOVE_SOURCE_ID);
         if (map.getSource(LABELS_SOURCE_ID)) map.removeSource(LABELS_SOURCE_ID);
         if (map.getSource(HANDLES_SOURCE_ID)) map.removeSource(HANDLES_SOURCE_ID);
         if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
@@ -373,69 +426,16 @@ const DroppedRectanglesMapLibre = ({
   // Keep rectangle layers above basemap and below dropped-objects symbols
   useEffect(() => {
     if (!map || !layersInitialized) return;
-    const reorder = () => {
-      try {
-        const style = map.getStyle && map.getStyle();
-        const layers = (style && style.layers) ? style.layers : [];
-        if (shouldDebug()) {
-          try {
-            const ids = layers.map(l => l && l.id).filter(Boolean);
-            console.info('[Rects] current layer order', ids);
-          } catch (_) {}
-        }
-        let beforeId;
-        try {
-          const preferSelected = layers.find(l => l && l.id === 'dropped-objects-selected');
-          const preferSymbol = layers.find(l => l && l.id === 'dropped-objects-symbol');
-          const prefer = preferSelected || preferSymbol;
-          const idxSelected = layers.findIndex(l => l && l.id === 'dropped-objects-selected');
-          const idxSymbol = layers.findIndex(l => l && l.id === 'dropped-objects-symbol');
-          const minDroppedIdx = [idxSelected, idxSymbol].filter(i => i >= 0).reduce((a,b)=>Math.min(a,b), Number.POSITIVE_INFINITY);
-          const maxPermitIdx = layers.reduce((acc, l, i) => {
-            if (l && typeof l.id === 'string' && (l.id.startsWith('permit-areas') || l.id.startsWith('permitAreas'))) {
-              return Math.max(acc, i);
-            }
-            return acc;
-          }, -1);
-          if (prefer) beforeId = prefer.id; else {
-            const anyDropped = layers.find(l => l && typeof l.id === 'string' && l.id.includes('dropped-objects'));
-            beforeId = anyDropped ? anyDropped.id : undefined;
-          }
-          // If any permit-areas layer is above dropped objects, push rectangles to top (no beforeId)
-          if (maxPermitIdx >= 0 && maxPermitIdx >= minDroppedIdx) {
-            beforeId = undefined;
-          }
-        } catch (_) { beforeId = undefined; }
-        if (map.getLayer(FILL_LAYER_ID)) map.moveLayer(FILL_LAYER_ID, beforeId);
-        if (map.getLayer(PATTERN_LAYER_ID)) map.moveLayer(PATTERN_LAYER_ID, beforeId);
-        if (map.getLayer(LINE_LAYER_ID)) map.moveLayer(LINE_LAYER_ID, beforeId);
-        if (map.getLayer(HANDLES_LAYER_ID)) map.moveLayer(HANDLES_LAYER_ID, beforeId);
-        if (map.getLayer(LABELS_LAYER_ID)) map.moveLayer(LABELS_LAYER_ID, beforeId);
-        if (shouldDebug()) {
-          try {
-            const idx = (id) => {
-              const ls = (map.getStyle && map.getStyle()?.layers) || [];
-              return ls.findIndex(l => l && l.id === id);
-            };
-            console.info('[Rects] z-order indices', {
-              fill: idx(FILL_LAYER_ID),
-              pattern: idx(PATTERN_LAYER_ID),
-              line: idx(LINE_LAYER_ID),
-              handles: idx(HANDLES_LAYER_ID),
-              labels: idx(LABELS_LAYER_ID),
-              beforeId
-            });
-          } catch (_) {}
-        }
-      } catch (_) {}
+    const apply = () => {
+      try { ensureLayersBetweenPermitAreasAndDroppedObjects(map, [FILL_LAYER_ID, PATTERN_LAYER_ID, LINE_LAYER_ID, HANDLES_LAYER_ID, LABELS_LAYER_ID]); } catch (_) {}
     };
-    reorder();
-    try { setTimeout(reorder, 60); } catch (_) {}
-    try { map.on('style.load', reorder); } catch (_) {}
-    try { map.on('idle', reorder); } catch (_) {}
+    apply();
+    try { setTimeout(apply, 60); } catch (_) {}
+    try { map.on('style.load', apply); } catch (_) {}
+    try { map.on('idle', apply); } catch (_) {}
     return () => {
-      try { map.off('style.load', reorder); } catch (_) {}
-      try { map.off('idle', reorder); } catch (_) {}
+      try { map.off('style.load', apply); } catch (_) {}
+      try { map.off('idle', apply); } catch (_) {}
     };
   }, [map, layersInitialized]);
 
@@ -604,91 +604,126 @@ const DroppedRectanglesMapLibre = ({
     updateLabels();
   }, [map, layersInitialized, rects, placeableObjects, updateLabels, dragging, moving]);
 
-  // Click handlers for selection
-  useEffect(() => {
-    if (!map || !layersInitialized) return;
-
-    const handleFillClick = (e) => {
-      if (isPlacementActive) return;
-      
-      // Check if there's a dropped POINT object at this location first (not rectangles)
+  // Centralized handlers used with useMapEvents (must be defined at top-level)
+  const handleFillClick = useCallback((e) => {
+    if (!map || isPlacementActive) return;
+    try {
       const droppedFeatures = map.queryRenderedFeatures(e.point, {
         layers: map.getStyle().layers
           .filter(l => l.id && l.id.startsWith('dropped-objects'))
           .map(l => l.id)
       });
-      
-      if (droppedFeatures.length > 0) {
-        return; // Prioritize dropped point objects
-      }
-
+      if (droppedFeatures.length > 0) return;
       if (e.features && e.features.length > 0) {
         const feature = e.features[0];
         const rectId = feature.properties?.id || feature.id;
         if (rectId && onSelectRect) {
-          // Prevent this click from bubbling to MapContainer's onClick which would clear selection
           e.preventDefault();
-          if (e.originalEvent) {
-            e.originalEvent.stopPropagation();
-          }
+          if (e.originalEvent && typeof e.originalEvent.stopPropagation === 'function') e.originalEvent.stopPropagation();
           onSelectRect(rectId);
         }
       }
-    };
+    } catch (_) {}
+  }, [map, isPlacementActive, onSelectRect]);
 
-    const handleHandleMouseDown = (e) => {
-      if (isPlacementActive || !e.features || e.features.length === 0) return;
-      
+  const handleHandleMouseDown = useCallback((e) => {
+    if (!map || isPlacementActive || !e.features || e.features.length === 0) return;
+    try {
+      // Guard: ignore multi-touch to preserve pinch-zoom/rotate
+      try {
+        const touches = e && e.originalEvent && e.originalEvent.touches;
+        if (touches && touches.length !== 1) return;
+      } catch (_) {}
+
       const feature = e.features[0];
-      const { rectId, handleIndex } = feature.properties;
-      
-      setDragging({
-        rectId,
-        handleIndex,
-        startLngLat: e.lngLat
-      });
-      
+      const { rectId, handleIndex } = feature.properties || {};
+      if (!rectId && !handleIndex && feature.properties?.id != null) {
+        // Fallback: handle features are points with properties
+      }
+      try { map.setFeatureState({ source: SOURCE_ID, id: rectId }, { hidden: true }); } catch (_) {}
+      try {
+        const src = map.getSource(SOURCE_ID);
+        const fc = src?._data;
+        const f = fc?.features?.find(ff => ff.properties?.id === rectId);
+        const mv = map.getSource(MOVE_SOURCE_ID);
+        if (f && mv && mv.setData) mv.setData({ type: 'FeatureCollection', features: [f] });
+      } catch (_) {}
+      setDragging({ rectId, handleIndex, startLngLat: e.lngLat });
       e.preventDefault();
       try { map && map.dragPan && map.dragPan.disable && map.dragPan.disable(); } catch (_) {}
-      map.getCanvas().style.cursor = 'grabbing';
-    };
+      try { map && map.dragRotate && map.dragRotate.disable && map.dragRotate.disable(); } catch (_) {}
+      try { map.getCanvas().style.cursor = 'grabbing'; } catch (_) {}
+    } catch (_) {}
+  }, [map, isPlacementActive]);
 
-    map.on('click', FILL_LAYER_ID, handleFillClick);
-    map.on('click', PATTERN_LAYER_ID, handleFillClick);
-    map.on('mousedown', HANDLES_LAYER_ID, handleHandleMouseDown);
+  const handleFillMouseDownMove = useCallback((e) => {
+    if (!map || !layersInitialized || isPlacementActive || !e.features || e.features.length === 0) return;
+    try {
+      // Guard: ignore multi-touch to preserve pinch-zoom/rotate
+      try {
+        const touches = e && e.originalEvent && e.originalEvent.touches;
+        if (touches && touches.length !== 1) return;
+      } catch (_) {}
 
-    // Cursor changes
-    map.on('mouseenter', FILL_LAYER_ID, () => {
-      if (!isPlacementActive) map.getCanvas().style.cursor = 'pointer';
-    });
-    map.on('mouseleave', FILL_LAYER_ID, () => {
-      if (!dragging && !moving) map.getCanvas().style.cursor = '';
-    });
-    map.on('mouseenter', PATTERN_LAYER_ID, () => {
-      if (!isPlacementActive) map.getCanvas().style.cursor = 'pointer';
-    });
-    map.on('mouseleave', PATTERN_LAYER_ID, () => {
-      if (!dragging && !moving) map.getCanvas().style.cursor = '';
-    });
-    map.on('mouseenter', HANDLES_LAYER_ID, () => {
-      map.getCanvas().style.cursor = 'grab';
-    });
-    map.on('mouseleave', HANDLES_LAYER_ID, () => {
-      if (!dragging) map.getCanvas().style.cursor = '';
-    });
+      const feature = e.features[0];
+      const rectId = feature.properties && feature.properties.id;
+      if (rectId === selectedId) {
+        try { map.setFeatureState({ source: SOURCE_ID, id: rectId }, { hidden: true }); } catch (_) {}
+        try {
+          const src = map.getSource(SOURCE_ID);
+          const fc = src?._data;
+          const f = fc?.features?.find(ff => ff.properties?.id === rectId);
+          const mv = map.getSource(MOVE_SOURCE_ID);
+          if (f && mv && mv.setData) mv.setData({ type: 'FeatureCollection', features: [f] });
+        } catch (_) {}
+        setMoving({ rectId, startLngLat: e.lngLat });
+        e.preventDefault();
+        try { map.getCanvas().style.cursor = 'move'; } catch (_) {}
+      }
+    } catch (_) {}
+  }, [map, layersInitialized, isPlacementActive, selectedId]);
 
+  const onEnterFill = useCallback(() => { try { if (!isPlacementActive) map.getCanvas().style.cursor = 'pointer'; } catch (_) {} }, [map, isPlacementActive]);
+  const onLeaveFill = useCallback(() => { try { if (!dragging && !moving) map.getCanvas().style.cursor = ''; } catch (_) {} }, [map, dragging, moving]);
+  const onEnterPattern = useCallback(() => { try { if (!isPlacementActive) map.getCanvas().style.cursor = 'pointer'; } catch (_) {} }, [map, isPlacementActive]);
+  const onLeavePattern = useCallback(() => { try { if (!dragging && !moving) map.getCanvas().style.cursor = ''; } catch (_) {} }, [map, dragging, moving]);
+  const onEnterHandle = useCallback(() => { try { map.getCanvas().style.cursor = 'grab'; } catch (_) {} }, [map]);
+  const onLeaveHandle = useCallback(() => { try { if (!dragging) map.getCanvas().style.cursor = ''; } catch (_) {} }, [map, dragging]);
+
+  // Attach events manually to avoid any hook ordering issues during isometric toggles
+  useEffect(() => {
+    if (!map || !layersInitialized) return;
+    try { map.on('click', FILL_LAYER_ID, handleFillClick); } catch (_) {}
+    try { map.on('click', PATTERN_LAYER_ID, handleFillClick); } catch (_) {}
+    try { map.on('mousedown', HANDLES_LAYER_ID, handleHandleMouseDown); } catch (_) {}
+    try { map.on('mousedown', FILL_LAYER_ID, handleFillMouseDownMove); } catch (_) {}
+    try { map.on('mousedown', PATTERN_LAYER_ID, handleFillMouseDownMove); } catch (_) {}
+    try { map.on('touchstart', HANDLES_LAYER_ID, handleHandleMouseDown); } catch (_) {}
+    try { map.on('touchstart', FILL_LAYER_ID, handleFillMouseDownMove); } catch (_) {}
+    try { map.on('touchstart', PATTERN_LAYER_ID, handleFillMouseDownMove); } catch (_) {}
+    try { map.on('mouseenter', FILL_LAYER_ID, onEnterFill); } catch (_) {}
+    try { map.on('mouseleave', FILL_LAYER_ID, onLeaveFill); } catch (_) {}
+    try { map.on('mouseenter', PATTERN_LAYER_ID, onEnterPattern); } catch (_) {}
+    try { map.on('mouseleave', PATTERN_LAYER_ID, onLeavePattern); } catch (_) {}
+    try { map.on('mouseenter', HANDLES_LAYER_ID, onEnterHandle); } catch (_) {}
+    try { map.on('mouseleave', HANDLES_LAYER_ID, onLeaveHandle); } catch (_) {}
     return () => {
-      map.off('click', FILL_LAYER_ID, handleFillClick);
-      map.off('click', PATTERN_LAYER_ID, handleFillClick);
-      map.off('mousedown', HANDLES_LAYER_ID, handleHandleMouseDown);
-      map.off('mouseenter', FILL_LAYER_ID);
-      map.off('mouseleave', FILL_LAYER_ID);
-      map.off('mouseenter', PATTERN_LAYER_ID);
-      map.off('mouseleave', PATTERN_LAYER_ID);
-      map.off('mouseenter', HANDLES_LAYER_ID);
-      map.off('mouseleave', HANDLES_LAYER_ID);
+      try { map.off('click', FILL_LAYER_ID, handleFillClick); } catch (_) {}
+      try { map.off('click', PATTERN_LAYER_ID, handleFillClick); } catch (_) {}
+      try { map.off('mousedown', HANDLES_LAYER_ID, handleHandleMouseDown); } catch (_) {}
+      try { map.off('mousedown', FILL_LAYER_ID, handleFillMouseDownMove); } catch (_) {}
+      try { map.off('mousedown', PATTERN_LAYER_ID, handleFillMouseDownMove); } catch (_) {}
+      try { map.off('touchstart', HANDLES_LAYER_ID, handleHandleMouseDown); } catch (_) {}
+      try { map.off('touchstart', FILL_LAYER_ID, handleFillMouseDownMove); } catch (_) {}
+      try { map.off('touchstart', PATTERN_LAYER_ID, handleFillMouseDownMove); } catch (_) {}
+      try { map.off('mouseenter', FILL_LAYER_ID, onEnterFill); } catch (_) {}
+      try { map.off('mouseleave', FILL_LAYER_ID, onLeaveFill); } catch (_) {}
+      try { map.off('mouseenter', PATTERN_LAYER_ID, onEnterPattern); } catch (_) {}
+      try { map.off('mouseleave', PATTERN_LAYER_ID, onLeavePattern); } catch (_) {}
+      try { map.off('mouseenter', HANDLES_LAYER_ID, onEnterHandle); } catch (_) {}
+      try { map.off('mouseleave', HANDLES_LAYER_ID, onLeaveHandle); } catch (_) {}
     };
-  }, [map, layersInitialized, isPlacementActive, onSelectRect, dragging, moving]);
+  }, [map, layersInitialized, handleFillClick, handleHandleMouseDown, handleFillMouseDownMove, onEnterFill, onLeaveFill, onEnterPattern, onLeavePattern, onEnterHandle, onLeaveHandle]);
 
   // Helper: build resized geometry
   const buildResizedGeometry = useCallback((rect, handleIndex, mouseLngLat, constrainToSquare = false) => {
@@ -786,18 +821,94 @@ const DroppedRectanglesMapLibre = ({
       try {
         const pending = pendingResizeRef.current;
         if (!pending || !dragging) { resizeRafRef.current = null; return; }
-        const source = map.getSource(SOURCE_ID);
-        if (source && dataRef.current.fc) {
-          const fc = dataRef.current.fc;
-          const featureIndex = fc.features.findIndex(f => f.properties.id === dragging.rectId);
-          if (featureIndex !== -1) {
-            fc.features[featureIndex] = {
-              ...fc.features[featureIndex],
-              geometry: pending
-            };
-            source.setData(fc);
-          }
+        // Update lightweight moving overlay only
+        const mv = map.getSource(MOVE_SOURCE_ID);
+        if (mv && mv.setData) {
+          let baseProps = {};
+          try {
+            const curFc = dataRef.current.fc;
+            const baseF = curFc?.features?.find(ff => ff?.properties?.id === dragging.rectId);
+            baseProps = (baseF && baseF.properties) || {};
+          } catch (_) {}
+          const f = {
+            type: 'Feature',
+            id: dragging.rectId,
+            geometry: pending,
+            properties: {
+              id: dragging.rectId,
+              fillColor: baseProps.fillColor || '#888888',
+              strokeColor: baseProps.strokeColor || '#111827'
+            }
+          };
+          mv.setData({ type: 'FeatureCollection', features: [f] });
         }
+        // Update handles to match the pending geometry so corner dots move/scale during resize
+        try {
+          const hs = map.getSource(HANDLES_SOURCE_ID);
+          if (hs && typeof hs.setData === 'function') {
+            const ring = Array.isArray(pending?.coordinates?.[0]) ? pending.coordinates[0] : [];
+            const corners = ring.slice(0, 4);
+            const handleFeatures = corners.map((coord, idx) => ({
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: coord },
+              properties: { rectId: dragging.rectId, handleIndex: idx, visible: true }
+            }));
+            hs.setData({ type: 'FeatureCollection', features: handleFeatures });
+          }
+        } catch (_) {}
+        // Update dimension label live to reflect current size during resize
+        try {
+          const lbl = map.getSource(LABELS_SOURCE_ID);
+          if (lbl && typeof lbl.setData === 'function') {
+            const ring = Array.isArray(pending?.coordinates?.[0]) ? pending.coordinates[0] : [];
+            if (ring.length >= 4) {
+              const rect = rectsRef.current.find(r => r.id === dragging.rectId);
+              const type = placeableObjects.find(p => p.id === rect?.type);
+              const centroid = [
+                (ring[0][0] + ring[2][0]) / 2,
+                (ring[0][1] + ring[2][1]) / 2
+              ];
+              // Broadcast centroid for external UI (e.g., Edit / ✕ popup)
+              try {
+                const pt = map.project(centroid);
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('rect:ui:centroid', { detail: { id: dragging.rectId, x: pt.x, y: pt.y } }));
+                }
+              } catch (_) {}
+              // Great-circle distance helper (meters)
+              const dist = (p, q) => {
+                const R = 6378137;
+                const toRad = (d) => d * Math.PI / 180;
+                const dLat = toRad(q[1] - p[1]);
+                const dLon = toRad(q[0] - p[0]);
+                const lat1 = toRad(p[1]);
+                const lat2 = toRad(q[1]);
+                const s = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+                return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+              };
+              const wMeters = dist(ring[0], ring[1]);
+              const hMeters = dist(ring[1], ring[2]);
+              let label = type?.name || 'Rectangle';
+              try {
+                if (type?.units === 'ft') {
+                  const wFt = Math.round(wMeters * 3.28084);
+                  const hFt = Math.round(hMeters * 3.28084);
+                  label = `${type?.name || 'Rectangle'} ${wFt} ft × ${hFt} ft`;
+                } else {
+                  label = `${type?.name || 'Rectangle'} ${wMeters.toFixed(1)} m × ${hMeters.toFixed(1)} m`;
+                }
+              } catch (_) {}
+              const newFeat = { type: 'Feature', geometry: { type: 'Point', coordinates: centroid }, properties: { label, rectId: dragging.rectId } };
+              const cur = lbl._data;
+              let nextFeatures = [];
+              if (cur && Array.isArray(cur.features)) {
+                nextFeatures = cur.features.filter(f => f && f.properties && f.properties.rectId !== dragging.rectId);
+              }
+              nextFeatures.push(newFeat);
+              lbl.setData({ type: 'FeatureCollection', features: nextFeatures });
+            }
+          }
+        } catch (_) {}
         resizeRafRef.current = requestAnimationFrame(tick);
       } catch (_) { resizeRafRef.current = null; }
     };
@@ -810,6 +921,19 @@ const DroppedRectanglesMapLibre = ({
       const constrainToSquare = e.originalEvent?.shiftKey || false;
       const newGeom = buildResizedGeometry(rect, dragging.handleIndex, e.lngLat, constrainToSquare);
       if (!newGeom) return;
+      // Skip tiny pixel delta updates to reduce churn
+      try {
+        const cur = dataRef.current.fc?.features?.find(f => f.properties?.id === dragging.rectId)?.geometry;
+        const curP = Array.isArray(cur?.coordinates?.[0]) ? cur.coordinates[0][0] : null;
+        const newP = Array.isArray(newGeom.coordinates?.[0]) ? newGeom.coordinates[0][0] : null;
+        if (curP && newP) {
+          const a = map.project(curP);
+          const b = map.project(newP);
+          const dx = Math.abs(a.x - b.x);
+          const dy = Math.abs(a.y - b.y);
+          if (dx < 1 && dy < 1) return;
+        }
+      } catch (_) {}
       pendingResizeRef.current = newGeom;
       ensureTick();
     };
@@ -818,24 +942,47 @@ const DroppedRectanglesMapLibre = ({
       // Apply final update through React for state sync (silent mode - no trigger increment)
       const rect = rectsRef.current.find(r => r.id === dragging.rectId);
       if (rect && onResizeRect) {
-        const source = map.getSource(SOURCE_ID);
-        const fc = source?._data;
-        const feature = fc?.features?.find(f => f.properties.id === dragging.rectId);
-        if (feature?.geometry) {
-          onResizeRect(dragging.rectId, feature.geometry);
+        let finalGeom = pendingResizeRef.current || null;
+        try {
+          if (!finalGeom) {
+            // Fall back to the moving overlay source, which reflects the latest geometry
+            const mv = map.getSource(MOVE_SOURCE_ID);
+            const fcMv = mv?._data;
+            const featMv = fcMv?.features?.find(f => (f.id === dragging.rectId) || (f.properties && f.properties.id === dragging.rectId));
+            if (featMv && featMv.geometry) finalGeom = featMv.geometry;
+          }
+        } catch (_) {}
+        try {
+          if (!finalGeom) {
+            // Last resort: compute once more from current mouse position by projecting back to rect center
+            // (If no movement occurred, this will be null and we skip update)
+          }
+        } catch (_) {}
+        if (finalGeom) {
+          onResizeRect(dragging.rectId, finalGeom);
         }
       }
+      // Unhide base feature
+      try { map.setFeatureState({ source: SOURCE_ID, id: dragging.rectId }, { hidden: false }); } catch (_) {}
+      try { const s = map.getSource(MOVE_SOURCE_ID); if (s && s.setData) s.setData({ type: 'FeatureCollection', features: [] }); } catch (_) {}
       setDragging(null);
       map.getCanvas().style.cursor = '';
       try { if (resizeRafRef.current) cancelAnimationFrame(resizeRafRef.current); } catch (_) {}
       resizeRafRef.current = null;
       pendingResizeRef.current = null;
       try { map && map.dragPan && map.dragPan.enable && map.dragPan.enable(); } catch (_) {}
+      try { map && map.dragRotate && map.dragRotate.enable && map.dragRotate.enable(); } catch (_) {}
+      try { map && map.dragPan && map.dragPan.enable && map.dragPan.enable(); } catch (_) {}
+      try { map && map.dragRotate && map.dragRotate.enable && map.dragRotate.enable(); } catch (_) {}
       // Handles and labels will update via normal effect cycle when dragging state changes
+      try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('rect:ui:centroid-end', { detail: { id: dragging.rectId } })); } catch (_) {}
     };
 
     map.on('mousemove', handleMouseMove);
     map.on('mouseup', handleMouseUp);
+    // Touch parity: allow single-finger drag, don't interfere with pinch (multi-touch guarded at start)
+    map.on('touchmove', handleMouseMove);
+    map.on('touchend', handleMouseUp);
 
     return () => {
       try { if (resizeRafRef.current) cancelAnimationFrame(resizeRafRef.current); } catch (_) {}
@@ -843,6 +990,8 @@ const DroppedRectanglesMapLibre = ({
       pendingResizeRef.current = null;
       map.off('mousemove', handleMouseMove);
       map.off('mouseup', handleMouseUp);
+      map.off('touchmove', handleMouseMove);
+      map.off('touchend', handleMouseUp);
     };
   }, [map, dragging, onResizeRect, buildResizedGeometry]);
 
@@ -854,18 +1003,79 @@ const DroppedRectanglesMapLibre = ({
       try {
         const pending = pendingMoveRef.current;
         if (!pending || !moving) { moveRafRef.current = null; return; }
-        const source = map.getSource(SOURCE_ID);
-        if (source && dataRef.current.fc) {
-          const fc = dataRef.current.fc;
-          const featureIndex = fc.features.findIndex(f => f.properties.id === moving.rectId);
-          if (featureIndex !== -1) {
-            fc.features[featureIndex] = {
-              ...fc.features[featureIndex],
-              geometry: pending
-            };
-            source.setData(fc);
-          }
+        // Update lightweight moving overlay only
+        const mv = map.getSource(MOVE_SOURCE_ID);
+        if (mv && mv.setData) {
+          let baseProps = {};
+          try {
+            const curFc = dataRef.current.fc;
+            const baseF = curFc?.features?.find(ff => ff?.properties?.id === moving.rectId);
+            baseProps = (baseF && baseF.properties) || {};
+          } catch (_) {}
+          const f = {
+            type: 'Feature',
+            id: moving.rectId,
+            geometry: pending,
+            properties: {
+              id: moving.rectId,
+              fillColor: baseProps.fillColor || '#888888',
+              strokeColor: baseProps.strokeColor || '#111827'
+            }
+          };
+          mv.setData({ type: 'FeatureCollection', features: [f] });
         }
+        // Update handles to match the pending moved geometry so corner dots follow during move
+        try {
+          const hs = map.getSource(HANDLES_SOURCE_ID);
+          if (hs && typeof hs.setData === 'function') {
+            const ring = Array.isArray(pending?.coordinates?.[0]) ? pending.coordinates[0] : [];
+            const corners = ring.slice(0, 4);
+            const handleFeatures = corners.map((coord, idx) => ({
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: coord },
+              properties: { rectId: moving.rectId, handleIndex: idx, visible: true }
+            }));
+            hs.setData({ type: 'FeatureCollection', features: handleFeatures });
+          }
+        } catch (_) {}
+        // Update label position (centroid) during move, preserving existing text
+        try {
+          const lbl = map.getSource(LABELS_SOURCE_ID);
+          if (lbl && typeof lbl.setData === 'function') {
+            const ring = Array.isArray(pending?.coordinates?.[0]) ? pending.coordinates[0] : [];
+            if (ring.length >= 4) {
+              const centroid = [
+                (ring[0][0] + ring[2][0]) / 2,
+                (ring[0][1] + ring[2][1]) / 2
+              ];
+              // Broadcast centroid for external UI (e.g., Edit / ✕ popup)
+              try {
+                const pt = map.project(centroid);
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('rect:ui:centroid', { detail: { id: moving.rectId, x: pt.x, y: pt.y } }));
+                }
+              } catch (_) {}
+              // Try to reuse existing label text for this rect
+              const cur = lbl._data;
+              let nextFeatures = [];
+              let existingLabel = null;
+              if (cur && Array.isArray(cur.features)) {
+                nextFeatures = cur.features.filter(f => f && f.properties && f.properties.rectId !== moving.rectId);
+                const prev = cur.features.find(f => f && f.properties && f.properties.rectId === moving.rectId);
+                existingLabel = prev && prev.properties && prev.properties.label;
+              }
+              // Fallback to recomputing a simple label if missing
+              if (!existingLabel) {
+                const rectObj = rectsRef.current.find(r => r.id === moving.rectId);
+                const type = placeableObjects.find(p => p.id === rectObj?.type);
+                existingLabel = type?.name || 'Rectangle';
+              }
+              const newFeat = { type: 'Feature', geometry: { type: 'Point', coordinates: centroid }, properties: { label: existingLabel, rectId: moving.rectId } };
+              nextFeatures.push(newFeat);
+              lbl.setData({ type: 'FeatureCollection', features: nextFeatures });
+            }
+          }
+        } catch (_) {}
         moveRafRef.current = requestAnimationFrame(tick);
       } catch (_) { moveRafRef.current = null; }
     };
@@ -876,6 +1086,19 @@ const DroppedRectanglesMapLibre = ({
       if (!rect) return;
       const newGeom = buildMovedGeometry(rect, moving.startLngLat, e.lngLat);
       if (!newGeom) return;
+      // Skip tiny pixel delta updates to reduce churn
+      try {
+        const cur = dataRef.current.fc?.features?.find(f => f.properties?.id === moving.rectId)?.geometry;
+        const curP = Array.isArray(cur?.coordinates?.[0]) ? cur.coordinates[0][0] : null;
+        const newP = Array.isArray(newGeom.coordinates?.[0]) ? newGeom.coordinates[0][0] : null;
+        if (curP && newP) {
+          const a = map.project(curP);
+          const b = map.project(newP);
+          const dx = Math.abs(a.x - b.x);
+          const dy = Math.abs(a.y - b.y);
+          if (dx < 1 && dy < 1) return;
+        }
+      } catch (_) {}
       pendingMoveRef.current = newGeom;
       ensureTick();
     };
@@ -884,23 +1107,35 @@ const DroppedRectanglesMapLibre = ({
       // Apply final update through React for state sync (silent mode - no trigger increment)
       const rect = rectsRef.current.find(r => r.id === moving.rectId);
       if (rect && onMoveRect) {
-        const source = map.getSource(SOURCE_ID);
-        const fc = source?._data;
-        const feature = fc?.features?.find(f => f.properties.id === moving.rectId);
-        if (feature?.geometry) {
-          onMoveRect(moving.rectId, feature.geometry);
+        let finalGeom = pendingMoveRef.current || null;
+        try {
+          if (!finalGeom) {
+            const mv = map.getSource(MOVE_SOURCE_ID);
+            const fcMv = mv?._data;
+            const featMv = fcMv?.features?.find(f => (f.id === moving.rectId) || (f.properties && f.properties.id === moving.rectId));
+            if (featMv && featMv.geometry) finalGeom = featMv.geometry;
+          }
+        } catch (_) {}
+        if (finalGeom) {
+          onMoveRect(moving.rectId, finalGeom);
         }
       }
+      try { map.setFeatureState({ source: SOURCE_ID, id: moving.rectId }, { hidden: false }); } catch (_) {}
+      try { const s = map.getSource(MOVE_SOURCE_ID); if (s && s.setData) s.setData({ type: 'FeatureCollection', features: [] }); } catch (_) {}
       setMoving(null);
       map.getCanvas().style.cursor = '';
       try { if (moveRafRef.current) cancelAnimationFrame(moveRafRef.current); } catch (_) {}
       moveRafRef.current = null;
       pendingMoveRef.current = null;
       // Handles and labels will update via normal effect cycle when moving state changes
+      try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('rect:ui:centroid-end', { detail: { id: moving.rectId } })); } catch (_) {}
     };
 
     map.on('mousemove', handleMouseMove);
     map.on('mouseup', handleMouseUp);
+    // Touch parity for move
+    map.on('touchmove', handleMouseMove);
+    map.on('touchend', handleMouseUp);
 
     return () => {
       try { if (moveRafRef.current) cancelAnimationFrame(moveRafRef.current); } catch (_) {}
@@ -908,6 +1143,8 @@ const DroppedRectanglesMapLibre = ({
       pendingMoveRef.current = null;
       map.off('mousemove', handleMouseMove);
       map.off('mouseup', handleMouseUp);
+      map.off('touchmove', handleMouseMove);
+      map.off('touchend', handleMouseUp);
     };
   }, [map, moving, onMoveRect, buildMovedGeometry]);
 
@@ -923,36 +1160,7 @@ const DroppedRectanglesMapLibre = ({
     };
   }, [map, dragging, moving]);
 
-  // Move drag initiation (on fill layer, when selected)
-  useEffect(() => {
-    if (!map || !layersInitialized) return;
-
-    const handleFillMouseDown = (e) => {
-      if (isPlacementActive || !e.features || e.features.length === 0) return;
-      
-      const feature = e.features[0];
-      const rectId = feature.properties.id;
-      
-      // Only allow move if this rectangle is already selected
-      if (rectId === selectedId) {
-        setMoving({
-          rectId,
-          startLngLat: e.lngLat
-        });
-        
-        e.preventDefault();
-        map.getCanvas().style.cursor = 'move';
-      }
-    };
-
-    map.on('mousedown', FILL_LAYER_ID, handleFillMouseDown);
-    map.on('mousedown', PATTERN_LAYER_ID, handleFillMouseDown);
-
-    return () => {
-      map.off('mousedown', FILL_LAYER_ID, handleFillMouseDown);
-      map.off('mousedown', PATTERN_LAYER_ID, handleFillMouseDown);
-    };
-  }, [map, layersInitialized, isPlacementActive, selectedId]);
+  // Move drag initiation migrated to useMapEvents via handleFillMouseDownMove
 
   return null; // Pure MapLibre layer component, no DOM
 };

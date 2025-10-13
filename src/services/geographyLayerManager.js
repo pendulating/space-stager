@@ -226,10 +226,35 @@ export function unload(map, idPrefix) {
     `${idPrefix}-outline`,
     `${idPrefix}-fill`,
     `${idPrefix}-focused-points`,
-    `${idPrefix}-points`
+    `${idPrefix}-points`,
+    // Hover outline is created dynamically in usePermitAreas for polygon modes
+    `${idPrefix}-hover-outline`
   ];
+  // Best-effort: clear any feature-state for this source before removing it
+  try { clearAllFeatureState(map, idPrefix); } catch (_) {}
+  // Remove known layers safely
   layerIds.forEach(id => { try { if (map.getLayer(id)) map.removeLayer(id); } catch (_) {} });
+  // Remove any auxiliary highlight layer that may reference this source
+  try { if (map.getLayer('permit-areas-overlap-highlight')) map.removeLayer('permit-areas-overlap-highlight'); } catch (_) {}
+  // Finally remove the source
   try { if (map.getSource(idPrefix)) map.removeSource(idPrefix); } catch (_) {}
+}
+
+/**
+ * Clear all feature-state associated with a geography source.
+ * This prevents unbounded accumulation of per-feature state (e.g., hover progress).
+ *
+ * @param {import('maplibre-gl').Map} map
+ * @param {string} idPrefix
+ */
+export function clearAllFeatureState(map, idPrefix) {
+  if (!map) return;
+  try {
+    if (typeof map.removeFeatureState === 'function') {
+      // Clear all feature-state for the GeoJSON source
+      map.removeFeatureState({ source: idPrefix });
+    }
+  } catch (_) {}
 }
 
 

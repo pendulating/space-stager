@@ -91,11 +91,11 @@ const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects, map
 
     return {
       position: 'absolute',
-      left: cursorPosition.x,
-      top: cursorPosition.y,
+      left: 0,
+      top: 0,
       width: iconSize,
       height: iconSize,
-      transform: 'translate(-50%, -50%)',
+      transform: `translate(${cursorPosition.x}px, ${cursorPosition.y}px) translate(-50%, -50%)`,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
@@ -105,7 +105,8 @@ const PlacementPreview = ({ placementMode, cursorPosition, placeableObjects, map
       borderRadius: '50%',
       border: '1px solid rgba(0,0,0,0.1)',
       opacity: 0.6,
-      transformOrigin: 'center center'
+      transformOrigin: 'center center',
+      willChange: 'transform'
     };
   }, [placementMode, cursorPosition, objectType]);
 

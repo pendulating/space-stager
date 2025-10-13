@@ -487,7 +487,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     } catch (_) {}
     // In 2D mode, bearing changes don't require data rebuild (icon-rotate with 'map' alignment handles it)
     // In isometric mode, bearing changes DO require different sprites (perspective changes)
-  }, [map, layers, infrastructureData, ...(view?.viewType === 'top-down' ? [] : [view?.bearing]), view?.viewType, view?.pitch, focusedArea]);
+  }, [map, layers, infrastructureData, view?.bearing, view?.viewType, view?.pitch, focusedArea]);
 
   // Add infrastructure layer to map - move this before loadInfrastructureLayer
   const addInfrastructureLayerToMap = useCallback((layerId, data) => {

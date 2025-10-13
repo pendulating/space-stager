@@ -67,6 +67,7 @@ const MapContainer = forwardRef(({
   const [dimensionsEditingObject, setDimensionsEditingObject] = useState(null);
   const [textEditorFeatureId, setTextEditorFeatureId] = useState(null);
   const [annotationsTrigger, setAnnotationsTrigger] = useState(0);
+  const [rectMovingId, setRectMovingId] = useState(null);
   const subFocusArmedRef = useRef(false);
   const derivedSourceId = 'annotations-derived';
   const arrowIconId = 'annotation-arrowhead';
@@ -123,6 +124,25 @@ const MapContainer = forwardRef(({
     };
     window.addEventListener('ui:open-text-editor', onOpenText);
     return () => window.removeEventListener('annotations:changed', bump);
+  }, []);
+
+  // Hide the rectangle Edit/✕ popup while a rectangle is being dragged/resized
+  useEffect(() => {
+    const onRectMoveTick = (e) => {
+      try {
+        const id = e && e.detail && e.detail.id;
+        if (id) setRectMovingId(id);
+        // Close any annotation popup immediately so it doesn't trail the rect
+        try { if (annotationPopupRef.current) { annotationPopupRef.current.remove(); annotationPopupRef.current = null; } } catch (_) {}
+      } catch (_) {}
+    };
+    const onRectMoveEnd = () => { try { setRectMovingId(null); } catch (_) {} };
+    try { window.addEventListener('rect:ui:centroid', onRectMoveTick); } catch (_) {}
+    try { window.addEventListener('rect:ui:centroid-end', onRectMoveEnd); } catch (_) {}
+    return () => {
+      try { window.removeEventListener('rect:ui:centroid', onRectMoveTick); } catch (_) {}
+      try { window.removeEventListener('rect:ui:centroid-end', onRectMoveEnd); } catch (_) {}
+    };
   }, []);
 
   // Listen for sub-focus arming/disarming events
@@ -1077,6 +1097,38 @@ const MapContainer = forwardRef(({
     setSelectedPointId: (id) => select(id, 'point')
   });
 
+  // Clear selection when clicking off dropped objects and rectangles
+  useEffect(() => {
+    if (!map) return;
+    const onBackgroundClick = (e) => {
+      try {
+        if (placementMode) return;
+        // If another handler consumed this click, don't clear
+        try {
+          if (e && (e.defaultPrevented || (e.originalEvent && e.originalEvent.defaultPrevented))) return;
+        } catch (_) {}
+
+        const layerIds = [];
+        try { if (map.getLayer && map.getLayer('dropped-objects-symbol')) layerIds.push('dropped-objects-symbol'); } catch (_) {}
+        try { if (map.getLayer && map.getLayer('dropped-objects-circle')) layerIds.push('dropped-objects-circle'); } catch (_) {}
+        try { if (map.getLayer && map.getLayer('dropped-objects-selected')) layerIds.push('dropped-objects-selected'); } catch (_) {}
+        try { if (map.getLayer && map.getLayer('dropped-rectangles-fill')) layerIds.push('dropped-rectangles-fill'); } catch (_) {}
+        try { if (map.getLayer && map.getLayer('dropped-rectangles-pattern')) layerIds.push('dropped-rectangles-pattern'); } catch (_) {}
+        try { if (map.getLayer && map.getLayer('dropped-rectangles-line')) layerIds.push('dropped-rectangles-line'); } catch (_) {}
+        try { if (map.getLayer && map.getLayer('dropped-rectangles-handles')) layerIds.push('dropped-rectangles-handles'); } catch (_) {}
+
+        const hits = (map.queryRenderedFeatures && typeof e?.point !== 'undefined')
+          ? map.queryRenderedFeatures(e.point, { layers: layerIds })
+          : [];
+        if (!hits || hits.length === 0) {
+          clearSelection();
+        }
+      } catch (_) {}
+    };
+    try { map.on('click', onBackgroundClick); } catch (_) {}
+    return () => { try { map.off('click', onBackgroundClick); } catch (_) {} };
+  }, [map, placementMode, clearSelection]);
+
   // Keyboard handler for dimensions editor (press 'D' when rectangle is selected)
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -1224,10 +1276,17 @@ const MapContainer = forwardRef(({
         </button>
       </div>
       
+      {/* Map root container (receives MapLibre canvas) */}
       <div 
-        ref={ref} 
-        className={`absolute inset-0 ${placementMode ? 'cursor-crosshair' : ''}`}
+        ref={ref}
+        className="absolute inset-0"
         style={{ width: '100%', height: '100%' }}
+      />
+
+      {/* Placement/interaction overlay above the map (only active during placement) */}
+      <div 
+        className={`absolute inset-0 ${placementMode ? 'cursor-crosshair' : ''}`}
+        style={{ width: '100%', height: '100%', pointerEvents: placementMode ? 'auto' : 'none' }}
         onMouseMove={handleMapMouseMove}
         onClick={(e) => {
           try {
@@ -1467,7 +1526,7 @@ const MapContainer = forwardRef(({
       )}
       {/* MapLibre-based rectangle rendering for proper z-ordering */}
       {/* Rectangle action buttons overlay (edit dimensions, delete) - updates with map view */}
-      {selectedKind === 'rect' && selectedObjectId && map && (() => {
+      {selectedKind === 'rect' && selectedObjectId && map && rectMovingId !== selectedObjectId && (() => {
         const rect = droppedObjects.find(o => o.id === selectedObjectId);
         if (!rect || !rect.geometry?.coordinates?.[0] || rect.geometry.coordinates[0].length < 4) return null;
         

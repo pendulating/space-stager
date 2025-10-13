@@ -63,6 +63,10 @@ const DROPPED_SYMBOL_LAYER_ID = 'dropped-objects-symbol';
 const DROPPED_CIRCLE_LAYER_ID = 'dropped-objects-circle';
 const DROPPED_SELECTED_LAYER_ID = 'dropped-objects-selected';
 const DROPPED_HOVERED_LAYER_ID = 'dropped-objects-hovered';
+const DROPPED_DRAG_SOURCE_ID = 'dropped-objects-drag';
+const DROPPED_DRAG_LAYER_ID = 'dropped-objects-drag';
+const DROPPED_SELECTED_DRAG_LAYER_ID = 'dropped-objects-selected-drag';
+
 
 const DroppedObjects = ({ 
   objects = [],
@@ -94,6 +98,7 @@ const DroppedObjects = ({
   // RAF-driven drag updater to avoid spamming setData beyond screen refresh rate
   const rafIdRef = React.useRef(null);
   const pendingDragRef = React.useRef(null); // { id, lng, lat }
+  const pointDraggingRef = React.useRef(false);
   const ensurePopup = () => {
     if (popupRef.current) return popupRef.current;
     try {
@@ -254,11 +259,13 @@ const DroppedObjects = ({
     })();
     // In 2D mode, bearing changes don't require sprite reloads (we use angle 0 + CSS rotation)
     // In isometric mode, bearing changes DO require different sprites (perspective changes)
-  }, [map, objects, placeableObjects, view?.viewType, ...(view?.viewType === 'top-down' ? [] : [view?.bearing]), areaBearingDeg]);
+  }, [map, objects, placeableObjects, view?.viewType, view?.bearing, areaBearingDeg]);
 
   // Build and set GeoJSON data for dropped objects (define before effects that use it)
   const rebuildDroppedData = useCallback(() => {
     if (!map) return;
+    // Skip rebuilds while actively dragging a point to reduce jank
+    if (pointDraggingRef.current) return;
     const src = (map && typeof map.getSource === 'function') ? map.getSource(DROPPED_SOURCE_ID) : null;
     if (!src || typeof src.setData !== 'function') return;
     try {
@@ -349,7 +356,7 @@ const DroppedObjects = ({
     } catch (_) {}
     // In 2D mode, bearing changes are handled via expression in icon-rotate (no rebuild needed)
     // In isometric mode, bearing changes require different sprites (rebuild needed)
-  }, [map, objects, placeableObjects, view?.viewType, ...(view?.viewType === 'top-down' ? [] : [view?.bearing]), areaBearingDeg]);
+  }, [map, objects, placeableObjects, view?.viewType, view?.bearing, areaBearingDeg]);
 
   // After import rehydration finishes, rebuild once to ensure icons match snapped camera
   useEffect(() => {
@@ -371,7 +378,7 @@ const DroppedObjects = ({
           if (typeof map.isStyleLoaded === 'function' && !map.isStyleLoaded()) return;
         } catch (_) { return; }
         if (!map.getSource(DROPPED_SOURCE_ID)) {
-          map.addSource(DROPPED_SOURCE_ID, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+          map.addSource(DROPPED_SOURCE_ID, { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, promoteId: 'id' });
         }
         // Ensure a default placeholder icon exists to avoid flicker while images load
         try {
@@ -421,8 +428,12 @@ const DroppedObjects = ({
               ]
             },
             paint: {
-              // Only show icon when property present; otherwise 0 so circle fallback shows
-              'icon-opacity': ['case', ['has', 'icon_image'], 1, 0]
+              // Hide when feature-state hidden=true (during drag), else show when icon present
+              'icon-opacity': [
+                'case',
+                ['boolean', ['feature-state', 'hidden'], false], 0,
+                ['case', ['has', 'icon_image'], 1, 0]
+              ]
             }
           });
         }
@@ -450,15 +461,27 @@ const DroppedObjects = ({
             source: DROPPED_SOURCE_ID,
             filter: ['==', ['get', 'id'], ''],
             paint: {
-              'circle-color': 'rgba(0,0,0,0)',
-              // Fixed, highly visible ring across zooms
+              'circle-color': 'rgba(37,99,235,0.20)',
               'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 18, 18, 28],
               'circle-stroke-color': '#2563eb',
-              'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 12, 2, 18, 3],
-              'circle-stroke-opacity': 1
+              'circle-stroke-width': 2,
+              // Hide base ring while hidden during drag
+              'circle-opacity': [
+                'case',
+                ['boolean', ['feature-state', 'hidden'], false], 0,
+                1
+              ]
             }
           });
         }
+        // Enforce selection ring opacity rule even if layer already existed
+        try {
+          map.setPaintProperty(
+            DROPPED_SELECTED_LAYER_ID,
+            'circle-opacity',
+            ['case', ['boolean', ['feature-state', 'hidden'], false], 0, 1]
+          );
+        } catch (_) {}
         if (!map.getLayer(DROPPED_HOVERED_LAYER_ID)) {
           map.addLayer({
             id: DROPPED_HOVERED_LAYER_ID,
@@ -488,20 +511,7 @@ const DroppedObjects = ({
         // Revert to existing anchor/offset defaults
         try { map.setLayoutProperty(DROPPED_SYMBOL_LAYER_ID, 'icon-anchor', 'center'); } catch (_) {}
         try { map.setLayoutProperty(DROPPED_SYMBOL_LAYER_ID, 'icon-offset', [0, 0]); } catch (_) {}
-        if (!map.getLayer(DROPPED_SELECTED_LAYER_ID)) {
-          map.addLayer({
-            id: DROPPED_SELECTED_LAYER_ID,
-            type: 'circle',
-            source: DROPPED_SOURCE_ID,
-            filter: ['==', ['get', 'id'], ''],
-            paint: {
-              'circle-color': 'rgba(37,99,235,0.20)',
-              'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 18, 18, 28],
-              'circle-stroke-color': '#2563eb',
-              'circle-stroke-width': 2
-            }
-          });
-        }
+        // Selected layer already added above
         // Enforce z-order: circle below symbol, selected above all
         // Move to top of layer stack (no beforeId = top)
         try {
@@ -511,24 +521,44 @@ const DroppedObjects = ({
             map.moveLayer(DROPPED_CIRCLE_LAYER_ID, DROPPED_SYMBOL_LAYER_ID);
           }
         } catch (_) {}
-        try { if (map.getLayer && map.getLayer(DROPPED_SYMBOL_LAYER_ID)) map.moveLayer(DROPPED_SYMBOL_LAYER_ID); } catch (_) {}  // Move symbol to top
+        try { if (map.getLayer && map.getLayer(DROPPED_SYMBOL_LAYER_ID)) map.moveLayer(DROPPED_SYMBOL_LAYER_ID); } catch (_) {}
         try { if (map.getLayer && map.getLayer(DROPPED_SELECTED_LAYER_ID)) map.moveLayer(DROPPED_SELECTED_LAYER_ID); } catch (_) {}
         try { if (map.getLayer && map.getLayer(DROPPED_HOVERED_LAYER_ID)) map.moveLayer(DROPPED_HOVERED_LAYER_ID); } catch (_) {}
-        // Repeat shortly after to win races with late-added layers (draw/infrastructure)
-        setTimeout(() => {
-          try {
-            const hasCircle = !!(map.getLayer && map.getLayer(DROPPED_CIRCLE_LAYER_ID));
-            const hasSymbol = !!(map.getLayer && map.getLayer(DROPPED_SYMBOL_LAYER_ID));
-            if (hasCircle && hasSymbol) {
-              map.moveLayer(DROPPED_CIRCLE_LAYER_ID, DROPPED_SYMBOL_LAYER_ID);
-            }
-          } catch (_) {}
-          try { if (map.getLayer && map.getLayer(DROPPED_SYMBOL_LAYER_ID)) map.moveLayer(DROPPED_SYMBOL_LAYER_ID); } catch (_) {}  // Move symbol to top
-          try { if (map.getLayer && map.getLayer(DROPPED_SELECTED_LAYER_ID)) map.moveLayer(DROPPED_SELECTED_LAYER_ID); } catch (_) {}
-          try { if (map.getLayer && map.getLayer(DROPPED_HOVERED_LAYER_ID)) map.moveLayer(DROPPED_HOVERED_LAYER_ID); } catch (_) {}
-        }, 50);
         // After ensuring layers, push current data (defer to rebuild)
         try { setTimeout(() => { try { rebuildDroppedData(); } catch (_) {} }, 0); } catch (_) {}
+
+        // Ensure lightweight drag overlay (single feature) exists above symbols
+        try {
+          if (!map.getSource(DROPPED_DRAG_SOURCE_ID)) {
+            map.addSource(DROPPED_DRAG_SOURCE_ID, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+          }
+          if (!map.getLayer(DROPPED_DRAG_LAYER_ID)) {
+            map.addLayer({
+              id: DROPPED_DRAG_LAYER_ID,
+              type: 'symbol',
+              source: DROPPED_DRAG_SOURCE_ID,
+              layout: {
+                'icon-image': ['coalesce', ['get', 'icon_image'], 'default-placeholder'],
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true,
+                'icon-anchor': 'center',
+                'icon-rotation-alignment': 'viewport',
+                'icon-pitch-alignment': 'viewport',
+                'icon-rotate': ['coalesce', ['get', 'icon_rotate'], 0],
+                'icon-size': [
+                  'interpolate', ['linear'], ['zoom'],
+                  12, ['/', ['*', ['coalesce', ['get','baseSize'], 24], 0.54], 512],
+                  18, ['/', ['*', ['coalesce', ['get','baseSize'], 24], 1.44], 512]
+                ]
+              },
+              paint: { 'icon-opacity': 1 }
+            });
+            try { map.moveLayer(DROPPED_DRAG_LAYER_ID); } catch (_) {}
+          }
+          // Ensure a selection ring that follows the drag overlay
+          // Remove any previous selected-drag layer to avoid double rings; we will rely on base ring following via setData
+          try { if (map.getLayer(DROPPED_SELECTED_DRAG_LAYER_ID)) map.removeLayer(DROPPED_SELECTED_DRAG_LAYER_ID); } catch (_) {}
+        } catch (_) {}
       } catch (_) {}
     };
     const styleReady = (() => {
@@ -551,6 +581,7 @@ const DroppedObjects = ({
   // Continuous rotation update for 2D mode: listen to 'rotate' event for real-time updates
   useEffect(() => {
     if (!map || view?.viewType !== 'top-down') return;
+    if (pointDraggingRef.current) return;
     
     const onRotate = () => {
       const src = (map && typeof map.getSource === 'function') ? map.getSource(DROPPED_SOURCE_ID) : null;
@@ -582,7 +613,7 @@ const DroppedObjects = ({
     // Rebuild when view type changes or area orientation changes
     // In isometric mode, also rebuild on bearing changes (for different sprite angles)
     rebuildDroppedData();
-  }, [view?.viewType, ...(view?.viewType === 'top-down' ? [] : [view?.bearing]), areaBearingDeg]);
+  }, [view?.viewType, view?.bearing, areaBearingDeg]);
 
   // Register on-demand missing image handler to load sprites if requested by style before preloading finishes
   useEffect(() => {
@@ -636,6 +667,7 @@ const DroppedObjects = ({
     try {
       const filter = selectedId ? ['==', ['get', 'id'], selectedId] : ['==', ['get', 'id'], '__none__'];
       if (map.getLayer(DROPPED_SELECTED_LAYER_ID)) map.setFilter(DROPPED_SELECTED_LAYER_ID, filter);
+      if (map.getLayer(DROPPED_SELECTED_DRAG_LAYER_ID)) map.setFilter(DROPPED_SELECTED_DRAG_LAYER_ID, filter);
     } catch (_) {}
   }, [map, selectedId]);
 
@@ -772,34 +804,72 @@ const DroppedObjects = ({
       const f = e?.features?.[0];
       const id = f?.properties?.id;
       if (!id || !onMoveRef.current) return;
-      // Only allow dragging when the object is selected, or was just armed by a click
-      const canDrag = (selectedId && id === selectedId) || dragArmedIdRef.current === id;
-      if (!canDrag) return;
+      // Allow immediate drag without requiring prior selection/arming
+      // (still supports selected/armed paths as before)
       // Clear arming now that dragging begins
       dragArmedIdRef.current = null;
       // Close any open action popup on drag start
       try { if (popupRef.current) popupRef.current.remove(); } catch (_) {}
       e.preventDefault && e.preventDefault();
+      // Prevent map panning/rotate while dragging a point
       try { map && map.dragPan && map.dragPan.disable && map.dragPan.disable(); } catch (_) {}
+      try { map && map.dragRotate && map.dragRotate.disable && map.dragRotate.disable(); } catch (_) {}
+      try { map && map.dragPan && map.dragPan.disable && map.dragPan.disable(); } catch (_) {}
+      try { const c = map && map.getCanvas && map.getCanvas(); if (c) c.style.willChange = 'transform'; } catch (_) {}
       let moving = true;
-      const container = map && map.getContainer ? map.getContainer() : null;
+      const container = map && (map.getCanvasContainer ? map.getCanvasContainer() : (map.getContainer ? map.getContainer() : null));
       const rect = container && container.getBoundingClientRect ? container.getBoundingClientRect() : { left: 0, top: 0 };
 
-      // Per-frame updater to apply latest pending coords to the source only once per RAF tick
+      // Hide base feature and seed drag overlay with a copy
+      try { map.setFeatureState({ source: DROPPED_SOURCE_ID, id }, { hidden: true }); } catch (_) {}
+      try {
+        const cache = dataRef.current;
+        let feat = null;
+        if (cache && cache.fc && Array.isArray(cache.fc.features)) {
+          const idx = cache.idToIndex && cache.idToIndex.get ? cache.idToIndex.get(id) : -1;
+          if (idx >= 0) feat = cache.fc.features[idx];
+        }
+        if (!feat) {
+          const obj = map.__droppedObjectsIndex ? map.__droppedObjectsIndex.get(id) : null;
+          if (obj) {
+            const t = placeableObjects.find(p => p.id === obj.type);
+            const baseSize = Math.max(t?.size?.width || 24, t?.size?.height || 24, 24);
+            feat = { type: 'Feature', id, geometry: { type: 'Point', coordinates: [obj.position.lng, obj.position.lat] }, properties: { id, icon_image: t?.enhancedRendering ? buildSpriteImageId(t.enhancedRendering.spriteBase, 0, (useMapViewState(map)?.viewType || 'top-down')) : (t?.id || 'default-placeholder'), baseSize, icon_rotate: 0 } };
+          }
+        }
+        const src = map.getSource(DROPPED_DRAG_SOURCE_ID);
+        if (feat && src && src.setData) src.setData({ type: 'FeatureCollection', features: [feat] });
+      } catch (_) {}
+
+      // Per-frame updater to apply latest pending coords to the drag overlay only once per RAF tick
       const tick = () => {
         try {
           const pending = pendingDragRef.current;
           if (!moving || !pending || !pending.id || pending.id !== id) { rafIdRef.current = null; return; }
-          const src = map && map.getSource ? map.getSource(DROPPED_SOURCE_ID) : null;
-          const cache = dataRef.current;
-          if (src && cache && cache.fc && cache.idToIndex && cache.idToIndex.has(id)) {
-            const idx = cache.idToIndex.get(id);
-            const feat = cache.fc.features[idx];
-            if (feat && feat.geometry && Array.isArray(feat.geometry.coordinates)) {
-              feat.geometry.coordinates = [pending.lng, pending.lat];
-              try { src.setData(cache.fc); } catch (_) {}
-            }
+          const src = map && map.getSource ? map.getSource(DROPPED_DRAG_SOURCE_ID) : null;
+          if (src) {
+            const props = (dataRef.current && dataRef.current.fc && dataRef.current.fc.features && dataRef.current.fc.features.find(f => f && f.properties && f.properties.id === id)?.properties) || {};
+            const fc = { type: 'FeatureCollection', features: [{ type: 'Feature', id, geometry: { type: 'Point', coordinates: [pending.lng, pending.lat] }, properties: props }] };
+            try { src.setData(fc); } catch (_) {}
           }
+          // Also update the base source's selected feature position so the selection ring follows
+          try {
+            const baseSrc = map.getSource(DROPPED_SOURCE_ID);
+            if (baseSrc && dataRef.current && dataRef.current.fc) {
+              const current = dataRef.current.fc;
+              const updated = {
+                ...current,
+                features: current.features.map((f) => {
+                  if (f && f.properties && f.properties.id === id) {
+                    return { ...f, geometry: { type: 'Point', coordinates: [pending.lng, pending.lat] } };
+                  }
+                  return f;
+                })
+              };
+              baseSrc.setData(updated);
+              dataRef.current.fc = updated;
+            }
+          } catch (_) {}
           rafIdRef.current = requestAnimationFrame(tick);
         } catch (_) { rafIdRef.current = null; }
       };
@@ -810,11 +880,25 @@ const DroppedObjects = ({
       const onMoveWin = (ev) => {
         if (!moving) return;
         try {
-          const x = ev.clientX - rect.left;
-          const y = ev.clientY - rect.top;
-          if (map && typeof map.unproject === 'function') {
+          let lng, lat;
+          if (ev && ev.lngLat && typeof ev.lngLat.lng === 'number') {
+            lng = ev.lngLat.lng; lat = ev.lngLat.lat;
+          } else if (ev && ev.point && typeof map.unproject === 'function') {
+            const ll = map.unproject([ev.point.x, ev.point.y]);
+            lng = ll.lng; lat = ll.lat;
+          } else if (ev && ev.originalEvent && typeof ev.originalEvent.clientX === 'number') {
+            const x = ev.originalEvent.clientX - rect.left;
+            const y = ev.originalEvent.clientY - rect.top;
             const ll = map.unproject([x, y]);
-            pendingDragRef.current = { id, lng: ll.lng, lat: ll.lat };
+            lng = ll.lng; lat = ll.lat;
+          } else if (typeof ev.clientX === 'number') {
+            const x = ev.clientX - rect.left;
+            const y = ev.clientY - rect.top;
+            const ll = map.unproject([x, y]);
+            lng = ll.lng; lat = ll.lat;
+          }
+          if (typeof lng === 'number' && typeof lat === 'number') {
+            pendingDragRef.current = { id, lng, lat };
             ensureTick();
           }
         } catch (_) {}
@@ -822,8 +906,11 @@ const DroppedObjects = ({
       const onUpWin = (ev) => {
         ev && ev.preventDefault && ev.preventDefault();
         moving = false;
-        window.removeEventListener('mousemove', onMoveWin);
-        window.removeEventListener('mouseup', onUpWin);
+        // Remove listeners added for drag sequence
+        try { map && map.off && map.off('mousemove', onMoveWin); } catch (_) {}
+        try { window.removeEventListener('mousemove', onMoveWin); } catch (_) {}
+        try { map && map.off && map.off('touchmove', onMoveWin); } catch (_) {}
+        try { window.removeEventListener('touchmove', onMoveWin); } catch (_) {}
         try { if (rafIdRef.current) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null; } } catch (_) {}
         // Commit final position to React state once
         try {
@@ -834,9 +921,23 @@ const DroppedObjects = ({
           }
         } catch (_) {}
         try { map && map.dragPan && map.dragPan.enable && map.dragPan.enable(); } catch (_) {}
+        try { map && map.dragRotate && map.dragRotate.enable && map.dragRotate.enable(); } catch (_) {}
+        try { const c = map && map.getCanvas && map.getCanvas(); if (c) c.style.willChange = ''; } catch (_) {}
+        // Clear overlay and unhide base feature
+        try { const ds = map.getSource(DROPPED_DRAG_SOURCE_ID); if (ds && ds.setData) ds.setData({ type: 'FeatureCollection', features: [] }); } catch (_) {}
+        try { map.setFeatureState({ source: DROPPED_SOURCE_ID, id }, { hidden: false }); } catch (_) {}
+        pointDraggingRef.current = false;
       };
-      window.addEventListener('mousemove', onMoveWin);
-      window.addEventListener('mouseup', onUpWin, { once: true });
+      // Switch to map events for consistent cadence and also listen at window level
+      try { map.on('mousemove', onMoveWin); } catch (_) {}
+      try { map.on('touchmove', onMoveWin); } catch (_) {}
+      try { map.once('mouseup', onUpWin); } catch (_) {}
+      try { map.once('touchend', onUpWin); } catch (_) {}
+      try { window.addEventListener('mousemove', onMoveWin); } catch (_) {}
+      try { window.addEventListener('touchmove', onMoveWin, { passive: false }); } catch (_) {}
+      try { window.addEventListener('mouseup', onUpWin, { once: true }); } catch (_) {}
+      try { window.addEventListener('touchend', onUpWin, { once: true }); } catch (_) {}
+      pointDraggingRef.current = true;
     } catch (_) {}
   }, [map, selectedId]);
   const cursorPointerOn = React.useCallback(() => {
@@ -848,8 +949,30 @@ const DroppedObjects = ({
   useMapEvents(map, [
     { event: 'click', layerId: DROPPED_SYMBOL_LAYER_ID, handler: handleLayerClick },
     { event: 'click', layerId: DROPPED_CIRCLE_LAYER_ID, handler: handleLayerClick },
-    { event: 'mousedown', layerId: DROPPED_SYMBOL_LAYER_ID, handler: startDragLayer },
-    { event: 'mousedown', layerId: DROPPED_CIRCLE_LAYER_ID, handler: startDragLayer },
+    { event: 'mousedown', layerId: DROPPED_SYMBOL_LAYER_ID, handler: (e) => {
+      try { if (e && e.originalEvent && e.originalEvent.touches && e.originalEvent.touches.length > 1) return; } catch (_) {}
+      startDragLayer(e);
+    } },
+    { event: 'mousedown', layerId: DROPPED_CIRCLE_LAYER_ID, handler: (e) => {
+      try { if (e && e.originalEvent && e.originalEvent.touches && e.originalEvent.touches.length > 1) return; } catch (_) {}
+      startDragLayer(e);
+    } },
+    { event: 'mousedown', layerId: DROPPED_SELECTED_LAYER_ID, handler: (e) => {
+      try { if (e && e.originalEvent && e.originalEvent.touches && e.originalEvent.touches.length > 1) return; } catch (_) {}
+      startDragLayer(e);
+    } },
+    { event: 'touchstart', layerId: DROPPED_SYMBOL_LAYER_ID, handler: (e) => {
+      try { if (e && e.originalEvent && e.originalEvent.touches && e.originalEvent.touches.length !== 1) return; } catch (_) {}
+      startDragLayer(e);
+    } },
+    { event: 'touchstart', layerId: DROPPED_CIRCLE_LAYER_ID, handler: (e) => {
+      try { if (e && e.originalEvent && e.originalEvent.touches && e.originalEvent.touches.length !== 1) return; } catch (_) {}
+      startDragLayer(e);
+    } },
+    { event: 'touchstart', layerId: DROPPED_SELECTED_LAYER_ID, handler: (e) => {
+      try { if (e && e.originalEvent && e.originalEvent.touches && e.originalEvent.touches.length !== 1) return; } catch (_) {}
+      startDragLayer(e);
+    } },
     { event: 'mouseenter', layerId: DROPPED_SYMBOL_LAYER_ID, handler: cursorPointerOn },
     { event: 'mouseenter', layerId: DROPPED_CIRCLE_LAYER_ID, handler: cursorPointerOn },
     { event: 'mouseleave', layerId: DROPPED_SYMBOL_LAYER_ID, handler: cursorPointerOff },

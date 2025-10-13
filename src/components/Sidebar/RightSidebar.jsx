@@ -237,11 +237,14 @@ const RightSidebar = ({
         {subSectionsExpanded.placed && subSectionsExpanded.dropped && (
           <div className="px-4 pb-3">
             {clickToPlace.droppedObjects.length > 0 ? (
-              <DroppedObjectsList
-                objects={clickToPlace.droppedObjects}
-                placeableObjects={placeableObjects}
-                onRemove={clickToPlace.removeDroppedObject}
-              />
+              // Add a small inner inset so selection outlines don’t clip at the panel edge
+              <div className="pl-1 pr-3">
+                <DroppedObjectsList
+                  objects={clickToPlace.droppedObjects}
+                  placeableObjects={placeableObjects}
+                  onRemove={clickToPlace.removeDroppedObject}
+                />
+              </div>
             ) : (
               <div className="text-xs text-gray-500 dark:text-gray-400">No objects placed yet.</div>
             )}

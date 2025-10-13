@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useMapEvents } from './useMapEvents';
 import { searchPermitAreas, highlightOverlappingAreas, clearOverlapHighlights } from '../services/permitAreaService';
 import { loadPolygonAreas, loadPointAreas } from '../services/geographyService';
-import { ensureBaseLayers as ensureGeoBaseLayers, setBaseVisibility as setGeoBaseVisibility, unload as unloadGeo } from '../services/geographyLayerManager';
+import { ensureBaseLayers as ensureGeoBaseLayers, setBaseVisibility as setGeoBaseVisibility, unload as unloadGeo, clearAllFeatureState as clearGeoFeatureState } from '../services/geographyLayerManager';
 import { GEOGRAPHIES } from '../constants/geographies';
 import { useZoneCreatorContext } from '../contexts/ZoneCreatorContext.jsx';
 import bbox from '@turf/bbox';
@@ -260,6 +260,11 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       const prevIdPrefix = mode === 'parks' ? 'permit-areas' : (mode === 'plazas' ? 'plaza-areas' : 'intersections');
       const hoverOutlineId = `${prevIdPrefix}-hover-outline`;
       if (map && map.getLayer && map.getLayer(hoverOutlineId)) map.removeLayer(hoverOutlineId);
+    } catch (_) {}
+    // Clear any accumulated feature-state for previous source
+    try {
+      const prevIdPrefix = mode === 'parks' ? 'permit-areas' : (mode === 'plazas' ? 'plaza-areas' : 'intersections');
+      clearGeoFeatureState(map, prevIdPrefix);
     } catch (_) {}
     // Dismiss any open click popover when mode changes
     setClickedTooltip({ visible: false, x: 0, y: 0, lngLat: null, content: null, featureId: null });
@@ -896,7 +901,9 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     if (activeModeForEvents === 'intersections') {
       try {
         const prevId = hoveredIntersectionIdRef.current;
-        if (prevId !== null && prevId !== undefined) animateHoverProgress(map, 'intersections', prevId, 0);
+        if (prevId !== null && prevId !== undefined && map && typeof map.removeFeatureState === 'function') {
+          try { map.removeFeatureState({ source: 'intersections', id: prevId }, 'hoverProgress'); } catch (_) {}
+        }
         hoveredIntersectionIdRef.current = null;
       } catch (_) {}
     }
@@ -967,7 +974,9 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         if (activeModeForEvents === 'intersections') {
           try {
             const prevId = hoveredIntersectionIdRef.current;
-            if (prevId !== null && prevId !== undefined) animateHoverProgress(map, 'intersections', prevId, 0);
+            if (prevId !== null && prevId !== undefined && map && typeof map.removeFeatureState === 'function') {
+              try { map.removeFeatureState({ source: 'intersections', id: prevId }, 'hoverProgress'); } catch (_) {}
+            }
             hoveredIntersectionIdRef.current = null;
           } catch (_) {}
         } else {
@@ -1015,7 +1024,9 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         if (activeModeForEvents === 'intersections') {
           try {
             const prevId = hoveredIntersectionIdRef.current;
-            if (prevId !== null && prevId !== undefined) animateHoverProgress(map, 'intersections', prevId, 0);
+            if (prevId !== null && prevId !== undefined && map && typeof map.removeFeatureState === 'function') {
+              try { map.removeFeatureState({ source: 'intersections', id: prevId }, 'hoverProgress'); } catch (_) {}
+            }
             hoveredIntersectionIdRef.current = null;
           } catch (_) {}
         } else {
@@ -1083,7 +1094,9 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       const idPrefix = activeModeForEvents === 'parks' ? 'permit-areas' : (activeModeForEvents === 'plazas' ? 'plaza-areas' : 'intersections');
       if (idPrefix === 'intersections') {
         const prevId = hoveredIntersectionIdRef.current;
-        if (prevId !== null && prevId !== undefined) animateHoverProgress(map, 'intersections', prevId, 0);
+        if (prevId !== null && prevId !== undefined && map && typeof map.removeFeatureState === 'function') {
+          try { map.removeFeatureState({ source: 'intersections', id: prevId }, 'hoverProgress'); } catch (_) {}
+        }
         hoveredIntersectionIdRef.current = null;
       } else {
         const hoverOutlineId = `${idPrefix}-hover-outline`;
