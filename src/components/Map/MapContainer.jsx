@@ -307,6 +307,36 @@ const MapContainer = forwardRef(({
     };
   }, [map]);
 
+  // Enforce single-selection across points and rectangles at the map layer level
+  useEffect(() => {
+    if (!map) return;
+    try {
+      if (selectedKind === 'point') {
+        // Clear rectangle handles immediately
+        try {
+          const hs = map.getSource && map.getSource('dropped-rectangles-handles');
+          if (hs && hs.setData) hs.setData({ type: 'FeatureCollection', features: [] });
+        } catch (_) {}
+        // Force rectangle selection flag off in the base source to avoid stale styling
+        try {
+          const rs = map.getSource && map.getSource('dropped-rectangles');
+          const fc = rs && rs._data;
+          if (rs && fc && Array.isArray(fc.features)) {
+            const next = { type: 'FeatureCollection', features: fc.features.map(f => ({ ...f, properties: { ...(f.properties || {}), selected: false } })) };
+            rs.setData(next);
+          }
+        } catch (_) {}
+      } else if (selectedKind === 'rect') {
+        // Hide point selection ring immediately
+        try {
+          if (map.getLayer && map.getLayer('dropped-objects-selected')) {
+            map.setFilter('dropped-objects-selected', ['==', ['get', 'id'], '__none__']);
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }, [map, selectedKind]);
+
   // Sync derived annotations source & layers
   useEffect(() => {
     if (!map) return;

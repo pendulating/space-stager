@@ -8,16 +8,25 @@ const PlaceableObjectsPanel = ({
   placementMode,
   onRectActivation,
   activeRectObjectTypeId,
-  onCancelPlacement
+  onCancelPlacement,
+  onCancelRectPlacement
  }) => {
   const handleClick = useCallback((e, obj) => {
     if (obj?.geometryType === 'rect') {
+      // Ensure point placement mode is off before activating rectangle placement
+      if (typeof onCancelPlacement === 'function') {
+        try { onCancelPlacement(); } catch (_) {}
+      }
       if (onRectActivation) onRectActivation(obj);
       return;
     }
     const isBatchMode = e.shiftKey;
+    // Ensure rectangle placement mode is off before activating point placement
+    if (activeRectObjectTypeId && typeof onCancelRectPlacement === 'function') {
+      try { onCancelRectPlacement(); } catch (_) {}
+    }
     onActivation(obj, isBatchMode);
-  }, [onActivation, onRectActivation]);
+  }, [onActivation, onRectActivation, onCancelPlacement, onCancelRectPlacement, activeRectObjectTypeId]);
 
   const [bgBySrc, setBgBySrc] = useState({});
   const [hoverLabel, setHoverLabel] = useState('');

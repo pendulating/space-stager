@@ -217,6 +217,7 @@ const RightSidebar = ({
               onRectActivation={(obj) => drawTools.startRectObjectPlacement(obj)}
               activeRectObjectTypeId={drawTools.activeRectObjectTypeId}
               onCancelPlacement={typeof clickToPlace.cancelPlacementMode === 'function' ? clickToPlace.cancelPlacementMode : undefined}
+              onCancelRectPlacement={typeof drawTools.cancelRectObjectPlacement === 'function' ? drawTools.cancelRectObjectPlacement : undefined}
             />
           </div>
         )}

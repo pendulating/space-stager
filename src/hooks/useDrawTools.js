@@ -514,6 +514,16 @@ export const useDrawTools = (map, focusedArea = null) => {
     }
   }, [activeRectObjectTypeId]);
 
+  // Cancel rectangle placement (return to simple_select, clear active id)
+  const cancelRectObjectPlacement = useCallback(() => {
+    try {
+      if (draw.current) {
+        draw.current.changeMode('simple_select');
+      }
+    } catch (_) {}
+    setActiveRectObjectTypeId(null);
+  }, []);
+
   // Update shape label
   const updateShapeLabel = useCallback(() => {
     if (selectedShape && draw.current) {
@@ -662,6 +672,7 @@ export const useDrawTools = (map, focusedArea = null) => {
     showLabels,
     setShowLabels,
     startRectObjectPlacement,
-    activeRectObjectTypeId
+    activeRectObjectTypeId,
+    cancelRectObjectPlacement
   };
 };
