@@ -1,8 +1,10 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  return {
   plugins: [react()],
   test: {
     environment: 'jsdom',
@@ -74,5 +76,10 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ['maplibre-gl', '@mapbox/mapbox-gl-draw']
+  },
+  define: {
+    __GEOCLIENT_BASE_URL__: JSON.stringify(env.VITE_GEOCLIENT_BASE_URL || 'https://api.nyc.gov/geoclient/v2'),
+    // No API keys are defined at build time (BYOK)
   }
+}
 })

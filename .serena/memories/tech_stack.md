@@ -1,0 +1,10 @@
+- Build tooling: Vite 5, React 18, TailwindCSS 3
+- Mapping: MapLibre GL 3, @mapbox/mapbox-gl-draw
+- Testing: Vitest 2 (configured via package.json), React Testing Library 16, Playwright (playwright.config.js present)
+- Node: >=18 (pnpm used)
+- Linting/formatting: ESLint 8 (react, hooks), Prettier 3
+- PDF: jsPDF + autotable
+- Data: NYC Socrata (various resources), NY state Socrata, ArcGIS FeatureServer, local static GeoJSON
+- Packaging/deploy: gh-pages
+- CSS: Tailwind + project styles
+- Workers: nudgeWorker for nudge computations

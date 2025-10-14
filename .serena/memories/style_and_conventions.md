@@ -1,0 +1,6 @@
+- JS/JSX, no TypeScript; follow ESLint rules (react and hooks plugins), Prettier formatting
+- Code style: descriptive names, early returns, minimal deep nesting; match existing formatting
+- Avoid network calls in unit tests; mock with MSW; prefer deterministic fixtures
+- For MapLibre tests, mock map instance; assert source/layer creation not pixel rendering
+- Use table-driven tests for layer/endpoint coverage
+- Keep assets in `public/` and reference with absolute `/data/...` URLs

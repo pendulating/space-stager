@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import GeoclientSettingsModal from '../Modals/GeoclientSettingsModal.jsx';
 import { Search, Eye, EyeOff, Loader2, CheckCircle, AlertCircle, Circle } from 'lucide-react';
 
 const PermitAreaSearch = ({ 
@@ -13,8 +14,19 @@ const PermitAreaSearch = ({
   onChangeMode = null,
   permitAreasLayer = null,
   onToggleLayer = null,
-  geographyType = 'parks'
+  geographyType = 'parks',
+  geoclientResults = [],
+  geoclientLoading = false,
+  geoclientStatus = null,
+  geoclientError = null,
+  geoclientCooldownMs = 0,
+  onSelectGeoclientResult = null
 }) => {
+  const [activeAddressIndex, setActiveAddressIndex] = useState(-1);
+  const [showSettings, setShowSettings] = useState(false);
+  useEffect(() => {
+    setActiveAddressIndex(-1);
+  }, [geoclientResults, searchQuery]);
   // Function to highlight search term in text
   const highlightSearchTerm = (text, term) => {
     if (!text || !term.trim()) return text;
@@ -85,6 +97,26 @@ const PermitAreaSearch = ({
           type="text"
           value={searchQuery || ''}
           onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (!Array.isArray(geoclientResults) || geoclientResults.length === 0) return;
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              setActiveAddressIndex((prev) => {
+                const next = prev < 0 ? 0 : Math.min(prev + 1, geoclientResults.length - 1);
+                return next;
+              });
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              setActiveAddressIndex((prev) => Math.max(prev - 1, 0));
+            } else if (e.key === 'Enter') {
+              if (activeAddressIndex >= 0 && activeAddressIndex < geoclientResults.length && typeof onSelectGeoclientResult === 'function') {
+                e.preventDefault();
+                onSelectGeoclientResult(geoclientResults[activeAddressIndex]);
+              }
+            } else if (e.key === 'Escape') {
+              setActiveAddressIndex(-1);
+            }
+          }}
           placeholder={placeholder}
           className="block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
         />
@@ -148,6 +180,59 @@ const PermitAreaSearch = ({
           No matching zones found
         </div>
       )}
+
+      {/* Addresses & Places from Geoclient */}
+      {searchQuery && searchQuery.length >= 2 && (
+        <div className="mt-4" role="listbox" aria-label="Addresses & Places">
+          <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
+            <div className="flex items-center justify-between">
+              <span>Addresses & Places</span>
+              <button type="button" className="text-[11px] underline text-blue-600" onClick={() => setShowSettings(true)}>Settings</button>
+            </div>
+          </div>
+          {geoclientLoading && geoclientCooldownMs <= 0 && (
+            <div className="text-xs text-gray-500 dark:text-gray-400">Searching addresses…</div>
+          )}
+          {geoclientCooldownMs > 0 && (
+            <div className="text-xs text-amber-600 dark:text-amber-400">Rate limited. Resuming in {(geoclientCooldownMs/1000).toFixed(1)}s…</div>
+          )}
+          {!geoclientLoading && Array.isArray(geoclientResults) && geoclientResults.length > 0 && (
+            <div className="space-y-1">
+              {geoclientResults.map((item, idx) => (
+                <div
+                  key={`${item.id || item.label}-${idx}`}
+                  className={`p-2 cursor-pointer rounded-md transition-colors ${
+                    activeAddressIndex === idx
+                      ? 'bg-blue-50 dark:bg-blue-950/30 ring-1 ring-blue-300'
+                      : 'hover:bg-blue-50 dark:hover:bg-blue-950/30'
+                  }`}
+                  onClick={() => onSelectGeoclientResult && onSelectGeoclientResult(item)}
+                  onMouseMove={() => setActiveAddressIndex(idx)}
+                  title={item.label}
+                  role="option"
+                  aria-selected={activeAddressIndex === idx}
+                >
+                  <div className="text-sm text-gray-800 dark:text-gray-100 truncate">{item.label}</div>
+                  {Array.isArray(item.coords) && item.coords.length >= 2 && (
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400">{item.coords[1].toFixed(6)}, {item.coords[0].toFixed(6)}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {!geoclientLoading && Array.isArray(geoclientResults) && geoclientResults.length === 0 && !geoclientError && geoclientStatus !== 429 && (
+            <div className="text-xs text-gray-400">No addresses found</div>
+          )}
+          {!geoclientLoading && geoclientStatus === 429 && (
+            <div className="text-xs text-amber-600 dark:text-amber-400">Rate limited. Please pause for a moment and try again.</div>
+          )}
+          {!geoclientLoading && geoclientError && geoclientStatus && geoclientStatus >= 500 && (
+            <div className="text-xs text-red-600 dark:text-red-400">Address service temporarily unavailable. Try again shortly.</div>
+          )}
+        </div>
+      )}
+
+      <GeoclientSettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
     </div>
   );
 };

@@ -1,0 +1,40 @@
+name: Docs Preview
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'docs-site/**'
+      - 'scripts/**'
+      - 'src/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+      - name: Install deps
+        run: pnpm install --frozen-lockfile=false
+      - name: Build docs
+        run: pnpm --dir docs-site build
+      - name: Upload docs artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs-site/build
+      - name: Comment preview instructions
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          message: |
+            Docs built successfully. The artifact can be deployed to GitHub Pages for preview by maintainers.
