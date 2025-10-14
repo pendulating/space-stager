@@ -11,9 +11,12 @@ export function useGeoclientSearch(query, { debounceMs = 300, limit = 10, option
   const debTimerRef = useRef(null);
   const [cooldownMs, setCooldownMs] = useState(0);
   const cooldownTimerRef = useRef(null);
+  const cacheRef = useRef(new Map()); // simple in-memory cache (TTL-based)
 
   const effectiveQuery = typeof query === 'string' ? query.trim() : '';
-  const enabled = effectiveQuery.length >= 2;
+  const looksLikeLatLon = /^-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+$/.test(effectiveQuery);
+  const minChars = looksLikeLatLon ? 2 : 3;
+  const enabled = effectiveQuery.length >= minChars;
 
   // Stabilize options to avoid re-creating callbacks every render
   const stableOptionsKey = useMemo(() => {
@@ -26,16 +29,26 @@ export function useGeoclientSearch(query, { debounceMs = 300, limit = 10, option
   const run = useMemo(() => {
     return async (q, signal) => {
       try {
+        const cacheKey = JSON.stringify({ q, limit, stableOptionsKey });
+        const cached = cacheRef.current.get(cacheKey);
+        if (cached && (Date.now() - cached.t) < 30000) {
+          setResults(cached.results);
+          setStatus(cached.status || null);
+          setError(null);
+          return;
+        }
         const { results: r, status: st } = await searchGeoclient({ input: q, limit, signal, ...stableOptions });
-        setResults(Array.isArray(r) ? r : []);
+        const norm = Array.isArray(r) ? r : [];
+        setResults(norm);
         setStatus(st || null);
         setError(null);
+        cacheRef.current.set(cacheKey, { results: norm, status: st || null, t: Date.now() });
       } catch (e) {
         setError(e);
         setStatus(e && typeof e.status === 'number' ? e.status : null);
         setResults([]);
         if (e && e.status === 429) {
-          const initial = 6000; // ms
+          const initial = typeof e.retryAfterMs === 'number' && e.retryAfterMs > 0 ? Math.min(20000, e.retryAfterMs) : 6000;
           setCooldownMs(initial);
           if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
           cooldownTimerRef.current = setInterval(() => {
@@ -53,7 +66,7 @@ export function useGeoclientSearch(query, { debounceMs = 300, limit = 10, option
         setIsLoading(false);
       }
     };
-  }, [limit, stableOptions]);
+  }, [limit, stableOptions, stableOptionsKey]);
 
   useEffect(() => {
     if (debTimerRef.current) {

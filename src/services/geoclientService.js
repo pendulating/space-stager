@@ -84,6 +84,8 @@ export async function searchGeoclient({
     const err = new Error('Rate limited by Geoclient (429). Please try again shortly.');
     err.status = 429;
     err.body = text;
+    const ra = parseRetryAfter(resp.headers && resp.headers.get ? resp.headers.get('Retry-After') : null);
+    if (typeof ra === 'number' && Number.isFinite(ra) && ra > 0) err.retryAfterMs = ra;
     throw err;
   }
   if (resp.status >= 500) {
@@ -91,6 +93,8 @@ export async function searchGeoclient({
     const err = new Error(`Geoclient service unavailable (HTTP ${resp.status}).`);
     err.status = resp.status;
     err.body = text;
+    const ra = parseRetryAfter(resp.headers && resp.headers.get ? resp.headers.get('Retry-After') : null);
+    if (typeof ra === 'number' && Number.isFinite(ra) && ra > 0) err.retryAfterMs = ra;
     throw err;
   }
 
@@ -184,6 +188,23 @@ function isFiniteNum(n) {
 
 function wait(ms) {
   return new Promise((res) => setTimeout(res, ms));
+}
+
+function parseRetryAfter(value) {
+  if (!value) return null;
+  const v = String(value).trim();
+  // If it's a number, it's seconds
+  if (/^\d+$/.test(v)) {
+    const sec = Number(v);
+    if (Number.isFinite(sec) && sec >= 0) return sec * 1000;
+  }
+  // Otherwise try HTTP-date
+  const d = Date.parse(v);
+  if (!Number.isNaN(d)) {
+    const ms = d - Date.now();
+    if (ms > 0) return ms;
+  }
+  return null;
 }
 
 export const __geoclientInternals = { normalizeSearchResults, extractCoordsAndId, buildLabel };
