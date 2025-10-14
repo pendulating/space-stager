@@ -119,8 +119,10 @@ try {
   
   s = lines.join('\n');
   // Absolute final safety: encode ALL curly braces so MDX v3 cannot parse them as expressions
+  // and encode angle brackets to prevent accidental JSX tag parsing in MDX.
   // This is conservative but ensures CI (which may use different MDX/minifier versions) won't break.
   s = s.replace(/\{/g, '&#123;').replace(/\}/g, '&#125;');
+  s = s.replace(/</g, '&lt;').replace(/>/g, '&gt;');
   fs.writeFileSync(outFile, s);
   console.log('Post-processed JS API docs for MDX compatibility.');
 } catch (e) {
