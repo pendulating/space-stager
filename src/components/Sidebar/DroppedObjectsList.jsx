@@ -25,20 +25,12 @@ const DroppedObjectsList = ({
   }, [selectedObjectId]);
 
   return (
-    <div className="p-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-xs font-semibold tracking-wide text-gray-600 dark:text-gray-300 uppercase">Placed</h3>
-        <div className="text-xs text-gray-500 dark:text-gray-400 h-4 inline-flex items-center justify-center min-w-[40%] text-center mx-2">
-          {hoverLabel && (
-            <span className="px-2 py-0.5 rounded-full bg-white/80 dark:bg-gray-800/70 border border-gray-200/60 dark:border-gray-700/60 text-gray-700 dark:text-gray-200 shadow-sm truncate max-w-full">
-              {hoverLabel}
-            </span>
-          )}
-        </div>
-        <div className="text-xs text-gray-500 dark:text-gray-400">{objects.length}</div>
+    <div className="p-0 bg-transparent">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-700">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Placed (<span>{objects.length}</span>)</h4>
       </div>
-
-      <div className="grid grid-cols-3 gap-3 max-h-48 overflow-y-auto pr-1">
+      <div className="px-2 pb-2">
+        <div className="grid grid-cols-3 gap-3 max-h-48 overflow-y-auto pr-1">
         {objects.map(obj => {
           const objectType = placeableObjects.find(p => p.id === obj.type);
           const candidates = objectType ? getCandidateSrcs(objectType, 315, 'isometric') : [];
@@ -48,7 +40,7 @@ const DroppedObjectsList = ({
             <div
               key={obj.id}
               ref={(el) => { if (el) itemRefs.current.set(obj.id, el); else itemRefs.current.delete(obj.id); }}
-              className={`relative group bg-white dark:bg-gray-800 rounded-xl border transition overflow-hidden ${selectedObjectId === obj.id ? 'border-blue-500 ring-2 ring-blue-500' : 'border-gray-200/70 dark:border-gray-700/60'}`}
+              className={`relative group bg-white dark:bg-gray-800 rounded-xl transition m-3 ${selectedObjectId === obj.id ? 'border-transparent ring-4 ring-blue-500 ring-offset-0 ring-offset-white dark:ring-offset-gray-800' : 'border-gray-200/70 dark:border-gray-700/60'}`}
               onMouseEnter={() => { setHoverLabel(objectType?.name || obj.name || ''); try { hover(obj.id, 'point'); } catch (_) {} }}
               onMouseLeave={() => { setHoverLabel(''); try { clearHover(); } catch (_) {} }}
               onClick={(e) => {
@@ -61,7 +53,7 @@ const DroppedObjectsList = ({
               title={objectType?.name || obj.name}
             >
               <span aria-hidden="true" className="block pb-[100%]" />
-              <div className="absolute inset-1 rounded-lg flex items-center justify-center" style={{ backgroundColor: bg || 'rgba(255,255,255,0.9)' }}>
+              <div className="absolute inset-0 rounded-xl flex items-center justify-center" style={{ backgroundColor: bg || 'rgba(255,255,255,0.9)' }}>
                 {src ? (
                   <img
                     src={src}
@@ -91,6 +83,7 @@ const DroppedObjectsList = ({
             </div>
           );
         })}
+        </div>
       </div>
     </div>
   );

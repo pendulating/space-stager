@@ -223,34 +223,22 @@ const RightSidebar = ({
         )}
       </div>
 
+      {/* Removed extra divider; Placed section handles its own subtitle + divider */}
+
       <div className={`${subSectionsExpanded.dropped ? '' : 'opacity-60 pointer-events-none'}`}>
-        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-700">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Placed Items</h4>
-          <button
-            type="button"
-            onClick={() => toggleSubChild('placed', 'dropped')}
-            className="text-xs px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-            disabled={!subSectionsExpanded.dropped}
-          >
-            {subSectionsExpanded.placed ? 'Hide' : 'Show'}
-          </button>
+        <div className="px-2 pb-2">
+          {clickToPlace.droppedObjects.length > 0 ? (
+            <div className="pl-1 pr-3">
+              <DroppedObjectsList
+                objects={clickToPlace.droppedObjects}
+                placeableObjects={placeableObjects}
+                onRemove={clickToPlace.removeDroppedObject}
+              />
+            </div>
+          ) : (
+            <div className="text-xs text-gray-500 dark:text-gray-400">No objects placed yet.</div>
+          )}
         </div>
-        {subSectionsExpanded.placed && subSectionsExpanded.dropped && (
-          <div className="px-4 pb-3">
-            {clickToPlace.droppedObjects.length > 0 ? (
-              // Add a small inner inset so selection outlines don’t clip at the panel edge
-              <div className="pl-1 pr-3">
-                <DroppedObjectsList
-                  objects={clickToPlace.droppedObjects}
-                  placeableObjects={placeableObjects}
-                  onRemove={clickToPlace.removeDroppedObject}
-                />
-              </div>
-            ) : (
-              <div className="text-xs text-gray-500 dark:text-gray-400">No objects placed yet.</div>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );
