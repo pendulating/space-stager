@@ -25,6 +25,7 @@ import { useSelectionController } from '../../hooks/useSelectionController';
 import { useDroppedObjects } from '../../contexts/DroppedObjectsContext';
 import { rotateRectanglePolygonMercator, normalizeAngle } from '../../utils/objectGeometry';
 import ViewportInset from './ViewportInset';
+import { useGlobalKeymap } from '../../hooks/useGlobalKeymap';
 
 const DEBUG = false; // Set to true to enable MapContainer debug logs
 
@@ -954,52 +955,49 @@ const MapContainer = forwardRef(({
   });
 
   // Delete selected dropped object or selected annotation with Delete/Backspace (select mode only)
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      try {
-        // Ignore when typing in inputs/editors
-        const t = e.target;
-        const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
-        if (typing) return;
-        // Only act when not in placement mode
-        if (placementMode) return;
-        const isDel = e.key === 'Delete' || e.key === 'Backspace';
-        if (!isDel) return;
-        // Prevent page navigation/backspace default
-        e.preventDefault();
-        // Delete whichever kind is selected
-        const id = selectedObjectId;
-        if (id) {
-          if (selectedKind === 'rect') {
-            // Remove rectangle by deleting the corresponding dropped object
-            try { clickToPlace.removeDroppedObject(id); } catch (_) {}
-            try { clearSelection(); } catch (_) {}
-            // Close any annotations popup immediately
-            try { if (annotationPopupRef.current) { annotationPopupRef.current.remove(); annotationPopupRef.current = null; } } catch (_) {}
-            return;
-          }
-          if (selectedKind === 'point') {
-            try { clickToPlace.removeDroppedObject(id); } catch (_) {}
-            try { clearSelection(); } catch (_) {}
-            try { if (annotationPopupRef.current) { annotationPopupRef.current.remove(); annotationPopupRef.current = null; } } catch (_) {}
-            return;
-          }
-        }
-        // If no dropped object is selected, remove selected Draw annotation if any
+  useGlobalKeymap([
+    {
+      key: ['Delete', 'Backspace'],
+      preventDefault: true,
+      stop: true,
+      priority: 80,
+      enabled: () => {
         try {
-          const selId = drawTools && drawTools.selectedShape;
-          if (selId && drawTools && typeof drawTools.deleteSelectedShape === 'function') {
-            drawTools.deleteSelectedShape();
-          }
+          if (placementMode) return false;
+          const ae = typeof document !== 'undefined' ? document.activeElement : null;
+          if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return false;
         } catch (_) {}
-        // Regardless, close any active annotation popup immediately (MapLibre) and arrow overlay (React)
-        try { if (annotationPopupRef.current) { annotationPopupRef.current.remove(); annotationPopupRef.current = null; } } catch (_) {}
-        try { if (arrowOverlayRef.current) { const ref = arrowOverlayRef.current; ref.root.unmount(); if (ref.mount.parentNode) ref.mount.parentNode.removeChild(ref.mount); arrowOverlayRef.current = null; } } catch (_) {}
-      } catch (_) {}
-    };
-    window.addEventListener('keydown', onKeyDown, { passive: false });
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [placementMode, selectedObjectId, selectedKind, clickToPlace, clearSelection, drawTools]);
+        return true;
+      },
+      onEvent: () => {
+        try {
+          const id = selectedObjectId;
+          if (id) {
+            if (selectedKind === 'rect') {
+              try { clickToPlace.removeDroppedObject(id); } catch (_) {}
+              try { clearSelection(); } catch (_) {}
+              try { if (annotationPopupRef.current) { annotationPopupRef.current.remove(); annotationPopupRef.current = null; } } catch (_) {}
+              return;
+            }
+            if (selectedKind === 'point') {
+              try { clickToPlace.removeDroppedObject(id); } catch (_) {}
+              try { clearSelection(); } catch (_) {}
+              try { if (annotationPopupRef.current) { annotationPopupRef.current.remove(); annotationPopupRef.current = null; } } catch (_) {}
+              return;
+            }
+          }
+          try {
+            const selId = drawTools && drawTools.selectedShape;
+            if (selId && drawTools && typeof drawTools.deleteSelectedShape === 'function') {
+              drawTools.deleteSelectedShape();
+            }
+          } catch (_) {}
+          try { if (annotationPopupRef.current) { annotationPopupRef.current.remove(); annotationPopupRef.current = null; } } catch (_) {}
+          try { if (arrowOverlayRef.current) { const ref = arrowOverlayRef.current; ref.root.unmount(); if (ref.mount.parentNode) ref.mount.parentNode.removeChild(ref.mount); arrowOverlayRef.current = null; } } catch (_) {}
+        } catch (_) {}
+      }
+    }
+  ]);
 
   // Disable double-click zoom when map is loaded to prevent conflicts with permit area selection
   React.useEffect(() => {
@@ -1160,20 +1158,28 @@ const MapContainer = forwardRef(({
   }, [map, placementMode, clearSelection]);
 
   // Keyboard handler for dimensions editor (press 'D' when rectangle is selected)
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'd' || e.key === 'D') {
-        if (selectedKind === 'rect' && selectedObjectId) {
-          const obj = droppedObjects?.find(o => o.id === selectedObjectId);
-          if (obj) {
-            setDimensionsEditingObject(obj);
+  useGlobalKeymap([
+    {
+      key: ['d', 'D'],
+      preventDefault: true,
+      priority: 60,
+      enabled: () => {
+        try {
+          const ae = typeof document !== 'undefined' ? document.activeElement : null;
+          if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return false;
+        } catch (_) {}
+        return true;
+      },
+      onEvent: () => {
+        try {
+          if (selectedKind === 'rect' && selectedObjectId) {
+            const obj = droppedObjects?.find(o => o.id === selectedObjectId);
+            if (obj) setDimensionsEditingObject(obj);
           }
-        }
+        } catch (_) {}
       }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedKind, selectedObjectId, droppedObjects]);
+    }
+  ]);
 
   // Rotation controller (handles placement mode and selected objects)
   useRotationControls({

@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { useWindowSize } from '../../hooks/useWindowSize';
+import { useGlobalKeymap } from '../../hooks/useGlobalKeymap';
 import { ClipboardList, Download, FileImage, FileText, List, PencilRuler, Shapes } from 'lucide-react';
 import DrawingTools from './DrawingTools';
 import ShapeProperties from './ShapeProperties';
@@ -47,16 +48,15 @@ const RightSidebar = ({
   const [hoverPlacedLabel, setHoverPlacedLabel] = useState('');
   const [annotationCount, setAnnotationCount] = useState(0);
 
-  useEffect(() => {
-    if (!clickToPlace) return;
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape' && clickToPlace.placementMode) {
-        try { clickToPlace.cancelPlacementMode(); } catch (_) {}
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [clickToPlace]);
+  useGlobalKeymap([
+    clickToPlace && clickToPlace.placementMode ? {
+      key: 'Escape',
+      onEvent: () => { try { clickToPlace.cancelPlacementMode(); } catch (_) {} },
+      priority: 50,
+      preventDefault: false,
+      stop: false
+    } : null
+  ]);
 
   const ensureDrawerOpen = useCallback(() => {
     if (mode === 'icon-rail' && !isOpen) {

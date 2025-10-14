@@ -1,4 +1,5 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useCallback } from 'react';
+import { useGlobalKeymap } from '../../hooks/useGlobalKeymap';
 
 const ConfirmModal = ({ isOpen, title, message, confirmText = 'Confirm', cancelText = 'Cancel', onConfirm, onCancel }) => {
   const handleKeyDown = useCallback((e) => {
@@ -8,11 +9,15 @@ const ConfirmModal = ({ isOpen, title, message, confirmText = 'Confirm', cancelT
     }
   }, [onCancel]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    window.addEventListener('keydown', handleKeyDown, { passive: false });
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, handleKeyDown]);
+  useGlobalKeymap([
+    isOpen ? {
+      key: 'Escape',
+      onEvent: (e) => { try { e.preventDefault(); } catch (_) {} onCancel && onCancel(); },
+      preventDefault: true,
+      priority: 100,
+      stop: true
+    } : null
+  ]);
 
   if (!isOpen) return null;
 

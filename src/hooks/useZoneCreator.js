@@ -1,5 +1,6 @@
 // src/hooks/useZoneCreator.js
 import { useCallback, useEffect, useRef } from 'react';
+import { useGlobalKeymap } from './useGlobalKeymap';
 import { useZoneCreatorContext, PRIMARY_TYPES } from '../contexts/ZoneCreatorContext.jsx';
 import * as turf from '@turf/turf';
 
@@ -202,18 +203,15 @@ export function useZoneCreator(map, geographyType) {
   }, [map, geographyType, addNode, selectedNodeIds, primaryType, setSelectedState]);
 
   // Global ESC handler to clear current in-progress selection
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape') {
-        try {
-          const evt = new CustomEvent('zonecreator:clear');
-          window.dispatchEvent(evt);
-        } catch (_) {}
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  useGlobalKeymap([
+    {
+      key: 'Escape',
+      onEvent: () => {
+        try { const evt = new CustomEvent('zonecreator:clear'); window.dispatchEvent(evt); } catch (_) {}
+      },
+      priority: 55
+    }
+  ]);
 
   return {
     selectedNodeIds

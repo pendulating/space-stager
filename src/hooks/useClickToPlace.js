@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useGlobalKeymap } from './useGlobalKeymap';
 import { PLACEABLE_OBJECTS } from '../constants/placeableObjects.js';
 import { quantizeToSlices } from '../utils/enhancedRenderingUtils.js';
 
@@ -15,17 +16,20 @@ export const useClickToPlace = (map) => {
     placementModeRef.current = placementMode;
   }, [placementMode]);
 
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape' && placementModeRef.current) {
-        e.preventDefault();
+  useGlobalKeymap([
+    {
+      key: 'Escape',
+      enabled: () => !!placementModeRef.current,
+      onEvent: (e) => {
+        try { e.preventDefault(); } catch (_) {}
         setPlacementMode(null);
         setCursorPosition(null);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+      },
+      preventDefault: true,
+      priority: 80,
+      stop: true
+    }
+  ]);
 
   // Deprecated: camera-driven objectUpdateTrigger is no longer required; overlays use view hook.
 

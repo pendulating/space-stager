@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { useMapViewState } from '../../hooks/useMapViewState';
 import { getCandidateSrcs, bgColorFor } from '../../utils/spriteResolver';
+import { useGlobalKeymap } from '../../hooks/useGlobalKeymap';
 
 const PlaceableObjectsPanel = ({ 
   objects, 
@@ -32,16 +33,14 @@ const PlaceableObjectsPanel = ({
   const [hoverLabel, setHoverLabel] = useState('');
   useMapViewState(null);
 
-  useEffect(() => {
-    if (typeof onCancelPlacement !== 'function') return;
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        onCancelPlacement();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onCancelPlacement]);
+  useGlobalKeymap([
+    typeof onCancelPlacement === 'function' ? {
+      key: 'Escape',
+      onEvent: () => { try { onCancelPlacement(); } catch (_) {} },
+      priority: 60,
+      stop: false
+    } : null
+  ]);
 
   useEffect(() => {
     if (!objects || !objects.length) return;

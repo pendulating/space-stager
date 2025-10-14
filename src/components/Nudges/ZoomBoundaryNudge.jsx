@@ -5,6 +5,7 @@
 // - Follows same pattern as `src/components/Modals/ConfirmModal.jsx`
 
 import React, { useEffect, useCallback } from 'react';
+import { useGlobalKeymap } from '../../hooks/useGlobalKeymap';
 
 const ZoomBoundaryNudge = ({ isOpen, onContinue, onCancel }) => {
   const handleKeyDown = useCallback((e) => {
@@ -30,21 +31,29 @@ const ZoomBoundaryNudge = ({ isOpen, onContinue, onCancel }) => {
   }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen) return;
-    // Capture and block wheel/touch/gesture/keyboard while the modal is open
+    if (!isOpen) return undefined;
+    // Capture and block wheel/touch/gesture while the modal is open
     window.addEventListener('wheel', preventScroll, { passive: false, capture: true });
     window.addEventListener('touchmove', preventScroll, { passive: false, capture: true });
     window.addEventListener('gesturestart', preventScroll, { passive: false, capture: true });
     window.addEventListener('gesturechange', preventScroll, { passive: false, capture: true });
-    window.addEventListener('keydown', handleKeyDown, { passive: false, capture: true });
     return () => {
       window.removeEventListener('wheel', preventScroll, { capture: true });
       window.removeEventListener('touchmove', preventScroll, { capture: true });
       window.removeEventListener('gesturestart', preventScroll, { capture: true });
       window.removeEventListener('gesturechange', preventScroll, { capture: true });
-      window.removeEventListener('keydown', handleKeyDown, { capture: true });
     };
-  }, [isOpen, preventScroll, handleKeyDown]);
+  }, [isOpen, preventScroll]);
+
+  useGlobalKeymap([
+    isOpen ? {
+      key: ['+', '=', '-', '_', '0', 'PageUp', 'PageDown', 'Escape'],
+      preventDefault: true,
+      stop: true,
+      priority: 110,
+      onEvent: (e) => handleKeyDown(e)
+    } : null
+  ]);
 
   if (!isOpen) return null;
 

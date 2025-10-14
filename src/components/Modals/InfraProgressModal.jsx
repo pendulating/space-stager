@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
+import { useGlobalKeymap } from '../../hooks/useGlobalKeymap';
 
 const InfraProgressModal = ({ isOpen, total = 0, completed = 0, onCancel }) => {
   const percent = useMemo(() => {
@@ -6,12 +7,15 @@ const InfraProgressModal = ({ isOpen, total = 0, completed = 0, onCancel }) => {
     return Math.max(0, Math.min(100, Math.round((completed / total) * 100)));
   }, [total, completed]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const onEsc = (e) => { if (e.key === 'Escape') { e.preventDefault(); } };
-    window.addEventListener('keydown', onEsc, { passive: false });
-    return () => window.removeEventListener('keydown', onEsc);
-  }, [isOpen]);
+  useGlobalKeymap([
+    isOpen ? {
+      key: 'Escape',
+      onEvent: (e) => { try { e.preventDefault(); } catch (_) {} },
+      preventDefault: true,
+      priority: 100,
+      stop: true
+    } : null
+  ]);
 
   if (!isOpen) return null;
 

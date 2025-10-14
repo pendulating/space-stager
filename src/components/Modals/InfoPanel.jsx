@@ -1,5 +1,6 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import { X, Info, Keyboard } from 'lucide-react';
+import { useGlobalKeymap } from '../../hooks/useGlobalKeymap';
 
 const KEYBINDS = [
   { combo: 'Mouse click', action: 'Place selected object' },
@@ -20,11 +21,15 @@ const InfoPanel = ({ onClose, showInfo = true }) => {
     }
   }, [onClose]);
 
-  useEffect(() => {
-    if (!showInfo) return;
-    window.addEventListener('keydown', handleKeyDown, { passive: false });
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showInfo, handleKeyDown]);
+  useGlobalKeymap([
+    showInfo ? {
+      key: 'Escape',
+      onEvent: (e) => { try { e.preventDefault(); } catch (_) {} onClose && onClose(); },
+      preventDefault: true,
+      priority: 90,
+      stop: true
+    } : null
+  ]);
 
   if (!showInfo) return null;
 

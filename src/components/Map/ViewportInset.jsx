@@ -124,7 +124,7 @@ const ViewportInset = ({ map, mapLoaded, permitAreas, responsive, isSitePlanMode
     if (!map || !mapLoaded) return false;
     if (!viewportRect) return false;
     if (!responsive || responsive.sidebarMode === 'icon-rail') {
-      return screenSize.width > 768;
+      return (width || 0) > 768;
     }
     return true;
   }, [map, mapLoaded, viewportRect, responsive, width]);

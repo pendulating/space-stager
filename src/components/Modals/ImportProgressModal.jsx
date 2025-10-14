@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
+import { useGlobalKeymap } from '../../hooks/useGlobalKeymap';
 
 const stepsDefault = [
   { key: 'confirm', label: 'Confirming import' },
@@ -16,12 +17,15 @@ const ImportProgressModal = ({ isOpen, currentStepKey, message, steps = stepsDef
   const idx = useMemo(() => Math.max(0, steps.findIndex(s => s.key === currentStepKey)), [steps, currentStepKey]);
   const progress = useMemo(() => Math.round(((idx + 1) / steps.length) * 100), [idx, steps.length]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const onEsc = (e) => { if (e.key === 'Escape') { e.preventDefault(); } };
-    window.addEventListener('keydown', onEsc, { passive: false });
-    return () => window.removeEventListener('keydown', onEsc);
-  }, [isOpen]);
+  useGlobalKeymap([
+    isOpen ? {
+      key: 'Escape',
+      onEvent: (e) => { try { e.preventDefault(); } catch (_) {} },
+      preventDefault: true,
+      priority: 100,
+      stop: true
+    } : null
+  ]);
 
   if (!isOpen) return null;
 

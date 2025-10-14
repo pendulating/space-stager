@@ -1,6 +1,7 @@
 // hooks/usePermitAreas.js
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useMapEvents } from './useMapEvents';
+import { useGlobalKeymap } from './useGlobalKeymap';
 import { searchPermitAreas, highlightOverlappingAreas, clearOverlapHighlights } from '../services/permitAreaService';
 import { loadPolygonAreas, loadPointAreas } from '../services/geographyService';
 import { ensureBaseLayers as ensureGeoBaseLayers, setBaseVisibility as setGeoBaseVisibility, unload as unloadGeo, clearAllFeatureState as clearGeoFeatureState } from '../services/geographyLayerManager';
@@ -1889,16 +1890,15 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   }, [map, clickedTooltip.visible, clickedTooltip.lngLat]);
 
   // Accessibility: ESC closes clicked popover
-  useEffect(() => {
-    if (!clickedTooltip.visible) return;
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        setClickedTooltip({ visible: false, x: 0, y: 0, lngLat: null, content: null, featureId: null });
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [clickedTooltip.visible]);
+  useGlobalKeymap([
+    clickedTooltip.visible ? {
+      key: 'Escape',
+      onEvent: () => { setClickedTooltip({ visible: false, x: 0, y: 0, lngLat: null, content: null, featureId: null }); },
+      priority: 95,
+      stop: true,
+      preventDefault: true
+    } : null
+  ]);
 
   // Expose helpers for popover UX
   const dismissClickedTooltip = useCallback(() => {

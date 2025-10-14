@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useGlobalKeymap } from './useGlobalKeymap';
 import { computeAreaOrientation } from '../utils/bearingUtils';
 
 /**
@@ -83,60 +84,58 @@ export const useCameraRotation = ({ map, getAreaGeometry, isEnabled = true } = {
   };
 
   // Keyboard map rotation with snapping relative to area orientation
-  useEffect(() => {
-    if (!map || !isEnabled) return;
+  useGlobalKeymap([
+    (!map || !isEnabled) ? null : {
+      key: ['q', 'Q', 'e', 'E'],
+      preventDefault: true,
+      priority: 70,
+      enabled: () => {
+        const ae = typeof document !== 'undefined' ? document.activeElement : null;
+        if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return false;
+        return true;
+      },
+      onEvent: (e) => {
+        try {
+          if (!map || !isEnabled) return;
+          if (e && e.repeat) return;
+          const key = (e.key || '').toLowerCase();
+          if (key !== 'q' && key !== 'e') return;
+          const dir = key === 'e' ? 1 : -1; // CW for E, CCW for Q
+          const p = (map.getPitch ? map.getPitch() : 0);
+          const isIso = p > 15;
+          const areaGeom = (typeof getAreaGeometry === 'function') ? (getAreaGeometry() || null) : null;
+          const theta = areaGeom ? computeAreaOrientation({ map, geometry: areaGeom, pitch: p }) : 0;
+          lastIsoRef.current = isIso;
+          lastThetaRef.current = theta;
+          const baseBurst = Math.abs(isIso ? 12 : 8);
+          remainingBurstRef.current = baseBurst;
+          try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
+          suppressSnapRef.current = true;
+          activeDirRef.current = dir;
+          lastDirRef.current = dir;
+          lastFrameTsRef.current = 0;
+          if (rafIdRef.current == null) {
+            rafIdRef.current = requestAnimationFrame(stepContinuousRotation);
+          }
+        } catch (_) {}
+      }
+    }
+  ]);
 
-    const onKeyDown = (e) => {
-      try {
-        const t = e.target;
-        const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
-        if (typing) return;
-        if (e.repeat) return; // continuous rotation handled manually
-        const key = (e.key || '').toLowerCase();
-        if (key !== 'q' && key !== 'e') return;
-        e.preventDefault();
-        const dir = key === 'e' ? 1 : -1; // CW for E, CCW for Q
-
-        const current = (typeof map.getBearing === 'function') ? map.getBearing() : 0;
-        const p = (map.getPitch ? map.getPitch() : 0);
-        const isIso = p > 15;
-        const areaGeom = (typeof getAreaGeometry === 'function') ? (getAreaGeometry() || null) : null;
-        const theta = areaGeom ? computeAreaOrientation({ map, geometry: areaGeom, pitch: p }) : 0;
-        lastIsoRef.current = isIso;
-        lastThetaRef.current = theta;
-
-        const baseBurst = Math.abs(isIso ? 12 : 8);
-        remainingBurstRef.current = baseBurst;
-        try { if (typeof map.stop === 'function') map.stop(); } catch (_) {}
-        suppressSnapRef.current = true;
-
-        activeDirRef.current = dir;
-        lastDirRef.current = dir;
-        lastFrameTsRef.current = 0;
-        if (rafIdRef.current == null) {
-          rafIdRef.current = requestAnimationFrame(stepContinuousRotation);
-        }
-      } catch (_) {}
-    };
-
-    window.addEventListener('keydown', onKeyDown, { passive: false });
-    return () => { window.removeEventListener('keydown', onKeyDown); };
-  }, [map, getAreaGeometry, isEnabled]);
-
-  useEffect(() => {
-    if (!map || !isEnabled) return;
-    const onKeyUp = (e) => {
-      try {
-        const key = (e.key || '').toLowerCase();
-        if (key !== 'q' && key !== 'e') return;
-        e.preventDefault();
-        activeDirRef.current = 0;
-        if (!remainingBurstRef.current) stopContinuousRotation();
-      } catch (_) {}
-    };
-    window.addEventListener('keyup', onKeyUp, { passive: false });
-    return () => { window.removeEventListener('keyup', onKeyUp); };
-  }, [map, isEnabled]);
+  useGlobalKeymap([
+    (!map || !isEnabled) ? null : {
+      type: 'keyup',
+      key: ['q', 'Q', 'e', 'E'],
+      preventDefault: true,
+      priority: 70,
+      onEvent: () => {
+        try {
+          activeDirRef.current = 0;
+          if (!remainingBurstRef.current) stopContinuousRotation();
+        } catch (_) {}
+      }
+    }
+  ]);
 
   // After rotateend, persist final bearing without snapping
   useEffect(() => {
