@@ -100,6 +100,12 @@ try {
           return match;
         });
       }
+
+      // Final fallback: if a line still has unformatted curly braces and no backticks,
+      // replace braces with HTML entities to avoid MDX expression parsing errors.
+      if (line.includes('{') && line.includes('}') && !line.includes('`')) {
+        lines[i] = line.replace(/\{/g, '&#123;').replace(/\}/g, '&#125;');
+      }
     }
   }
   
