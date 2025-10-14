@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useWindowSize } from '../../hooks/useWindowSize';
 import { useMapEvents } from '../../hooks/useMapEvents';
 
@@ -26,54 +26,55 @@ const ViewportInset = ({ map, mapLoaded, permitAreas, responsive, isSitePlanMode
     west: null 
   }));
   const { width } = useWindowSize();
+  const lastBoundsRef = useRef(null);
+
+  // Shared updater for all camera-changing events
+  const updateViewportBounds = () => {
+    try {
+      const bounds = map && map.getBounds ? map.getBounds() : null;
+      if (!bounds) return;
+      const next = {
+        north: bounds.getNorth(),
+        south: bounds.getSouth(),
+        east: bounds.getEast(),
+        west: bounds.getWest()
+      };
+      const prev = lastBoundsRef.current;
+      if (
+        prev &&
+        prev.north === next.north &&
+        prev.south === next.south &&
+        prev.east === next.east &&
+        prev.west === next.west
+      ) {
+        return;
+      }
+      lastBoundsRef.current = next;
+      setViewportBounds(next);
+    } catch (_) {}
+  };
 
   useEffect(() => {
     if (!map || !mapLoaded) return undefined;
-
-    const updateViewportBounds = () => {
-      try {
-        const bounds = map.getBounds();
-        if (!bounds) return;
-        setViewportBounds({
-          north: bounds.getNorth(),
-          south: bounds.getSouth(),
-          east: bounds.getEast(),
-          west: bounds.getWest()
-        });
-      } catch (_) {
-        // ignore
-      }
-    };
 
     // Prime immediately once ready
     updateViewportBounds();
   }, [map, mapLoaded]);
 
   useMapEvents(mapLoaded ? map : null, {
-    move: () => {
-      try {
-        const bounds = map.getBounds();
-        if (!bounds) return;
-        setViewportBounds({
-          north: bounds.getNorth(),
-          south: bounds.getSouth(),
-          east: bounds.getEast(),
-          west: bounds.getWest()
-        });
-      } catch (_) {}
-    },
-    moveend: () => {
-      try {
-        const bounds = map.getBounds();
-        if (!bounds) return;
-        setViewportBounds({
-          north: bounds.getNorth(),
-          south: bounds.getSouth(),
-          east: bounds.getEast(),
-          west: bounds.getWest()
-        });
-      } catch (_) {}
-    }
+    // Update on any camera changes that affect bounds
+    move: updateViewportBounds,
+    moveend: updateViewportBounds,
+    render: updateViewportBounds,
+    zoom: updateViewportBounds,
+    zoomend: updateViewportBounds,
+    rotate: updateViewportBounds,
+    rotateend: updateViewportBounds,
+    pitch: updateViewportBounds,
+    pitchend: updateViewportBounds,
+    resize: updateViewportBounds,
+    idle: updateViewportBounds,
+    'style.load': updateViewportBounds
   });
 
   useEffect(() => {

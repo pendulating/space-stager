@@ -8,13 +8,12 @@ import { useEffect } from 'react';
  * handlers: { [eventName: string]: Function | { handler: Function, layerId?: string, once?: boolean } }
  * options:
  *  - reattachOnStyleLoad?: boolean (default: true) re-attach handlers after style reload
- *  - capture?: boolean (default: false) attach with capture semantics where supported
  */
 export const useMapEvents = (map, handlers = {}, options = {}) => {
   useEffect(() => {
     if (!map || !handlers) return;
 
-    const { reattachOnStyleLoad = true, capture = false } = options || {};
+    const { reattachOnStyleLoad = true } = options || {};
 
     const normalized = Array.isArray(handlers)
       ? handlers.filter((cfg) => cfg && typeof cfg.handler === 'function' && typeof cfg.event === 'string')
@@ -35,11 +34,11 @@ export const useMapEvents = (map, handlers = {}, options = {}) => {
         try {
           try { if (layerId) map.off(event, layerId, handler); else map.off(event, handler); } catch (_) {}
           if (once && map.once) {
-            if (layerId) map.once(event, layerId, handler, capture);
-            else map.once(event, handler, capture);
+            if (layerId) map.once(event, layerId, handler);
+            else map.once(event, handler);
           } else {
-            if (layerId) map.on(event, layerId, handler, capture);
-            else map.on(event, handler, capture);
+            if (layerId) map.on(event, layerId, handler);
+            else map.on(event, handler);
           }
         } catch (_) {}
       });
@@ -47,7 +46,7 @@ export const useMapEvents = (map, handlers = {}, options = {}) => {
 
     const detachAll = () => {
       normalized.forEach(({ event, handler, layerId }) => {
-        try { if (layerId) map.off(event, layerId, handler, capture); else map.off(event, handler, capture); } catch (_) {}
+        try { if (layerId) map.off(event, layerId, handler); else map.off(event, handler); } catch (_) {}
       });
     };
 
