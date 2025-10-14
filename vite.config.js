@@ -79,8 +79,7 @@ export default defineConfig(({ mode }) => {
   },
   define: {
     __GEOCLIENT_BASE_URL__: JSON.stringify(env.VITE_GEOCLIENT_BASE_URL || 'https://api.nyc.gov/geoclient/v2'),
-    __GEOCLIENTV2_PKEY__: JSON.stringify(env.GEOCLIENTV2_PKEY || env.VITE_GEOCLIENTV2_PKEY || ''),
-    __GEOCLIENTV2_SKEY__: JSON.stringify(env.GEOCLIENTV2_SKEY || env.VITE_GEOCLIENTV2_SKEY || '')
+    // No API keys are defined at build time (BYOK)
   }
 }
 })

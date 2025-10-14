@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import GeoclientSettingsModal from '../Modals/GeoclientSettingsModal.jsx';
 import { Search, Eye, EyeOff, Loader2, CheckCircle, AlertCircle, Circle } from 'lucide-react';
 
 const PermitAreaSearch = ({ 
@@ -22,6 +23,7 @@ const PermitAreaSearch = ({
   onSelectGeoclientResult = null
 }) => {
   const [activeAddressIndex, setActiveAddressIndex] = useState(-1);
+  const [showSettings, setShowSettings] = useState(false);
   useEffect(() => {
     setActiveAddressIndex(-1);
   }, [geoclientResults, searchQuery]);
@@ -183,7 +185,10 @@ const PermitAreaSearch = ({
       {searchQuery && searchQuery.length >= 2 && (
         <div className="mt-4" role="listbox" aria-label="Addresses & Places">
           <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
-            Addresses & Places
+            <div className="flex items-center justify-between">
+              <span>Addresses & Places</span>
+              <button type="button" className="text-[11px] underline text-blue-600" onClick={() => setShowSettings(true)}>Settings</button>
+            </div>
           </div>
           {geoclientLoading && geoclientCooldownMs <= 0 && (
             <div className="text-xs text-gray-500 dark:text-gray-400">Searching addresses…</div>
@@ -226,6 +231,8 @@ const PermitAreaSearch = ({
           )}
         </div>
       )}
+
+      <GeoclientSettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
     </div>
   );
 };

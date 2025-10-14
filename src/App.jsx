@@ -7,6 +7,7 @@ import { GeographyProvider } from './contexts/GeographyContext';
 import { ZoneCreatorProvider } from './contexts/ZoneCreatorContext.jsx';
 import SpaceStager from './components/SpaceStager';
 import MobileLanding from './components/MobileLanding';
+import { GeoclientAuthProvider } from './contexts/GeoclientAuthContext.jsx';
 
 function App() {
   const { width } = useWindowSize();
@@ -25,7 +26,9 @@ function App() {
       <SitePlanProvider>
         <GeographyProvider>
           <ZoneCreatorProvider>
-            <SpaceStager />
+            <GeoclientAuthProvider>
+              <SpaceStager />
+            </GeoclientAuthProvider>
           </ZoneCreatorProvider>
         </GeographyProvider>
       </SitePlanProvider>

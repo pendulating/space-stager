@@ -8,6 +8,7 @@ import LayersPanel from './LayersPanel';
 import BasemapToggle from './BasemapToggle';
 import { useGeoclientSearch } from '../../hooks/useGeoclientSearch';
 import { searchGeoclient } from '../../services/geoclientService';
+import { useGeoclientAuth } from '../../contexts/GeoclientAuthContext.jsx';
 
 const Sidebar = ({ 
   layers,
@@ -24,10 +25,12 @@ const Sidebar = ({
   drawTools
 }) => {
   const { isActive, setIsActive } = useZoneCreatorContext();
+  const { key: geoclientKey } = useGeoclientAuth();
   const geoSearch = useGeoclientSearch(permitAreas.searchQuery, {
     debounceMs: 300,
     limit: 8,
     options: {
+      key: geoclientKey,
       // Improve partial-name tolerance and suggestions
       similarNamesDistance: 12, // default is 8
       exactMatchMaxLevel: 6,    // explore more sub-search levels

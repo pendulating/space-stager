@@ -2,8 +2,6 @@
 // Lightweight client for NYC Geoclient v2 `/search` endpoint
 
 const DEFAULT_BASE_URL = (typeof __GEOCLIENT_BASE_URL__ !== 'undefined' && __GEOCLIENT_BASE_URL__) || 'https://api.nyc.gov/geoclient/v2';
-const PRIMARY_KEY = (typeof __GEOCLIENTV2_PKEY__ !== 'undefined' && __GEOCLIENTV2_PKEY__) || '';
-const SECONDARY_KEY = (typeof __GEOCLIENTV2_SKEY__ !== 'undefined' && __GEOCLIENTV2_SKEY__) || '';
 
 function buildHeaders(key) {
   const headers = new Headers();
@@ -26,12 +24,12 @@ async function fetchWithKey(url, { key, signal }) {
   return resp;
 }
 
-async function fetchWithRetry(url, { signal }) {
-  // Use only the primary key; do not fallback to secondary automatically
+async function fetchWithRetry(url, { signal, key }) {
+  // Use only the caller-provided key; do not fallback automatically
   const BACKOFFS = [400, 900];
   for (let attempt = 0; attempt < 1; attempt++) {
     try {
-      const resp = await fetchWithKey(url, { key: PRIMARY_KEY, signal });
+      const resp = await fetchWithKey(url, { key, signal });
       return resp;
     } catch (e) {
       const delay = BACKOFFS[Math.min(attempt, BACKOFFS.length - 1)];
@@ -39,12 +37,13 @@ async function fetchWithRetry(url, { signal }) {
     }
   }
   // Final attempt after small backoff for transient network errors
-  const resp = await fetchWithKey(url, { key: PRIMARY_KEY, signal });
+  const resp = await fetchWithKey(url, { key, signal });
   return resp;
 }
 
 export async function searchGeoclient({
   input,
+  key,
   exactMatchForSingleSuccess,
   exactMatchMaxLevel,
   returnPolicy,
@@ -58,6 +57,10 @@ export async function searchGeoclient({
 } = {}) {
   if (!input || typeof input !== 'string' || !input.trim()) {
     return { ok: true, results: [] };
+  }
+  // If no key provided, do not call the API (BYOK). Surface 401-like status to UI.
+  if (!key || typeof key !== 'string' || !key.trim()) {
+    return { ok: true, results: [], status: 401 };
   }
 
   const qp = toQuery({
@@ -73,7 +76,7 @@ export async function searchGeoclient({
   });
   const url = `${baseUrl.replace(/\/$/, '')}/search?${qp}`;
 
-  const resp = await fetchWithRetry(url, { signal });
+  const resp = await fetchWithRetry(url, { signal, key });
 
   // Graceful statuses
   if (resp.status === 404) {
