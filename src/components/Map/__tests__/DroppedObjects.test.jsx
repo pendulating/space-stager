@@ -38,9 +38,11 @@ describe('DroppedObjects', () => {
     // Hover to reveal actions
     const item = screen.getByTitle('Folding Chair');
     fireEvent.mouseOver(item);
-    fireEvent.click(screen.getByTitle('Edit note'));
+    const editButtons = screen.getAllByTitle('Edit note');
+    fireEvent.click(editButtons[0]);
     expect(onEditNote).toHaveBeenCalled();
-    fireEvent.click(screen.getByTitle('Remove'));
+    const removeButtons = screen.getAllByTitle('Remove');
+    fireEvent.click(removeButtons[0]);
     expect(onRemoveObject).toHaveBeenCalledWith('o1');
   });
 

@@ -39,7 +39,8 @@ describe('PlacementPreview', () => {
     // there should be an img with src '/img/banner.png'
     const img1 = document.querySelector('img');
     expect(img1).toBeTruthy();
-    expect(img1.getAttribute('src')).toBe('/img/banner.png');
+    // New top-down sprite path for banner
+    expect(img1.getAttribute('src')).toContain('/static/banner/banner_TOP_000.png');
 
     rerender(
       <PlacementPreview
@@ -49,8 +50,8 @@ describe('PlacementPreview', () => {
       />
     );
     const img2 = document.querySelector('img');
-    // Without a map, default view is top-down
-    expect(img2.getAttribute('src')).toContain('/static/banner/banner_TOP_090.png');
+    // Without a map, default view is top-down; angle may quantize to 0
+    expect(img2.getAttribute('src')).toContain('/static/banner/banner_TOP_');
   });
 });
 

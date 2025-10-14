@@ -6,13 +6,16 @@ import { GeographyProvider } from '../../contexts/GeographyContext.jsx';
 import { TutorialProvider } from '../../contexts/TutorialContext.jsx';
 import { SitePlanProvider } from '../../contexts/SitePlanContext.jsx';
 import { ZoneCreatorProvider } from '../../contexts/ZoneCreatorContext.jsx';
+import { GeoclientAuthProvider } from '../../contexts/GeoclientAuthContext.jsx';
 
 function Providers({ children }){
   return (
     <GeographyProvider>
       <TutorialProvider>
         <SitePlanProvider>
-          <ZoneCreatorProvider>{children}</ZoneCreatorProvider>
+          <ZoneCreatorProvider>
+            <GeoclientAuthProvider>{children}</GeoclientAuthProvider>
+          </ZoneCreatorProvider>
         </SitePlanProvider>
       </TutorialProvider>
     </GeographyProvider>

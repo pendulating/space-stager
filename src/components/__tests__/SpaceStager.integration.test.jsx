@@ -6,6 +6,7 @@ import { GeographyProvider } from '../../contexts/GeographyContext.jsx';
 import { TutorialProvider } from '../../contexts/TutorialContext.jsx';
 import { SitePlanProvider } from '../../contexts/SitePlanContext.jsx';
 import { ZoneCreatorProvider } from '../../contexts/ZoneCreatorContext.jsx';
+import { GeoclientAuthProvider } from '../../contexts/GeoclientAuthContext.jsx';
 
 // Smoke integration: renders core chrome and map container shell
 describe('SpaceStager integration', () => {
@@ -19,7 +20,9 @@ describe('SpaceStager integration', () => {
         <GeographyProvider>
           <SitePlanProvider>
             <ZoneCreatorProvider>
-              <SpaceStager />
+              <GeoclientAuthProvider>
+                <SpaceStager />
+              </GeoclientAuthProvider>
             </ZoneCreatorProvider>
           </SitePlanProvider>
         </GeographyProvider>

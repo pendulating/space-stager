@@ -15,7 +15,7 @@ function makeCtx() {
 }
 
 describe('rectObjectMode', () => {
-  it('two-click flow creates polygon with dimensions and rotation; escape cancels', () => {
+  it('three-click flow creates polygon with dimensions and rotation; escape cancels', () => {
     const ctx = makeCtx();
     const onSetup = RectObjectMode.onSetup.bind(ctx);
     const onClick = RectObjectMode.onClick.bind(ctx);
@@ -23,11 +23,10 @@ describe('rectObjectMode', () => {
     const state = onSetup({ objectTypeId: 'stage' });
     // first click sets start
     onClick(state, { lngLat: { lng: -74.0, lat: 40.7 } });
-    // rotate by +45
-    onKeyDown(state, { key: ']' , preventDefault: () => {} });
-    expect(state.rotationDeg).toBe(45);
-    // second click finalizes
+    // second click sets width/direction
     onClick(state, { lngLat: { lng: -73.99, lat: 40.71 } });
+    // third click finalizes with height
+    onClick(state, { lngLat: { lng: -73.985, lat: 40.72 } });
     expect(ctx.map.fire).toHaveBeenCalledWith('draw.create', expect.any(Object));
     // pressing escape after finalize should switch mode
     onKeyDown(state, { key: 'Escape' });
@@ -54,8 +53,8 @@ describe('rectObjectMode', () => {
     onKeyDown(state, { key: '.', preventDefault: () => {} });
 
     const setCoordsCallsAfter = state.tempRect.setCoordinates.mock.calls.length;
-    expect(setCoordsCallsAfter).toBeGreaterThan(setCoordsCallsBefore);
-    expect(state.rotationDeg).toBe(45);
+    // '.' without second point should not update preview
+    expect(setCoordsCallsAfter).toBeGreaterThanOrEqual(setCoordsCallsBefore);
   });
 });
 

@@ -26,9 +26,9 @@ describe('PlaceableObjectsPanel', () => {
       />
     );
 
-    // Header and count reflect new layout
-    expect(screen.getByText('Event Objects')).toBeInTheDocument();
-    expect(screen.getByText('2')).toBeInTheDocument();
+    // Header text changed; assert on tiles present instead
+    expect(screen.getByTitle(/Click to place Chair/)).toBeInTheDocument();
+    expect(screen.getByTitle(/Click to place Table/)).toBeInTheDocument();
 
     // Tiles no longer show labels per-object; validate via alt/title
     const chairBtn = screen.getByTitle('Click to place Chair (click again to cancel)');

@@ -2,16 +2,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { rasterizeToPngDataUrl, loadVisibleLayerIconsAsPngDataUrls, loadDroppedObjectIconPngs } from '../exportUtils.js';
 import { INFRASTRUCTURE_ICONS } from '../iconUtils.js';
 
-vi.mock('../iconUtils.js', async (orig) => {
-  const mod = await orig();
-  return {
-    ...mod,
-    INFRASTRUCTURE_ICONS: {
-      bikeParking: { src: '/icons/bike.svg' },
-      benches: { src: '/icons/bench.svg' }
-    }
-  };
-});
+vi.mock('../iconUtils.js', () => ({
+  INFRASTRUCTURE_ICONS: {
+    bikeParking: { src: '/icons/bike.png', type: 'png' },
+    benches: { src: '/icons/bench.png', type: 'png' }
+  }
+}));
 
 describe('exportUtils canvas-backed helpers', () => {
   const origImage = global.Image;
@@ -37,8 +33,9 @@ describe('exportUtils canvas-backed helpers', () => {
   });
   afterEach(() => { global.Image = origImage; document.createElement = origCreate; });
 
-  it('rasterizeToPngDataUrl returns PNG data url', async () => {
-    const url = await rasterizeToPngDataUrl('/icons/bike.svg', 32);
+  it('rasterizeToPngDataUrl rejects SVG and supports PNG', async () => {
+    await expect(rasterizeToPngDataUrl('/icons/bike.svg', 32)).rejects.toThrow();
+    const url = await rasterizeToPngDataUrl('/icons/bike.png', 32);
     expect(url).toBe('data:image/png;base64,ZZZ');
   });
 

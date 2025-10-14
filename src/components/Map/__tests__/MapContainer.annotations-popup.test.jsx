@@ -41,6 +41,8 @@ function makeMap(overrides = {}) {
     isStyleLoaded: vi.fn(() => true),
     hasImage: vi.fn(() => true),
     addImage: vi.fn(),
+    getSource: vi.fn(() => ({ setData: vi.fn() })),
+    addSource: vi.fn(),
     project: vi.fn(() => ({ x: 10, y: 10 })),
     __listeners: listeners,
     __setFeatures: (f) => { state.features = f; },

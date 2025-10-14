@@ -12,7 +12,9 @@ vi.mock('../../../constants/layers', () => ({
   LAYER_GROUPS: {
     'public-infrastructure': { name: 'Public Infrastructure', icon: '🏛', layers: ['hydrants','benches'] },
     'transport': { name: 'Transport', icon: '🚌', layers: ['busStops'] }
-  }
+  },
+  DISABLED_INFRASTRUCTURE_LAYERS: new Set(),
+  NON_RECOMMENDED_INFRASTRUCTURE_LAYERS: new Set()
 }));
 
 describe('LayersPanel edge cases', () => {
@@ -31,8 +33,8 @@ describe('LayersPanel edge cases', () => {
     const focusHintButtons = screen.getAllByRole('button').filter(b => (b.getAttribute('title') || '') === 'Select a permit area first');
     expect(focusHintButtons.length).toBeGreaterThan(0);
     focusHintButtons.forEach(btn => expect(btn).toBeDisabled());
-    // Permit areas hint should be visible
-    expect(screen.getByText(/Click on the zone geometry/i)).toBeInTheDocument();
+    // Permit areas hint text changed; check for generic prompt
+    expect(screen.getByText(/Select zone geometry/i)).toBeInTheDocument();
   });
 
   it('shows loading badge and toggles layer when enabled', () => {
@@ -57,8 +59,8 @@ describe('LayersPanel edge cases', () => {
     // Expand Transport group to reveal busStops row
     const transportHeader = screen.getByText('Transport').closest('div');
     fireEvent.click(transportHeader);
-    // Now the error badge should be visible within the group
-    expect(screen.getAllByText(/Error/i).length).toBeGreaterThanOrEqual(1);
+    // Now the error icon (AlertCircle) should be visible within the group
+    expect(screen.getAllByTitle('Error loading').length).toBeGreaterThanOrEqual(1);
   });
 });
 

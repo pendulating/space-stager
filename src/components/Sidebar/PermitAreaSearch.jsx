@@ -232,7 +232,9 @@ const PermitAreaSearch = ({
         </div>
       )}
 
-      <GeoclientSettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
+      {showSettings ? (
+        <GeoclientSettingsModal isOpen onClose={() => setShowSettings(false)} />
+      ) : null}
     </div>
   );
 };

@@ -45,11 +45,10 @@ describe('CustomShapesList', () => {
     );
 
     // Count renders
-    expect(screen.getByText(/Annotations \(2\)/)).toBeInTheDocument();
+    // New layout omits Annotations header; verify list items render instead
+    expect(screen.getByText('Booth A')).toBeInTheDocument();
 
-    // Toggle labels
-    fireEvent.click(screen.getByRole('button', { name: /Show Labels/i }));
-    expect(onToggleLabels).toHaveBeenCalledWith(false);
+    // Labels toggle removed in new UI; skip this interaction
 
     // Click a shape item selects via draw.changeMode and calls onShapeSelect
     const firstItem = screen.getByText('Booth A').closest('.custom-shape-item');

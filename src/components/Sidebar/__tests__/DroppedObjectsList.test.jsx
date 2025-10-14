@@ -15,7 +15,8 @@ describe('DroppedObjectsList', () => {
       </DroppedObjectsProvider>
     );
     // New layout: header 'Placed' with separate count
-    expect(screen.getByText('Placed')).toBeInTheDocument();
+    // Header text changed; now shows 'Placed (' without full word match
+    expect(screen.getByText((t) => t.startsWith('Placed'))).toBeInTheDocument();
     expect(screen.getByText('1')).toBeInTheDocument();
     fireEvent.click(screen.getByTitle('Remove object'));
     expect(onRemove).toHaveBeenCalledWith('o1');

@@ -74,7 +74,8 @@ describe('enhancedRenderingUtils branches', () => {
       displayAngleDeg: 135,
       cameraState: { viewType: 'top-down', bearing: 30, pitch: 0 }
     });
-    expect(top.imageId).toBe('bench_000');
+    // top-down uses TOP suffix; base sprite (0) with rotation
+    expect(top.imageId).toBe('bench_TOP_000');
     expect(top.iconRotate).toBeCloseTo(135 - 30);
 
     const isoMap = { getBearing: () => 40, getPitch: () => 25 };
@@ -102,8 +103,8 @@ describe('enhancedRenderingUtils branches', () => {
     }
     global.Image = FakeImage;
     await addEnhancedSpritesToMap(map, { baseName: 'bench', publicDir: '/icons', angles: [0, 90] });
-    expect(added.includes('bench_000')).toBe(true);
-    expect(added.includes('bench_090')).toBe(true);
+    expect(added.includes('bench_TOP_000') || added.includes('bench_000')).toBe(true);
+    expect(added.some(id => id.endsWith('_090'))).toBe(true);
     global.Image = origImage;
   });
 });

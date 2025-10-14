@@ -17,7 +17,7 @@ describe('DrawingTools', () => {
       />
     );
     // Click a tool button (title used on button)
-    const pointBtn = screen.getByTitle('Add Point');
+    const pointBtn = screen.getByTitle('Point');
     fireEvent.click(pointBtn);
     expect(onToolSelect).toHaveBeenCalled();
 

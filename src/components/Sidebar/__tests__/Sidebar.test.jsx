@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import Sidebar from '../Sidebar.jsx';
 import { ZoneCreatorProvider } from '../../../contexts/ZoneCreatorContext.jsx';
+import { GeoclientAuthProvider } from '../../../contexts/GeoclientAuthContext.jsx';
 
 describe('Sidebar (left)', () => {
   function makeProps(overrides = {}) {
@@ -31,7 +32,7 @@ describe('Sidebar (left)', () => {
 
   it('renders and collapses via button', () => {
     const props = makeProps();
-    render(<ZoneCreatorProvider><Sidebar {...props} /></ZoneCreatorProvider>);
+    render(<ZoneCreatorProvider><GeoclientAuthProvider><Sidebar {...props} /></GeoclientAuthProvider></ZoneCreatorProvider>);
     const collapse = screen.getByTitle('Hide sidebar');
     fireEvent.click(collapse);
     expect(props.onCollapse).toHaveBeenCalled();
@@ -39,7 +40,7 @@ describe('Sidebar (left)', () => {
 
   it('hides search panel in site plan mode (collapsed container present)', () => {
     const props = makeProps({ isSitePlanMode: true });
-    render(<ZoneCreatorProvider><Sidebar {...props} /></ZoneCreatorProvider>);
+    render(<ZoneCreatorProvider><GeoclientAuthProvider><Sidebar {...props} /></GeoclientAuthProvider></ZoneCreatorProvider>);
     // Container should have collapse classes (max-h-0, opacity-0)
     const collapsed = document.querySelector('.max-h-0.opacity-0');
     expect(collapsed).toBeTruthy();
@@ -47,9 +48,9 @@ describe('Sidebar (left)', () => {
 
   it('shows ZoneCreatorPanel in intersections mode and customizes search', () => {
     const props = makeProps({ geographyType: 'intersections' });
-    render(<ZoneCreatorProvider><Sidebar {...props} /></ZoneCreatorProvider>);
-    // Search title customized
-    expect(screen.getByText('Search Intersections')).toBeInTheDocument();
+    render(<ZoneCreatorProvider><GeoclientAuthProvider><Sidebar {...props} /></GeoclientAuthProvider></ZoneCreatorProvider>);
+    // Search input placeholder customized
+    expect(screen.getByPlaceholderText('Search intersections...')).toBeInTheDocument();
     // Zone Creator header present
     expect(screen.getByText('Zone Creator')).toBeInTheDocument();
   });

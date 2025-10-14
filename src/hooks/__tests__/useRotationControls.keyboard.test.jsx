@@ -51,11 +51,13 @@ describe('useRotationControls keyboard controls', () => {
     expect(rotateSelectedRectBy).toHaveBeenCalled();
   });
 
-  it('steps selected point rotation by 45°', () => {
-    const rotateSelectedPointStep = vi.fn();
-    render(<Harness hasSelectedRect={false} hasSelectedPoint={true} rotateSelectedPointStep={rotateSelectedPointStep} />);
+  it('rotates selected point continuously while key held', async () => {
+    const rotateSelectedPointBy = vi.fn();
+    render(<Harness hasSelectedRect={false} hasSelectedPoint={true} rotateSelectedPointBy={rotateSelectedPointBy} />);
     window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', code: 'BracketRight', bubbles: true, cancelable: true }));
-    expect(rotateSelectedPointStep).toHaveBeenCalledWith(45);
+    await new Promise(r => setTimeout(r, 10));
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: ']', code: 'BracketRight', bubbles: true, cancelable: true }));
+    expect(rotateSelectedPointBy).toHaveBeenCalled();
   });
 });
 

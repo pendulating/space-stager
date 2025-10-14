@@ -27,7 +27,7 @@ describe('BasemapToggle', () => {
   it('renders and toggles basemap buttons', async () => {
     const map = createMapMock(true);
     render(<BasemapToggle map={map} onStyleChange={() => {}} />);
-    expect(screen.getByText('Basemap')).toBeInTheDocument();
+    // Header label removed in new UI; just validate buttons
     expect(screen.getByText('Carto')).toBeInTheDocument();
     expect(screen.getByText('Satellite')).toBeInTheDocument();
 

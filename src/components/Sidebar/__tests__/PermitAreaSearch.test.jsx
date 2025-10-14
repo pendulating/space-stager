@@ -18,6 +18,8 @@ describe('PermitAreaSearch', () => {
         isSearching={false}
         onSelectArea={onSelectArea}
         focusedArea={null}
+        geoclientResults={[]}
+        geoclientLoading={false}
       />
     );
     expect(screen.getByPlaceholderText('Search zones...')).toBeInTheDocument();
@@ -37,6 +39,8 @@ describe('PermitAreaSearch', () => {
         isSearching={true}
         onSelectArea={() => {}}
         focusedArea={null}
+        geoclientResults={[]}
+        geoclientLoading={false}
       />
     );
     expect(screen.getByText('Searching...')).toBeInTheDocument();
