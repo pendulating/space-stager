@@ -13,7 +13,10 @@ const PermitAreaSearch = ({
   onChangeMode = null,
   permitAreasLayer = null,
   onToggleLayer = null,
-  geographyType = 'parks'
+  geographyType = 'parks',
+  geoclientResults = [],
+  geoclientLoading = false,
+  onSelectGeoclientResult = null
 }) => {
   // Function to highlight search term in text
   const highlightSearchTerm = (text, term) => {
@@ -146,6 +149,38 @@ const PermitAreaSearch = ({
       {searchQuery && searchQuery.length >= 2 && searchResults && searchResults.length === 0 && !isSearching && (
         <div className="mt-2 py-2 text-center text-xs text-gray-500 dark:text-gray-400">
           No matching zones found
+        </div>
+      )}
+
+      {/* Addresses & Places from Geoclient */}
+      {searchQuery && searchQuery.length >= 2 && (
+        <div className="mt-4">
+          <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
+            Addresses & Places
+          </div>
+          {geoclientLoading && (
+            <div className="text-xs text-gray-500 dark:text-gray-400">Searching addresses…</div>
+          )}
+          {!geoclientLoading && Array.isArray(geoclientResults) && geoclientResults.length > 0 && (
+            <div className="space-y-1">
+              {geoclientResults.map((item, idx) => (
+                <div
+                  key={`${item.id || item.label}-${idx}`}
+                  className="p-2 hover:bg-blue-50 dark:hover:bg-blue-950/30 cursor-pointer rounded-md transition-colors"
+                  onClick={() => onSelectGeoclientResult && onSelectGeoclientResult(item)}
+                  title={item.label}
+                >
+                  <div className="text-sm text-gray-800 dark:text-gray-100 truncate">{item.label}</div>
+                  {Array.isArray(item.coords) && item.coords.length >= 2 && (
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400">{item.coords[1].toFixed(6)}, {item.coords[0].toFixed(6)}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {!geoclientLoading && Array.isArray(geoclientResults) && geoclientResults.length === 0 && (
+            <div className="text-xs text-gray-400">No addresses found</div>
+          )}
         </div>
       )}
     </div>

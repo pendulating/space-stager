@@ -6,6 +6,7 @@ import ZoneCreatorPanel from './ZoneCreatorPanel.jsx';
 import { useZoneCreatorContext } from '../../contexts/ZoneCreatorContext.jsx';
 import LayersPanel from './LayersPanel';
 import BasemapToggle from './BasemapToggle';
+import { useGeoclientSearch } from '../../hooks/useGeoclientSearch';
 
 const Sidebar = ({ 
   layers,
@@ -22,6 +23,7 @@ const Sidebar = ({
   drawTools
 }) => {
   const { isActive, setIsActive } = useZoneCreatorContext();
+  const geoSearch = useGeoclientSearch(permitAreas.searchQuery, { debounceMs: 300, limit: 8 });
   return (
     <div className={`${isSitePlanMode ? 'w-80' : 'w-96'} bg-white dark:bg-gray-800 dark:text-gray-100 shadow-lg z-10 flex flex-col transition-all duration-300 h-full relative`}>
       <div className="relative">
@@ -47,7 +49,7 @@ const Sidebar = ({
           ? 'max-h-0 opacity-0 transform -translate-y-2' 
           : 'max-h-96 opacity-100 transform translate-y-0'
       }`}>
-        <PermitAreaSearch
+          <PermitAreaSearch
           searchQuery={permitAreas.searchQuery}
           onSearchChange={permitAreas.setSearchQuery}
           searchResults={permitAreas.searchResults}
@@ -77,6 +79,15 @@ const Sidebar = ({
           permitAreasLayer={layers?.permitAreas}
           onToggleLayer={onToggleLayer}
           geographyType={geographyType}
+            geoclientResults={geoSearch.results}
+            geoclientLoading={geoSearch.isLoading}
+            onSelectGeoclientResult={(item) => {
+              try {
+                if (item && Array.isArray(item.coords) && item.coords.length >= 2 && map && map.easeTo) {
+                  map.easeTo({ center: item.coords, zoom: 18, duration: 600, essential: true });
+                }
+              } catch (_) {}
+            }}
         />
       </div>
 
