@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useMapEvents } from '../../hooks/useMapEvents';
 
 const TextAnnotationEditor = ({ map, featureId, drawRef, onSave, onCancel }) => {
   const feature = useMemo(() => {
@@ -29,27 +30,32 @@ const TextAnnotationEditor = ({ map, featureId, drawRef, onSave, onCancel }) => 
   }, [feature]);
 
   // Close editor if the underlying feature is deleted or no longer exists (e.g., Backspace)
-  useEffect(() => {
-    if (!map || !featureId) return;
-    const closeIfMissing = () => {
+  useMapEvents(map && featureId ? map : null, {
+    'draw.delete': () => {
       try {
         const f = drawRef?.current?.get ? drawRef.current.get(featureId) : null;
         if (!f && typeof onCancel === 'function') onCancel();
       } catch (_) {}
-    };
-    const onDelete = () => closeIfMissing();
-    const onSelectionChange = () => closeIfMissing();
-    try { map.on('draw.delete', onDelete); } catch (_) {}
-    try { map.on('draw.update', onDelete); } catch (_) {}
-    try { map.on('draw.selectionchange', onSelectionChange); } catch (_) {}
-    try { map.on('draw.render', onSelectionChange); } catch (_) {}
-    return () => {
-      try { map.off('draw.delete', onDelete); } catch (_) {}
-      try { map.off('draw.update', onDelete); } catch (_) {}
-      try { map.off('draw.selectionchange', onSelectionChange); } catch (_) {}
-      try { map.off('draw.render', onSelectionChange); } catch (_) {}
-    };
-  }, [map, drawRef, featureId, onCancel]);
+    },
+    'draw.update': () => {
+      try {
+        const f = drawRef?.current?.get ? drawRef.current.get(featureId) : null;
+        if (!f && typeof onCancel === 'function') onCancel();
+      } catch (_) {}
+    },
+    'draw.selectionchange': () => {
+      try {
+        const f = drawRef?.current?.get ? drawRef.current.get(featureId) : null;
+        if (!f && typeof onCancel === 'function') onCancel();
+      } catch (_) {}
+    },
+    'draw.render': () => {
+      try {
+        const f = drawRef?.current?.get ? drawRef.current.get(featureId) : null;
+        if (!f && typeof onCancel === 'function') onCancel();
+      } catch (_) {}
+    }
+  });
 
   if (!feature) return null;
 
@@ -139,51 +145,63 @@ export const AnnotationActionPill = ({ map, drawRef, featureId, onClose }) => {
 
   useEffect(() => {
     updatePos();
-    if (!map) return;
-    const onMove = () => updatePos();
-    try { map.on('move', onMove); } catch (_) {}
-    try { map.on('zoom', onMove); } catch (_) {}
-    try { map.on('resize', onMove); } catch (_) {}
-    return () => {
-      try { map.off('move', onMove); } catch (_) {}
-      try { map.off('zoom', onMove); } catch (_) {}
-      try { map.off('resize', onMove); } catch (_) {}
-    };
   }, [map, drawRef, featureId]);
+
+  useMapEvents(map ? map : null, {
+    move: () => updatePos(),
+    zoom: () => updatePos(),
+    resize: () => updatePos()
+  });
 
   // Auto-close when feature disappears
   useEffect(() => {
-    if (!map || !featureId) return;
+    if (!featureId) return undefined;
     const closeIfMissing = () => {
       try {
         const f = drawRef?.current?.get ? drawRef.current.get(featureId) : null;
         if (!f && typeof onClose === 'function') onClose();
       } catch (_) {}
     };
-    const onDelete = () => closeIfMissing();
-    const onSelectionChange = () => closeIfMissing();
-    try { map.on('draw.delete', onDelete); } catch (_) {}
-    try { map.on('draw.update', onDelete); } catch (_) {}
-    try { map.on('draw.selectionchange', onSelectionChange); } catch (_) {}
-    try { map.on('draw.render', onSelectionChange); } catch (_) {}
     // Safety: also close immediately on Delete/Backspace so repeated attempts don't linger
     const onKeyDown = (e) => {
       try {
         const isDel = e.key === 'Delete' || e.key === 'Backspace';
         if (!isDel) return;
-        // Defer slightly to allow draw.delete to fire; then close if still mounted
         setTimeout(() => closeIfMissing(), 0);
       } catch (_) {}
     };
     try { window.addEventListener('keydown', onKeyDown, { passive: true }); } catch (_) {}
     return () => {
-      try { map.off('draw.delete', onDelete); } catch (_) {}
-      try { map.off('draw.update', onDelete); } catch (_) {}
-      try { map.off('draw.selectionchange', onSelectionChange); } catch (_) {}
-      try { map.off('draw.render', onSelectionChange); } catch (_) {}
       try { window.removeEventListener('keydown', onKeyDown); } catch (_) {}
     };
-  }, [map, drawRef, featureId, onClose]);
+  }, [drawRef, featureId, onClose]);
+
+  useMapEvents(map && featureId ? map : null, {
+    'draw.delete': () => {
+      try {
+        const f = drawRef?.current?.get ? drawRef.current.get(featureId) : null;
+        if (!f && typeof onClose === 'function') onClose();
+      } catch (_) {}
+    },
+    'draw.update': () => {
+      try {
+        const f = drawRef?.current?.get ? drawRef.current.get(featureId) : null;
+        if (!f && typeof onClose === 'function') onClose();
+      } catch (_) {}
+    },
+    'draw.selectionchange': () => {
+      try {
+        const f = drawRef?.current?.get ? drawRef.current.get(featureId) : null;
+        if (!f && typeof onClose === 'function') onClose();
+      } catch (_) {}
+    },
+    'draw.render': () => {
+      try {
+        const f = drawRef?.current?.get ? drawRef.current.get(featureId) : null;
+        if (!f && typeof onClose === 'function') onClose();
+      } catch (_) {}
+    }
+  });
 
   const handleLabel = () => {
     try {

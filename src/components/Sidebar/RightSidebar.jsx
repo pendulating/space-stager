@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import { useWindowSize } from '../../hooks/useWindowSize';
 import { ClipboardList, Download, FileImage, FileText, List, PencilRuler, Shapes } from 'lucide-react';
 import DrawingTools from './DrawingTools';
 import ShapeProperties from './ShapeProperties';
@@ -30,6 +31,7 @@ const RightSidebar = ({
   focusedArea
 }) => {
   const drawerRef = useRef(null);
+  const { width: windowWidth } = useWindowSize();
   const [activeSection, setActiveSection] = useState(
     SECTION_CONFIG.find((section) => section.defaultActive)?.id || SECTION_CONFIG[0].id
   );
@@ -380,16 +382,12 @@ const RightSidebar = ({
       try { resizeObserver.observe(drawerRef.current); } catch (_) {}
     }
 
-    const onWindowResize = () => updateOverlayWidthVar();
-    window.addEventListener('resize', onWindowResize);
-
     return () => {
-      try { window.removeEventListener('resize', onWindowResize); } catch (_) {}
       try { resizeObserver && resizeObserver.disconnect(); } catch (_) {}
       // Reset to 0
       try { rootEl.style.setProperty('--space-stager-right-panel-width', '0px'); } catch (_) {}
     };
-  }, [mode, isOpen]);
+  }, [mode, isOpen, windowWidth]);
 
   if (mode === 'icon-rail') {
     const drawerWidthClass = isOpen ? 'w-64 max-w-[calc(100vw-5rem)]' : 'w-0';

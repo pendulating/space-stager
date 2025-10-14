@@ -1,5 +1,6 @@
 // src/App.jsx
 import React, { useEffect, useState } from 'react';
+import { useWindowSize } from './hooks/useWindowSize';
 import { TutorialProvider } from './contexts/TutorialContext';
 import { SitePlanProvider } from './contexts/SitePlanContext';
 import { GeographyProvider } from './contexts/GeographyContext';
@@ -8,18 +9,12 @@ import SpaceStager from './components/SpaceStager';
 import MobileLanding from './components/MobileLanding';
 
 function App() {
-  const [isSmallViewport, setIsSmallViewport] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return window.innerWidth < 768; // Tailwind 'md' breakpoint
-  });
+  const { width } = useWindowSize();
+  const [isSmallViewport, setIsSmallViewport] = useState(() => (typeof window === 'undefined' ? false : window.innerWidth < 768));
 
   useEffect(() => {
-    const onResize = () => {
-      setIsSmallViewport(window.innerWidth < 768);
-    };
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
+    setIsSmallViewport((width || 0) < 768);
+  }, [width]);
 
   if (isSmallViewport) {
     return <MobileLanding />;

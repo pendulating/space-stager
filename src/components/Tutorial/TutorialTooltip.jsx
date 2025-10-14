@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useWindowSize } from '../../hooks/useWindowSize';
 import { useTutorial, TUTORIAL_STEPS } from '../../contexts/TutorialContext';
 
 const TutorialTooltip = () => {
@@ -11,6 +12,8 @@ const TutorialTooltip = () => {
     nextStep,
     TUTORIAL_STEPS 
   } = useTutorial();
+
+  const { width, height } = useWindowSize();
 
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const [isVisible, setIsVisible] = useState(false);
@@ -104,12 +107,10 @@ const TutorialTooltip = () => {
     // Initial compute and wire up listeners for reflow
     computePosition();
     const handleReflow = () => computePosition();
-    window.addEventListener('resize', handleReflow);
     window.addEventListener('scroll', handleReflow, true);
 
     return () => {
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-      window.removeEventListener('resize', handleReflow);
       window.removeEventListener('scroll', handleReflow, true);
       if (cleanupTarget) {
         cleanupTarget.style.outline = '';
@@ -117,7 +118,7 @@ const TutorialTooltip = () => {
         cleanupTarget.style.borderRadius = '';
       }
     };
-  }, [isTutorialActive, currentStep, currentContent]);
+  }, [isTutorialActive, currentStep, currentContent, width, height]);
 
   if (!isVisible || !currentContent) return null;
 

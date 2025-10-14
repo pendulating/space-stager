@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useWindowSize } from '../../hooks/useWindowSize';
+import { useMapEvents } from '../../hooks/useMapEvents';
 
 const NYC_BOUNDS = {
   minLng: -74.258,
@@ -23,7 +25,7 @@ const ViewportInset = ({ map, mapLoaded, permitAreas, responsive, isSitePlanMode
     east: null, 
     west: null 
   }));
-  const [screenSize, setScreenSize] = useState(() => ({ width: typeof window === 'undefined' ? 0 : window.innerWidth }));
+  const { width } = useWindowSize();
 
   useEffect(() => {
     if (!map || !mapLoaded) return undefined;
@@ -43,27 +45,40 @@ const ViewportInset = ({ map, mapLoaded, permitAreas, responsive, isSitePlanMode
       }
     };
 
-    // Prime immediately once ready, then subscribe to camera updates
+    // Prime immediately once ready
     updateViewportBounds();
-    map.on('move', updateViewportBounds);
-    map.on('moveend', updateViewportBounds);
-
-    return () => {
-      try { map.off('move', updateViewportBounds); } catch (_) {}
-      try { map.off('moveend', updateViewportBounds); } catch (_) {}
-    };
   }, [map, mapLoaded]);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
+  useMapEvents(mapLoaded ? map : null, {
+    move: () => {
+      try {
+        const bounds = map.getBounds();
+        if (!bounds) return;
+        setViewportBounds({
+          north: bounds.getNorth(),
+          south: bounds.getSouth(),
+          east: bounds.getEast(),
+          west: bounds.getWest()
+        });
+      } catch (_) {}
+    },
+    moveend: () => {
+      try {
+        const bounds = map.getBounds();
+        if (!bounds) return;
+        setViewportBounds({
+          north: bounds.getNorth(),
+          south: bounds.getSouth(),
+          east: bounds.getEast(),
+          west: bounds.getWest()
+        });
+      } catch (_) {}
+    }
+  });
 
-    const updateSize = () => {
-      setScreenSize({ width: window.innerWidth });
-    };
-    updateSize();
-    window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
-  }, []);
+  useEffect(() => {
+    // noop effect to express dependency on window width; logic is derived in shouldRender
+  }, [width]);
 
   const viewportRect = useMemo(() => {
     if (viewportBounds.north == null || viewportBounds.south == null || 
@@ -112,7 +127,7 @@ const ViewportInset = ({ map, mapLoaded, permitAreas, responsive, isSitePlanMode
       return screenSize.width > 768;
     }
     return true;
-  }, [map, mapLoaded, viewportRect, responsive, screenSize.width]);
+  }, [map, mapLoaded, viewportRect, responsive, width]);
 
   if (!shouldRender) return null;
 
