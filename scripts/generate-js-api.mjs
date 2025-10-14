@@ -106,6 +106,14 @@ try {
       if (line.includes('{') && line.includes('}') && !line.includes('`')) {
         lines[i] = line.replace(/\{/g, '&#123;').replace(/\}/g, '&#125;');
       }
+
+      // Additionally, escape braces inside inline code spans to be extra-safe for MDX
+      // e.g., handlers: `{ [eventName: string]: Function | { handler: Function } }`
+      // becomes handlers: ``{ [eventName: string]: Function | &#123; handler: Function &#125; }``
+      lines[i] = lines[i].replace(/`([^`]+)`/g, (match, inner) => {
+        const escaped = inner.replace(/\{/g, '&#123;').replace(/\}/g, '&#125;');
+        return '`' + escaped + '`';
+      });
     }
   }
   
