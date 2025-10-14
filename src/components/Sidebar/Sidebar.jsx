@@ -7,6 +7,7 @@ import { useZoneCreatorContext } from '../../contexts/ZoneCreatorContext.jsx';
 import LayersPanel from './LayersPanel';
 import BasemapToggle from './BasemapToggle';
 import { useGeoclientSearch } from '../../hooks/useGeoclientSearch';
+import { searchGeoclient } from '../../services/geoclientService';
 
 const Sidebar = ({ 
   layers,
@@ -23,7 +24,17 @@ const Sidebar = ({
   drawTools
 }) => {
   const { isActive, setIsActive } = useZoneCreatorContext();
-  const geoSearch = useGeoclientSearch(permitAreas.searchQuery, { debounceMs: 300, limit: 8 });
+  const geoSearch = useGeoclientSearch(permitAreas.searchQuery, {
+    debounceMs: 300,
+    limit: 8,
+    options: {
+      // Improve partial-name tolerance and suggestions
+      similarNamesDistance: 12, // default is 8
+      exactMatchMaxLevel: 6,    // explore more sub-search levels
+      returnPossiblesWithExact: true,
+      exactMatchForSingleSuccess: false
+    }
+  });
   return (
     <div className={`${isSitePlanMode ? 'w-80' : 'w-96'} bg-white dark:bg-gray-800 dark:text-gray-100 shadow-lg z-10 flex flex-col transition-all duration-300 h-full relative`}>
       <div className="relative">
@@ -81,10 +92,22 @@ const Sidebar = ({
           geographyType={geographyType}
             geoclientResults={geoSearch.results}
             geoclientLoading={geoSearch.isLoading}
-            onSelectGeoclientResult={(item) => {
+            geoclientStatus={geoSearch.status}
+            geoclientError={geoSearch.error}
+            geoclientCooldownMs={geoSearch.cooldownMs}
+            onSelectGeoclientResult={async (item) => {
               try {
                 if (item && Array.isArray(item.coords) && item.coords.length >= 2 && map && map.easeTo) {
                   map.easeTo({ center: item.coords, zoom: 18, duration: 600, essential: true });
+                  return;
+                }
+                // Fallback: resolve suggestion to a geocoded result and pan
+                const label = item && item.label ? String(item.label) : '';
+                if (!label) return;
+                const out = await searchGeoclient({ input: label, limit: 1 });
+                const first = Array.isArray(out?.results) ? out.results.find(r => Array.isArray(r.coords)) : null;
+                if (first && map && map.easeTo) {
+                  map.easeTo({ center: first.coords, zoom: 18, duration: 600, essential: true });
                 }
               } catch (_) {}
             }}

@@ -26,6 +26,23 @@ async function fetchWithKey(url, { key, signal }) {
   return resp;
 }
 
+async function fetchWithRetry(url, { signal }) {
+  // Use only the primary key; do not fallback to secondary automatically
+  const BACKOFFS = [400, 900];
+  for (let attempt = 0; attempt < 1; attempt++) {
+    try {
+      const resp = await fetchWithKey(url, { key: PRIMARY_KEY, signal });
+      return resp;
+    } catch (e) {
+      const delay = BACKOFFS[Math.min(attempt, BACKOFFS.length - 1)];
+      await wait(delay);
+    }
+  }
+  // Final attempt after small backoff for transient network errors
+  const resp = await fetchWithKey(url, { key: PRIMARY_KEY, signal });
+  return resp;
+}
+
 export async function searchGeoclient({
   input,
   exactMatchForSingleSuccess,
@@ -56,9 +73,25 @@ export async function searchGeoclient({
   });
   const url = `${baseUrl.replace(/\/$/, '')}/search?${qp}`;
 
-  let resp = await fetchWithKey(url, { key: PRIMARY_KEY, signal });
-  if ((resp.status === 401 || resp.status === 403 || resp.status === 429) && SECONDARY_KEY && SECONDARY_KEY !== PRIMARY_KEY) {
-    try { resp = await fetchWithKey(url, { key: SECONDARY_KEY, signal }); } catch (_) {}
+  const resp = await fetchWithRetry(url, { signal });
+
+  // Graceful statuses
+  if (resp.status === 404) {
+    return { ok: true, results: [], status: 404 };
+  }
+  if (resp.status === 429) {
+    const text = await resp.text().catch(() => '');
+    const err = new Error('Rate limited by Geoclient (429). Please try again shortly.');
+    err.status = 429;
+    err.body = text;
+    throw err;
+  }
+  if (resp.status >= 500) {
+    const text = await resp.text().catch(() => '');
+    const err = new Error(`Geoclient service unavailable (HTTP ${resp.status}).`);
+    err.status = resp.status;
+    err.body = text;
+    throw err;
   }
 
   if (!resp.ok) {
@@ -147,6 +180,10 @@ function numOrNull(v) {
 
 function isFiniteNum(n) {
   return typeof n === 'number' && Number.isFinite(n);
+}
+
+function wait(ms) {
+  return new Promise((res) => setTimeout(res, ms));
 }
 
 export const __geoclientInternals = { normalizeSearchResults, extractCoordsAndId, buildLabel };

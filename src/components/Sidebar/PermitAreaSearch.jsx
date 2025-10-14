@@ -16,6 +16,9 @@ const PermitAreaSearch = ({
   geographyType = 'parks',
   geoclientResults = [],
   geoclientLoading = false,
+  geoclientStatus = null,
+  geoclientError = null,
+  geoclientCooldownMs = 0,
   onSelectGeoclientResult = null
 }) => {
   // Function to highlight search term in text
@@ -158,8 +161,11 @@ const PermitAreaSearch = ({
           <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
             Addresses & Places
           </div>
-          {geoclientLoading && (
+          {geoclientLoading && geoclientCooldownMs <= 0 && (
             <div className="text-xs text-gray-500 dark:text-gray-400">Searching addresses…</div>
+          )}
+          {geoclientCooldownMs > 0 && (
+            <div className="text-xs text-amber-600 dark:text-amber-400">Rate limited. Resuming in {(geoclientCooldownMs/1000).toFixed(1)}s…</div>
           )}
           {!geoclientLoading && Array.isArray(geoclientResults) && geoclientResults.length > 0 && (
             <div className="space-y-1">
@@ -178,8 +184,14 @@ const PermitAreaSearch = ({
               ))}
             </div>
           )}
-          {!geoclientLoading && Array.isArray(geoclientResults) && geoclientResults.length === 0 && (
+          {!geoclientLoading && Array.isArray(geoclientResults) && geoclientResults.length === 0 && !geoclientError && geoclientStatus !== 429 && (
             <div className="text-xs text-gray-400">No addresses found</div>
+          )}
+          {!geoclientLoading && geoclientStatus === 429 && (
+            <div className="text-xs text-amber-600 dark:text-amber-400">Rate limited. Please pause for a moment and try again.</div>
+          )}
+          {!geoclientLoading && geoclientError && geoclientStatus && geoclientStatus >= 500 && (
+            <div className="text-xs text-red-600 dark:text-red-400">Address service temporarily unavailable. Try again shortly.</div>
           )}
         </div>
       )}
