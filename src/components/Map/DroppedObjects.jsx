@@ -333,13 +333,20 @@ const DroppedObjects = ({
           const imgId = String(t.id);
           let ready = false;
           try { ready = map && typeof map.hasImage === 'function' ? map.hasImage(imgId) : false; } catch (_) { ready = false; }
-          const prevIcon = prevIconById.get(obj.id);
           props.icon_ready = ready ? 1 : 0;
-          if (ready) {
-            props.icon_image = imgId;
-          } else {
-            if (prevIcon) props.icon_image = prevIcon;
-            props.icon_target = imgId;
+          // Always set icon_image so the style requests the image (triggers styleimagemissing if not registered yet)
+          props.icon_image = imgId;
+          // Proactively register the image with the map if missing to avoid relying solely on styleimagemissing
+          if (!ready && map && typeof Image !== 'undefined') {
+            try {
+              const img = new Image();
+              img.crossOrigin = 'anonymous';
+              img.onload = () => {
+                try { if (map && typeof map.hasImage === 'function' && !map.hasImage(imgId)) { map.addImage(imgId, img); rebuildDroppedData(); } } catch (_) {}
+              };
+              img.onerror = () => {};
+              img.src = t.imageUrl;
+            } catch (_) {}
           }
         }
         const feature = { type: 'Feature', id: obj.id, geometry: { type: 'Point', coordinates: [obj.position.lng, obj.position.lat] }, properties: props };

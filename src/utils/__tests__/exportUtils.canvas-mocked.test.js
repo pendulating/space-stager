@@ -33,10 +33,11 @@ describe('exportUtils canvas-backed helpers', () => {
   });
   afterEach(() => { global.Image = origImage; document.createElement = origCreate; });
 
-  it('rasterizeToPngDataUrl rejects SVG and supports PNG', async () => {
-    await expect(rasterizeToPngDataUrl('/icons/bike.svg', 32)).rejects.toThrow();
-    const url = await rasterizeToPngDataUrl('/icons/bike.png', 32);
-    expect(url).toBe('data:image/png;base64,ZZZ');
+  it('rasterizeToPngDataUrl supports SVG and PNG', async () => {
+    const urlSvg = await rasterizeToPngDataUrl('/icons/bike.svg', 32);
+    expect(urlSvg).toBe('data:image/png;base64,ZZZ');
+    const urlPng = await rasterizeToPngDataUrl('/icons/bike.png', 32);
+    expect(urlPng).toBe('data:image/png;base64,ZZZ');
   });
 
   it('loadVisibleLayerIconsAsPngDataUrls returns map for visible layers', async () => {

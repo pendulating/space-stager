@@ -2069,9 +2069,7 @@ const getPermitAreaBounds = (focusedArea) => {
 
 // Preload PNG icons for visible layers; returns a map { layerId: src }
 export const rasterizeToPngDataUrl = async (src, size = 64) => {
-  if (typeof src === 'string' && src.toLowerCase().endsWith('.svg')) {
-    throw new Error('SVG not supported for rasterizeToPngDataUrl');
-  }
+  // Support both raster and SVG sources by drawing onto a canvas
   const img = await loadImage(src);
   const dpr = Math.max(2, Math.floor(window.devicePixelRatio || 1));
   const canvas = document.createElement('canvas');
@@ -2086,9 +2084,11 @@ export const rasterizeToPngDataUrl = async (src, size = 64) => {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, size, size);
   // Draw with contain, centered
-  const scale = Math.min(size / img.width, size / img.height);
-  const drawW = Math.round(img.width * scale);
-  const drawH = Math.round(img.height * scale);
+  const srcW = (img.naturalWidth || img.width || size);
+  const srcH = (img.naturalHeight || img.height || size);
+  const scale = Math.min(size / srcW, size / srcH);
+  const drawW = Math.round(srcW * scale);
+  const drawH = Math.round(srcH * scale);
   const dx = Math.floor((size - drawW) / 2);
   const dy = Math.floor((size - drawH) / 2);
   ctx.drawImage(img, dx, dy, drawW, drawH);
