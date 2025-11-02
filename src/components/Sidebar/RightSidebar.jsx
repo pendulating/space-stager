@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { useWindowSize } from '../../hooks/useWindowSize';
 import { useGlobalKeymap } from '../../hooks/useGlobalKeymap';
-import { ClipboardList, Download, FileImage, FileText, List, PencilRuler, Shapes } from 'lucide-react';
+import { ClipboardList, Download, FileImage, List, PencilRuler, Shapes } from 'lucide-react';
 import DrawingTools from './DrawingTools';
 import ShapeProperties from './ShapeProperties';
 import PlaceableObjectsPanel from './PlaceableObjectsPanel';
@@ -312,25 +312,6 @@ const RightSidebar = ({
         </div>
       )}
 
-      {mode !== 'icon-rail' && (
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-          <button
-            type="button"
-            className="flex-1 px-3 py-2 rounded-md border border-gray-200 dark:border-gray-700 text-xs font-medium bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700"
-            onClick={() => window.dispatchEvent(new CustomEvent('ui:show-event-info'))}
-          >
-            Event Info
-          </button>
-          <button
-            type="button"
-            className="flex-1 px-3 py-2 rounded-md border border-gray-200 dark:border-gray-700 text-xs font-medium bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700"
-            onClick={() => window.dispatchEvent(new CustomEvent('ui:show-export-options'))}
-          >
-            Plan Options
-          </button>
-        </div>
-      )}
-
       <div className="flex-1 min-h-0 overflow-y-auto p-0 space-y-0">
         {sectionsToRender.map((id, idx) => (
           <React.Fragment key={id}>
@@ -421,24 +402,6 @@ const RightSidebar = ({
             })}
           </div>
           <div className="flex flex-col items-center space-y-4 mt-6">
-            <button
-              type="button"
-              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
-              onClick={() => window.dispatchEvent(new CustomEvent('ui:show-event-info'))}
-              title="Event Information"
-              aria-label="Event Information"
-            >
-              <FileText className="w-5 h-5" />
-            </button>
-            <button
-              type="button"
-              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
-              onClick={() => window.dispatchEvent(new CustomEvent('ui:show-export-options'))}
-              title="Plan Options"
-              aria-label="Plan Options"
-            >
-              <Download className="w-5 h-5" />
-            </button>
             <button
               type="button"
               className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"

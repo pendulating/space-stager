@@ -37,7 +37,7 @@ describe('FocusInfoPanel', () => {
       />
     );
     expect(screen.getByText(/Focused on:/)).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Focus sub-area'));
+    fireEvent.click(screen.getByText('Define sub-area'));
     expect(onBeginSubFocus).toHaveBeenCalled();
     fireEvent.click(screen.getByText('Clear Focus'));
     expect(onClearFocus).toHaveBeenCalled();

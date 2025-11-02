@@ -1,6 +1,6 @@
 // components/Sidebar/LayersPanel.jsx
 import React, { useState, useMemo } from 'react';
-import { Eye, EyeOff, X, Layers, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Loader2, CheckCircle, AlertCircle, Circle } from 'lucide-react';
+import { Eye, EyeOff, X, Layers, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Loader2, CheckCircle, AlertCircle, Circle, FileText, Download } from 'lucide-react';
 import { LAYER_GROUPS, DISABLED_INFRASTRUCTURE_LAYERS, NON_RECOMMENDED_INFRASTRUCTURE_LAYERS } from '../../constants/layers';
 import { INFRASTRUCTURE_ICONS, svgToDataUrl } from '../../utils/iconUtils';
 import { getCandidateSrcs } from '../../utils/spriteResolver';
@@ -363,7 +363,28 @@ const LayersPanel = ({
                 
                 {/* Buttons rows */}
                 <div className="flex flex-col gap-2">
-                  {/* First row: Sub-focus and Refocus buttons */}
+                  {/* First row: Event Info and Plan Options */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => window.dispatchEvent(new CustomEvent('ui:show-event-info'))}
+                      className="flex-1 text-[11px] px-2 py-1 rounded bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors whitespace-nowrap flex items-center justify-center gap-1"
+                      title="Event Information"
+                    >
+                      <FileText className="w-3 h-3" />
+                      Event Info
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => window.dispatchEvent(new CustomEvent('ui:show-export-options'))}
+                      className="flex-1 text-[11px] px-2 py-1 rounded bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors whitespace-nowrap flex items-center justify-center gap-1"
+                      title="Plan Options"
+                    >
+                      <Download className="w-3 h-3" />
+                      Plan Options
+                    </button>
+                  </div>
+                  {/* Second row: Sub-focus and Refocus buttons */}
                   <div className="flex items-center gap-2">
                     {/* Sub-focus button */}
                     {onBeginSubFocus && !hasSubFocus && (
@@ -378,7 +399,7 @@ const LayersPanel = ({
                         className="flex-1 text-[11px] px-2 py-1 rounded bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors whitespace-nowrap"
                         title="Draw sub-area to focus"
                       >
-                        Focus Sub-Area
+                        Define Sub-Area
                       </button>
                     )}
                     {/* Refocus button */}

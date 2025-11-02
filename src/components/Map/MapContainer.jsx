@@ -1,5 +1,5 @@
 // components/Map/MapContainer.jsx
-import React, { forwardRef, useEffect, useState, useRef } from 'react';
+import React, { forwardRef, useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import MapTooltip from './MapTooltip';
 import ClickPopover from './ClickPopover';
 import { useZoneCreator } from '../../hooks/useZoneCreator';
@@ -16,7 +16,6 @@ import ActiveToolIndicator from './ActiveToolIndicator';
 import LoadingOverlay from './LoadingOverlay';
 import PlacementPreview from './PlacementPreview';
 import EdgeMarkers from './EdgeMarkers';
-import { useMemo } from 'react';
 import TextAnnotationEditor, { AnnotationActionPill } from './TextAnnotationEditor';
 import { useMapViewState } from '../../hooks/useMapViewState';
 import { useRotationControls } from '../../hooks/useRotationControls';
@@ -78,6 +77,52 @@ const MapContainer = forwardRef(({
   const arrowOverlayRef = useRef(null);
   // Track current annotations popup (MapLibre Popup) so global handlers can close it
   const annotationPopupRef = useRef(null);
+
+  // Helper function to update cursor for subfocus mode
+  const updateSubFocusCursor = useCallback((isSubFocus) => {
+    try {
+      if (!map) return;
+      const canvas = map.getCanvas();
+      const container = map.getContainer();
+      if (!canvas && !container) return;
+      
+      if (isSubFocus) {
+        // MapboxDraw controls cursor via CSS classes on the map container
+        // The CSS rule is: .mapboxgl-map.mouse-add .mapboxgl-canvas-container.mapboxgl-interactive { cursor: crosshair; }
+        // We need to add the mouse-add class to the .mapboxgl-map element
+        if (container) {
+          container.classList.add('mouse-add');
+          // Also set inline style as fallback
+          container.style.cursor = 'crosshair';
+          
+          // Find the canvas container element and set cursor there too
+          const canvasContainer = container.querySelector('.mapboxgl-canvas-container');
+          if (canvasContainer) {
+            canvasContainer.style.cursor = 'crosshair';
+          }
+        }
+        if (canvas) {
+          canvas.style.cursor = 'crosshair';
+        }
+      } else {
+        // Reset cursor when not in subfocus mode (unless other modes set it)
+        if (!placementMode) {
+          if (container) {
+            container.classList.remove('mouse-add');
+            container.style.cursor = '';
+            
+            const canvasContainer = container.querySelector('.mapboxgl-canvas-container');
+            if (canvasContainer) {
+              canvasContainer.style.cursor = '';
+            }
+          }
+          if (canvas) {
+            canvas.style.cursor = '';
+          }
+        }
+      }
+    } catch (_) {}
+  }, [map, placementMode]);
 
   // Map view state (single source of truth for pitch/bearing/zoom/viewType)
   const view = useMapViewState(map);
@@ -148,8 +193,14 @@ const MapContainer = forwardRef(({
 
   // Listen for sub-focus arming/disarming events
   useEffect(() => {
-    const arm = () => { subFocusArmedRef.current = true; };
-    const disarm = () => { subFocusArmedRef.current = false; };
+    const arm = () => { 
+      subFocusArmedRef.current = true;
+      updateSubFocusCursor(true);
+    };
+    const disarm = () => { 
+      subFocusArmedRef.current = false;
+      updateSubFocusCursor(false);
+    };
     window.addEventListener('subfocus:arm', arm);
     window.addEventListener('subfocus:disarm', disarm);
     // Apply event: geometry comes from draw tools; compute and set subfocus without persisting draw feature
@@ -159,6 +210,7 @@ const MapContainer = forwardRef(({
         if (!geom || !permitAreas?.focusedArea || !permitAreas?.setSubFocusPolygon) return;
         const ok = permitAreas.setSubFocusPolygon({ type: 'Feature', properties: {}, geometry: geom });
         subFocusArmedRef.current = false;
+        updateSubFocusCursor(false);
       } catch (_) {}
     };
     window.addEventListener('subfocus:apply', apply);
@@ -167,7 +219,44 @@ const MapContainer = forwardRef(({
       window.removeEventListener('subfocus:disarm', disarm);
       window.removeEventListener('subfocus:apply', apply);
     };
-  }, []);
+  }, [updateSubFocusCursor, permitAreas]);
+
+  // Set cursor to pin icon when in sub-area drawing mode
+  useEffect(() => {
+    if (!map) return;
+    
+    const isSubFocusMode = drawTools?.activeTool === 'subfocus' || subFocusArmedRef.current;
+    updateSubFocusCursor(isSubFocusMode);
+    
+    // Also listen for map container mouse events to ensure cursor stays updated
+    const onMouseMove = () => {
+      const currentIsSubFocus = drawTools?.activeTool === 'subfocus' || subFocusArmedRef.current;
+      updateSubFocusCursor(currentIsSubFocus);
+    };
+    
+    try {
+      const container = map.getContainer();
+      if (container) {
+        container.addEventListener('mousemove', onMouseMove);
+      }
+    } catch (_) {}
+    
+    return () => {
+      try {
+        const container = map.getContainer();
+        if (container) {
+          container.removeEventListener('mousemove', onMouseMove);
+        }
+      } catch (_) {}
+      // Reset cursor on cleanup
+      try {
+        const canvas = map.getCanvas();
+        if (canvas && !placementMode) {
+          canvas.style.cursor = '';
+        }
+      } catch (_) {}
+    };
+  }, [map, drawTools?.activeTool, placementMode, updateSubFocusCursor]);
 
   // Build derived features (text points, shape labels, arrow lines, and arrowheads) from Draw features
   const derivedAnnotations = useMemo(() => {
