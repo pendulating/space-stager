@@ -62,7 +62,7 @@ const FocusInfoPanel = ({
               className="text-white hover:text-blue-200 text-xs bg-blue-700 hover:bg-blue-800 px-2 py-1 rounded"
               title="Draw sub-area to focus"
             >
-              Focus sub-area
+              Define sub-area
             </button>
           )}
           {onClearSubFocus && hasSubFocus && (
