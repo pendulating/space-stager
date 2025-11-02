@@ -846,9 +846,7 @@ const SpaceStager = () => {
       
 
       {hasLoadedOnce && (
-        <div className={`bg-blue-100 border-l-4 border-blue-500 text-blue-700 mx-4 mt-2 transition-all duration-500 overflow-hidden ${
-          permitAreas.isLoading ? 'py-3 max-h-20 opacity-100' : 'py-0 max-h-0 opacity-0'
-        }`}>
+        <div className={`bg-blue-100 border-l-4 border-blue-500 text-blue-700 mx-4 ${permitAreas.isLoading ? 'mt-2 py-3 max-h-20 opacity-100' : 'mt-0 py-0 max-h-0 opacity-0'} transition-all duration-500 overflow-hidden`}>
           <div className="flex items-center">
             {permitAreas.isLoading && (
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500 mr-2"></div>

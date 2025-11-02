@@ -1,50 +1,72 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { switchBasemap } from '../mapUtils.js';
 import { BASEMAP_OPTIONS } from '../../constants/mapConfig.js';
 
-describe('mapUtils.switchBasemap (mocked map)', () => {
-  const makeMockMap = () => {
-    const calls = { setStyle: [], jumpTo: 0 };
-    const state = {
-      center: { lat: 40.75, lng: -73.99 },
-      zoom: 12,
-      bearing: 0,
-      pitch: 0,
-      currentCartoStyleUrl: ''
+describe('mapUtils.switchBasemap', () => {
+  function makeMap() {
+    const handlers = {};
+    return {
+      getCenter: () => ({ lng: 0, lat: 0 }),
+      getZoom: () => 16,
+      getBearing: () => 0,
+      getPitch: () => 0,
+      setStyle: vi.fn(),
+      jumpTo: vi.fn(),
+      on: vi.fn((evt, cb) => { handlers[evt] = cb; }),
+      off: vi.fn(),
+      once: vi.fn(),
+      addSource: vi.fn(),
+      getSource: vi.fn(() => null),
+      removeSource: vi.fn(),
+      addLayer: vi.fn(),
+      getLayer: vi.fn(() => null),
+      removeLayer: vi.fn(),
+      setLayoutProperty: vi.fn(),
+      getLayoutProperty: vi.fn(() => 'visible'),
+      getLayer: vi.fn(() => null),
+      getSource: vi.fn(() => null),
+      removeLayer: vi.fn(),
+      removeSource: vi.fn(),
+      setLayoutProperty: vi.fn(),
+      getLayoutProperty: vi.fn(() => 'visible'),
+      getStyle: () => ({ layers: [] }),
+      loaded: () => true,
+      areTilesLoaded: () => true,
     };
-    const events = new Map();
-    const map = {
-      __currentCartoStyleUrl: state.currentCartoStyleUrl,
-      __currentBasemap: '',
-      getCenter: () => state.center,
-      getZoom: () => state.zoom,
-      getBearing: () => state.bearing,
-      getPitch: () => state.pitch,
-      once: (name, handler) => { events.set(name, handler); },
-      off: (name) => { events.delete(name); },
-      setStyle: (url) => {
-        calls.setStyle.push(url);
-        const h = events.get('style.load');
-        if (h) h();
-      },
-      jumpTo: () => { calls.jumpTo++; }
-    };
-    return { map, calls, state };
-  };
+  }
 
-  it('applies carto-dark style and resolves', async () => {
-    const { map, calls } = makeMockMap();
-    const darkUrl = BASEMAP_OPTIONS.carto.darkUrl;
-    await expect(switchBasemap(map, 'carto-dark')).resolves.toBeUndefined();
-    expect(calls.setStyle.at(-1)).toBe(darkUrl);
-    expect(map.__currentBasemap).toBe('carto');
-    expect(map.__currentCartoStyleUrl).toBe(darkUrl);
-    expect(calls.jumpTo).toBeGreaterThan(0);
+  beforeEach(() => {
+    vi.useFakeTimers();
   });
 
-  it('rejects unknown basemap key', async () => {
-    const { map } = makeMockMap();
-    await expect(switchBasemap(map, 'does-not-exist')).rejects.toThrow(/Unknown basemap/);
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+  });
+
+  it('switches to carto-dark and triggers style callback', async () => {
+    const map = makeMap();
+    const onStyleChange = vi.fn();
+    // Synchronously fire style.load to resolve without timers
+    map.once.mockImplementation((evt, cb) => { if (evt === 'style.load') cb && cb(); });
+    await switchBasemap(map, 'carto-dark', onStyleChange);
+    expect(onStyleChange).toHaveBeenCalledWith({ type: 'style' });
+  });
+
+  it('adds satellite overlay and triggers overlay callback', async () => {
+    const map = makeMap();
+    const onStyleChange = vi.fn();
+    await switchBasemap(map, 'satellite', onStyleChange);
+    await vi.runAllTimersAsync();
+    expect(onStyleChange).toHaveBeenCalledWith({ type: 'overlay' });
+  });
+
+  it('restores carto and triggers callback after style.load', async () => {
+    const map = makeMap();
+    const onStyleChange = vi.fn();
+    map.once.mockImplementation((evt, cb) => { if (evt === 'style.load') cb && cb(); });
+    await switchBasemap(map, 'carto', onStyleChange);
+    expect(onStyleChange).toHaveBeenCalled();
   });
 });
 

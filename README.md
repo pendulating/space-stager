@@ -4,4 +4,4 @@
 [![CI - Vitest](https://github.com/pendulating/space-stager/actions/workflows/ci-vitest.yml/badge.svg)](https://github.com/pendulating/space-stager/actions/workflows/ci-vitest.yml)
 [![Coverage Status](https://coveralls.io/repos/github/pendulating/space-stager/badge.svg?branch=main)](https://coveralls.io/github/pendulating/space-stager?branch=main)
 
-![SAPO Walkthrough](public/data/guides/sapo_walkthrough_15fps.gif)
+[![Space Stager Docs](docs-site/build/img/docusaurus-social-card.jpg)](https://spacestager.nyc/docs/)
