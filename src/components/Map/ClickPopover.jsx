@@ -1,5 +1,6 @@
 // components/Map/ClickPopover.jsx
 import React, { useMemo } from 'react';
+import { area as turfArea } from '@turf/turf';
 
 function computeQuantileEdges(sortedVals, bins) {
   const n = sortedVals.length;
@@ -82,12 +83,48 @@ const MiniHistogram = ({ values = [], currentValue = null, bins = 10, barWidth =
   );
 };
 
-const ClickPopover = ({ tooltip, stats, distributions, onFocus, onClose }) => {
+const ClickPopover = ({ tooltip, stats, distributions, geometry, dimensionUnits = 'ft', onFocus, onClose }) => {
   if (!tooltip || !tooltip.visible || !tooltip.content) return null;
   const avgValues = distributions?.avg || [];
   const totalValues = distributions?.total || [];
   const hasAvg = stats && typeof stats.a === 'number' && isFinite(stats.a);
   const hasTotal = stats && typeof stats.t === 'number' && isFinite(stats.t);
+
+  // Calculate area using turf.js
+  const areaDisplay = useMemo(() => {
+    if (!geometry) return null;
+    try {
+      const areaMetersSquared = turfArea({ type: 'Feature', geometry });
+      if (!isFinite(areaMetersSquared) || areaMetersSquared <= 0) return null;
+      
+      if (dimensionUnits === 'ft') {
+        // Convert square meters to square feet (1 m² = 10.7639 ft²)
+        const areaFtSquared = areaMetersSquared * 10.7639;
+        if (areaFtSquared >= 43560) {
+          // Convert to acres (1 acre = 43,560 ft²)
+          const acres = areaFtSquared / 43560;
+          return { value: acres, unit: 'ac', label: 'Area', fullText: `${acres.toFixed(2)} ac` };
+        } else if (areaFtSquared >= 1) {
+          return { value: areaFtSquared, unit: 'ft²', label: 'Area', fullText: `${Math.round(areaFtSquared).toLocaleString()} ft²` };
+        } else {
+          return { value: areaFtSquared * 144, unit: 'in²', label: 'Area', fullText: `${Math.round(areaFtSquared * 144).toLocaleString()} in²` };
+        }
+      } else {
+        // Metric units
+        if (areaMetersSquared >= 1000000) {
+          // Convert to square kilometers (1 km² = 1,000,000 m²)
+          const areaKmSquared = areaMetersSquared / 1000000;
+          return { value: areaKmSquared, unit: 'km²', label: 'Area', fullText: `${areaKmSquared.toFixed(3)} km²` };
+        } else if (areaMetersSquared >= 1) {
+          return { value: areaMetersSquared, unit: 'm²', label: 'Area', fullText: `${Math.round(areaMetersSquared).toLocaleString()} m²` };
+        } else {
+          return { value: areaMetersSquared * 10000, unit: 'cm²', label: 'Area', fullText: `${Math.round(areaMetersSquared * 10000).toLocaleString()} cm²` };
+        }
+      }
+    } catch (_) {
+      return null;
+    }
+  }, [geometry, dimensionUnits]);
 
   return (
     <div 
@@ -131,13 +168,32 @@ const ClickPopover = ({ tooltip, stats, distributions, onFocus, onClose }) => {
               <MiniHistogram values={totalValues} currentValue={stats.t} />
             </div>
           )}
+          {areaDisplay && (
+            <div>
+              <div className="flex items-center justify-between text-[11px] text-gray-600 dark:text-gray-300 mb-1">
+                <span>{areaDisplay.label}</span>
+                <span className="font-medium text-gray-700 dark:text-gray-200">{areaDisplay.fullText}</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Data availability notice when no stats */}
+      {/* Area display when no stats */}
       {(!hasAvg && !hasTotal) && (
-        <div className="mt-2 text-[11px] text-gray-600 dark:text-gray-300">
-          Park usage stats are not available for this zone.
+        <div className="mt-2 space-y-2">
+          {areaDisplay ? (
+            <div>
+              <div className="flex items-center justify-between text-[11px] text-gray-600 dark:text-gray-300 mb-1">
+                <span>{areaDisplay.label}</span>
+                <span className="font-medium text-gray-700 dark:text-gray-200">{areaDisplay.fullText}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="text-[11px] text-gray-600 dark:text-gray-300">
+              Park usage stats are not available for this zone.
+            </div>
+          )}
         </div>
       )}
 
