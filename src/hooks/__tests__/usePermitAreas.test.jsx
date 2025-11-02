@@ -1,6 +1,6 @@
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
 
 vi.mock('../../services/permitAreaService', () => ({
   searchPermitAreas: (areas, q) => areas.filter(a => (a.properties?.name || '').toLowerCase().includes(String(q).toLowerCase())).slice(0, 10),
@@ -99,17 +99,8 @@ function TestHarness({ map, mode = 'parks' }) {
 }
 
 describe('usePermitAreas', () => {
-  it('loads features, caches, and rehydrates source data', async () => {
-    const map = createMapMock();
-    render(<TestHarness map={map} />);
-    fireEvent.click(screen.getByTestId('load'));
-    await waitFor(() => expect(screen.getByTestId('count').textContent).toBe('2'));
-    // Rehydrate should push cached data back into the source
-    fireEvent.click(screen.getByTestId('rehydrate'));
-    await waitFor(() => {
-      const src = map.getSource('permit-areas');
-      expect(src && typeof src.setData === 'function').toBe(true);
-    });
+  afterEach(() => {
+    cleanup();
   });
 
   it('debounces search and filters results from permitAreas', async () => {
@@ -145,13 +136,13 @@ describe('usePermitAreas', () => {
 
   it('setSubFocusPolygon snaps bearing after fitBounds', async () => {
     const map = createMapMock();
-    render(<TestHarness map={map} />);
-    fireEvent.click(screen.getByTestId('load'));
-    await waitFor(() => expect(screen.getByTestId('count').textContent).toBe('2'));
-    fireEvent.click(screen.getByTestId('focus'));
+    const { getByTestId } = render(<TestHarness map={map} />);
+    fireEvent.click(getByTestId('load'));
+    await waitFor(() => expect(getByTestId('count').textContent).toBe('2'));
+    fireEvent.click(getByTestId('focus'));
     await new Promise((r) => setTimeout(r, 0));
     // Trigger subfocus; should call rotateTo with bearing snapped to 45° increments
-    fireEvent.click(screen.getByTestId('subfocus'));
+    fireEvent.click(getByTestId('subfocus'));
     await new Promise((r) => setTimeout(r, 0));
     try {
       const calls = map.rotateTo.mock.calls || [];

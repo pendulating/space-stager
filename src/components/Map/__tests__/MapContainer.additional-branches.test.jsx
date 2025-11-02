@@ -106,7 +106,7 @@ describe('MapContainer additional branches', () => {
   it('projection toggle returns to 2D when already isometric', () => {
     const map = makeMap({ pitch: 30, bearing: 10 });
     const hooks = noopHooks();
-    const { getByTitle } = render(
+    const { container } = render(
       <DroppedObjectsProvider>
         <ZoneCreatorProvider>
           <MapContainer
@@ -126,8 +126,14 @@ describe('MapContainer additional branches', () => {
         </ZoneCreatorProvider>
       </DroppedObjectsProvider>
     );
-    fireEvent.click(getByTitle('Toggle projection (Top-down / Isometric)'));
-    expect(map.easeTo).toHaveBeenCalled();
+    // Find button within this test's container to avoid test isolation issues
+    const toggleButton = container.querySelector('[title="Toggle projection (Top-down / Isometric)"]');
+    expect(toggleButton).toBeTruthy();
+    fireEvent.click(toggleButton);
+    // With pitch 30, should return to top-down (pitch 0)
+    expect(map.easeTo).toHaveBeenCalledWith(
+      expect.objectContaining({ pitch: 0 })
+    );
   });
 });
 

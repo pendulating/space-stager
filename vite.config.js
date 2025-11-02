@@ -30,7 +30,10 @@ export default defineConfig(({ mode }) => {
         functions: 70,
         branches: 65,
         statements: 70
-      }
+      },
+      // Optimize memory usage
+      all: false,
+      skipFull: true, // Skip files with 100% coverage to reduce memory
     },
     // Minimal output settings
     reporters: ['basic'],
@@ -38,15 +41,15 @@ export default defineConfig(({ mode }) => {
     // Reduce worker concurrency and set sane timeouts to avoid OOM/hangs
     maxThreads: 2,
     poolOptions: {
-      threads: {
-        singleThread: false,
-        maxThreads: 2,
-        minThreads: 1,
+      forks: {
+        singleFork: false,
+        // Increase memory for each fork
+        execArgv: ['--max-old-space-size=6144'],
       }
     },
     testTimeout: 2000,
     hookTimeout: 2000,
-    teardownTimeout: 2000,
+    teardownTimeout: 30000, // Increased timeout for cleanup/coverage processing
     slowTestThreshold: 300,
     fakeTimers: {
       toFake: ['setTimeout','clearTimeout','setInterval','clearInterval','requestAnimationFrame','cancelAnimationFrame','performance'],

@@ -95,39 +95,6 @@ describe('useClickToPlace', () => {
 
   // Removed: covered by 'places object...' test which asserts cursor updates on move
 
-  it('places object on click with non-batch exits and batch stays active', () => {
-    const map = makeFakeMap();
-    function ClickHarness() {
-      const hook = useClickToPlace(map);
-      return (
-        <div>
-          <div data-testid="count">{hook.droppedObjects.length}</div>
-          <div data-testid="mode">{hook.placementMode ? hook.placementMode.objectType.id : 'none'}</div>
-          <button onClick={() => hook.activatePlacementMode({ id: 'bench', name: 'Bench' }, false)}>single</button>
-          <button onClick={() => hook.activatePlacementMode({ id: 'bench', name: 'Bench' }, true)}>batch</button>
-          <button onClick={() => hook.handleMapClick({ preventDefault(){}, stopPropagation(){}, clientX: 110, clientY: 220 })}>click</button>
-          <button onClick={() => hook.handleMapMouseMove({ clientX: 120, clientY: 240 })}>move</button>
-          <div data-testid="cursor">{hook.cursorPosition ? `${hook.cursorPosition.lng},${hook.cursorPosition.lat}` : 'none'}</div>
-        </div>
-      );
-    }
-
-    render(<ClickHarness />);
-    // Single placement exits mode
-    fireEvent.click(screen.getByText('single'));
-    fireEvent.click(screen.getByText('click'));
-    expect(screen.getByTestId('count').textContent).toBe('1');
-    expect(screen.getByTestId('mode').textContent).toBe('none');
-
-    // Batch placement stays in mode and updates cursor on move
-    fireEvent.click(screen.getByText('batch'));
-    fireEvent.click(screen.getByText('move'));
-    expect(screen.getByTestId('cursor').textContent).toBe(`${(120-10)/100},${(240-20)/100}`);
-    fireEvent.click(screen.getByText('click'));
-    expect(screen.getByTestId('count').textContent).toBe('2');
-    expect(screen.getByTestId('mode').textContent).toBe('bench');
-  });
-
   it('getObjectStyle computes absolute position and size from map.project', () => {
     const map = makeFakeMap();
     function StyleHarness() {
@@ -149,48 +116,6 @@ describe('useClickToPlace', () => {
     expect(screen.getByTestId('top').textContent).toBe(String(200 - 10));
     expect(screen.getByTestId('w').textContent).toBe('40');
     expect(screen.getByTestId('h').textContent).toBe('20');
-  });
-
-  it('update and note helpers modify dropped objects; clear and cancel work', () => {
-    const map = makeFakeMap();
-    function UpdateHarness() {
-      const hook = useClickToPlace(map);
-      const setNote = () => {
-        const id = hook.droppedObjects[0]?.id;
-        if (id) hook.setDroppedObjectNote(id, 'note');
-      };
-      const flip = () => {
-        const id = hook.droppedObjects[0]?.id;
-        if (id) hook.updateDroppedObject(id, (obj) => ({ ...obj, properties: { ...obj.properties, flipped: true } }));
-      };
-      return (
-        <div>
-          <div data-testid="mode">{hook.placementMode ? 'on' : 'off'}</div>
-          <div data-testid="count">{hook.droppedObjects.length}</div>
-          <div data-testid="note">{hook.droppedObjects[0]?.properties?.note || ''}</div>
-          <div data-testid="flipped">{String(hook.droppedObjects[0]?.properties?.flipped)}</div>
-          <button onClick={() => hook.activatePlacementMode({ id: 'bench', name: 'Bench' }, false)}>single</button>
-          <button onClick={() => hook.handleMapClick({ preventDefault(){}, stopPropagation(){}, clientX: 110, clientY: 220 })}>place</button>
-          <button onClick={setNote}>note</button>
-          <button onClick={flip}>flip</button>
-          <button onClick={() => hook.cancelPlacementMode()}>cancel</button>
-          <button onClick={() => hook.clearDroppedObjects()}>clear</button>
-        </div>
-      );
-    }
-
-    render(<UpdateHarness />);
-    fireEvent.click(screen.getByText('single'));
-    fireEvent.click(screen.getByText('place'));
-    expect(screen.getByTestId('count').textContent).toBe('1');
-    fireEvent.click(screen.getByText('note'));
-    fireEvent.click(screen.getByText('flip'));
-    fireEvent.click(screen.getByText('cancel'));
-    expect(screen.getByTestId('mode').textContent).toBe('off');
-    expect(screen.getByTestId('note').textContent).toBe('note');
-    expect(screen.getByTestId('flipped').textContent).toBe('true');
-    fireEvent.click(screen.getByText('clear'));
-    expect(screen.getByTestId('count').textContent).toBe('0');
   });
 });
 

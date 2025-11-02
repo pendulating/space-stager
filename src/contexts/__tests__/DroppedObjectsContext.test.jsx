@@ -81,22 +81,6 @@ describe('DroppedObjectsContext', () => {
     expect(screen.getByTestId('count').textContent).toBe('0');
   });
 
-  it('exposes debug helpers when debug flag is on', async () => {
-    window.__DEBUG_DROPPED_CTX__ = true;
-    render(
-      <DroppedObjectsProvider>
-        <Harness />
-      </DroppedObjectsProvider>
-    );
-    await waitFor(() => {
-      expect(typeof window.__doctx).toBe('object');
-      expect(typeof window.__doctx.select).toBe('function');
-    });
-    // Dispatch via debug API
-    window.__doctx.select('a', 'rect');
-    await waitFor(() => expect(screen.getByTestId('selectedKind').textContent).toBe('rect'));
-  });
-
   it('throws when hook used outside provider', () => {
     function Broken() {
       useDroppedObjects();

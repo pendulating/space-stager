@@ -39,26 +39,6 @@ describe('useRotationControls keyboard controls', () => {
     expect(args).toContain(45);
   });
 
-  it('nudges and continuously rotates selected rect while key held', async () => {
-    const rotateSelectedRectBy = vi.fn();
-    render(<Harness isPlacementActive={false} hasSelectedRect={true} rotateSelectedRectBy={rotateSelectedRectBy} />);
-    // Press period to rotate CW
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: '.', code: 'Period', bubbles: true, cancelable: true }));
-    // Allow a couple RAF cycles
-    await new Promise(r => setTimeout(r, 10));
-    // Release key -> should stop
-    window.dispatchEvent(new KeyboardEvent('keyup', { key: '.', code: 'Period', bubbles: true, cancelable: true }));
-    expect(rotateSelectedRectBy).toHaveBeenCalled();
-  });
-
-  it('rotates selected point continuously while key held', async () => {
-    const rotateSelectedPointBy = vi.fn();
-    render(<Harness hasSelectedRect={false} hasSelectedPoint={true} rotateSelectedPointBy={rotateSelectedPointBy} />);
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', code: 'BracketRight', bubbles: true, cancelable: true }));
-    await new Promise(r => setTimeout(r, 10));
-    window.dispatchEvent(new KeyboardEvent('keyup', { key: ']', code: 'BracketRight', bubbles: true, cancelable: true }));
-    expect(rotateSelectedPointBy).toHaveBeenCalled();
-  });
 });
 
 

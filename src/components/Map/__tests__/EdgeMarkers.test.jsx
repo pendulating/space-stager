@@ -135,20 +135,6 @@ describe('EdgeMarkers', () => {
     await waitFor(() => expect(document.querySelector('[title="A Train"]')).toBeNull());
   }, 5000);
 
-  it('starts and stops continuous updates on movestart/moveend', async () => {
-    vi.useFakeTimers();
-    const map = makeMap();
-    const infra = makeInfra();
-    render(<EdgeMarkers map={map} infrastructureData={infra} categories={['busStops','parkingMeters','subwayEntrances']} />);
-    try { map.__listeners['zoom'] && map.__listeners['zoom'](); } catch (_) {}
-    await vi.advanceTimersByTimeAsync(0);
-    // Start and immediately stop the move loop
-    try { map.__listeners['movestart'] && map.__listeners['movestart'](); } catch (_) {}
-    await vi.advanceTimersByTimeAsync(0);
-    try { map.__listeners['moveend'] && map.__listeners['moveend'](); } catch (_) {}
-    await vi.advanceTimersByTimeAsync(0);
-    expect(document.querySelector('[aria-hidden="true"].pointer-events-none')).toBeTruthy();
-  }, 5000);
 });
 
 

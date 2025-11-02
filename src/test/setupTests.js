@@ -7,7 +7,13 @@ export const server = setupServer();
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }));
 afterEach(() => server.resetHandlers());
-afterAll(() => server.close());
+afterAll(async () => {
+  // Close server with timeout to prevent hangs
+  await Promise.race([
+    server.close(),
+    new Promise((resolve) => setTimeout(resolve, 5000))
+  ]);
+});
 
 
 // jsdom doesn't implement CanvasRenderingContext2D; provide a lightweight mock

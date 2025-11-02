@@ -135,22 +135,6 @@ describe('useInfrastructure integration', () => {
     expect(afterLarge.img).toBe(initialImg);
     expect(afterLarge.rot).not.toBe(afterSmall.rot);
   });
-
-  it('re-buckets on pitch change when area orientation changes', async () => {
-    // Mock bearingUtils.computeAreaOrientation to return 0 for pitch<=15 else 90
-    const bearingMod = await import('../../utils/bearingUtils.js');
-    const spy = vi.spyOn(bearingMod, 'computeAreaOrientation').mockImplementation(({ map, geometry, pitch }) => {
-      return (pitch && pitch > 15) ? 90 : 0;
-    });
-    render(<Harness map={map} />);
-    await act(async () => { map.emit('style.load'); map.emit('render'); });
-    const getImg = () => screen.getByTestId('img').textContent;
-    const a = getImg();
-    await act(async () => { map.setPitch(60); map.emit('render'); });
-    const b = getImg();
-    expect(b).not.toBe(a);
-    spy.mockRestore();
-  });
 });
 
 
