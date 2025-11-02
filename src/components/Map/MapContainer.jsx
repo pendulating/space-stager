@@ -52,7 +52,8 @@ const MapContainer = forwardRef(({
   isLoading,
   responsive,
   isSitePlanMode = false,
-  isRightSidebarOpen = false
+  isRightSidebarOpen = false,
+  exportOptions
 }, ref) => {
   const safeResponsive = responsive || { sidebarMode: 'expanded' };
   const { 
@@ -1635,6 +1636,8 @@ const MapContainer = forwardRef(({
           tooltip={permitAreas.clickedTooltip}
           stats={permitAreas.clickedTooltip.stats}
           distributions={permitAreas.clickedTooltip.distributions}
+          geometry={permitAreas.clickedTooltip.geometry}
+          dimensionUnits={exportOptions?.dimensionUnits || 'ft'}
           onClose={permitAreas.dismissClickedTooltip}
           onFocus={permitAreas.focusClickedTooltipArea}
         />

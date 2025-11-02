@@ -954,6 +954,7 @@ const SpaceStager = () => {
             responsive={responsive}
             isSitePlanMode={isSitePlanMode}
             isRightSidebarOpen={responsive.sidebarMode !== 'icon-rail' || isRightDrawerOpen}
+            exportOptions={exportOptions}
           />
 
           {/* Center-bottom contextual nudges */}

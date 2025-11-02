@@ -76,7 +76,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   const [showFocusInfo, setShowFocusInfo] = useState(false);
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, content: null });
   // Persistent click popover for parks mode (single at a time)
-  const [clickedTooltip, setClickedTooltip] = useState({ visible: false, x: 0, y: 0, lngLat: null, content: null, featureId: null });
+  const [clickedTooltip, setClickedTooltip] = useState({ visible: false, x: 0, y: 0, lngLat: null, content: null, featureId: null, geometry: null });
   const [overlappingAreas, setOverlappingAreas] = useState([]);
   const [selectedOverlapIndex, setSelectedOverlapIndex] = useState(0);
   const [showOverlapSelector, setShowOverlapSelector] = useState(false);
@@ -268,7 +268,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       clearGeoFeatureState(map, prevIdPrefix);
     } catch (_) {}
     // Dismiss any open click popover when mode changes
-    setClickedTooltip({ visible: false, x: 0, y: 0, lngLat: null, content: null, featureId: null });
+    setClickedTooltip({ visible: false, x: 0, y: 0, lngLat: null, content: null, featureId: null, geometry: null });
     try {
       // Abort any in-flight fetches
       if (abortControllerRef.current) { try { abortControllerRef.current.abort(); } catch (_) {} }
@@ -1196,6 +1196,15 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     try { console.debug('PERMIT: handleClickPermitFill start', { prevented: !!e?.defaultPrevented, feats: e?.features?.length, x: e?.point?.x, y: e?.point?.y }); } catch (_) {}
     if (e?.defaultPrevented) { try { console.debug('PERMIT: bail defaultPrevented'); } catch (_) {} return; }
     if (e.features.length === 0) return;
+    
+    // Lock popover: if a popover is already visible, ignore clicks on other park zones
+    // User must dismiss it first before clicking another park
+    const activeMode = options.mode || mode;
+    if (activeMode === 'parks' && clickedTooltipVisibleRef.current) {
+      try { console.debug('PERMIT: bail popover already visible, ignoring click'); } catch (_) {}
+      return;
+    }
+    
     // Ignore clicks that intersect annotation layers to avoid clashing with annotation popup
     try {
       const pt = [e.point.x, e.point.y];
@@ -1203,7 +1212,6 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       const annHits = map.queryRenderedFeatures && map.queryRenderedFeatures(pt, { layers });
       if (annHits && annHits.length) { try { console.debug('PERMIT: bail annotation hit', { hits: annHits.length }); } catch (_) {} return; }
     } catch (_) {}
-    const activeMode = options.mode || mode;
     if (activeMode === 'intersections') return;
     const drawControl = map.getControl && map.getControl('MapboxDraw');
     if (drawControl && drawControl.getMode && drawControl.getMode() !== 'simple_select') { try { console.debug('PERMIT: bail drawing active'); } catch (_) {} return; }
@@ -1221,7 +1229,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         try {
           const lngLat = e.lngLat || map.unproject([e.point.x, e.point.y]);
           const content = buildTooltipContent(top.properties, { includeStats: false });
-          setClickedTooltip({ visible: !!content, x: e.point.x, y: e.point.y, lngLat: lngLat ? { lng: lngLat.lng, lat: lngLat.lat } : null, content, featureId: (top.properties?.system ?? null), stats: (() => { const id = (top.properties?.CEMSID || top.properties?.cemsid || top.properties?.CEMS_ID || top.properties?.cems_id || '').toString(); const dict = eventsByCemsidRef.current || {}; return id && dict[id] ? dict[id] : null; })(), distributions: eventsDistributionsRef.current });
+          setClickedTooltip({ visible: !!content, x: e.point.x, y: e.point.y, lngLat: lngLat ? { lng: lngLat.lng, lat: lngLat.lat } : null, content, featureId: (top.properties?.system ?? null), geometry: top.geometry || null, stats: (() => { const id = (top.properties?.CEMSID || top.properties?.cemsid || top.properties?.CEMS_ID || top.properties?.cems_id || '').toString(); const dict = eventsByCemsidRef.current || {}; return id && dict[id] ? dict[id] : null; })(), distributions: eventsDistributionsRef.current });
           setTooltip(prev => ({ ...prev, visible: false }));
         } catch (_) {}
         setShowOverlapSelector(false);
@@ -1252,7 +1260,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     focusOnPermitArea(feature);
     setShowOverlapSelector(false);
     if (activeMode === 'parks') clearOverlapHighlights(map);
-    setClickedTooltip({ visible: false, x: 0, y: 0, lngLat: null, content: null, featureId: null });
+    setClickedTooltip({ visible: false, x: 0, y: 0, lngLat: null, content: null, featureId: null, geometry: null });
   }, [map, mode, options.mode, focusOnPermitArea]);
 
   const handleClickGeneral = useCallback((e) => {
@@ -1274,7 +1282,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       setShowOverlapSelector(false);
       if (mode === 'parks') {
         clearOverlapHighlights(map);
-        setClickedTooltip({ visible: false, x: 0, y: 0, lngLat: null, content: null, featureId: null });
+        setClickedTooltip({ visible: false, x: 0, y: 0, lngLat: null, content: null, featureId: null, geometry: null });
       }
     }
   }, [map, mode]);
@@ -1902,7 +1910,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
 
   // Expose helpers for popover UX
   const dismissClickedTooltip = useCallback(() => {
-    setClickedTooltip({ visible: false, x: 0, y: 0, lngLat: null, content: null, featureId: null });
+    setClickedTooltip({ visible: false, x: 0, y: 0, lngLat: null, content: null, featureId: null, geometry: null });
   }, []);
 
   const focusClickedTooltipArea = useCallback(() => {
