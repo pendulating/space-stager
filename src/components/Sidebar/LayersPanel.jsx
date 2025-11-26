@@ -1,9 +1,9 @@
 // components/Sidebar/LayersPanel.jsx
-import React, { useState, useMemo } from 'react';
-import { Eye, EyeOff, X, Layers, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Loader2, CheckCircle, AlertCircle, Circle, FileText, Download } from 'lucide-react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { Eye, EyeOff, X, Layers, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Loader2, CheckCircle, AlertCircle, Circle, FileText, Download, Minus } from 'lucide-react';
 import { LAYER_GROUPS, DISABLED_INFRASTRUCTURE_LAYERS, NON_RECOMMENDED_INFRASTRUCTURE_LAYERS } from '../../constants/layers';
 import { INFRASTRUCTURE_ICONS, svgToDataUrl } from '../../utils/iconUtils';
-import { getCandidateSrcs } from '../../utils/spriteResolver';
+import { getCandidateSrcs, preloadChain, firstReadyInChain } from '../../utils/spriteResolver';
 
 import { useMapViewState } from '../../hooks/useMapViewState';
 
@@ -19,7 +19,8 @@ const LayersPanel = ({
   permitAreas,
   hasSubFocus = false,
   onBeginSubFocus = null,
-  onClearSubFocus = null
+  onClearSubFocus = null,
+  onToggleSubwayLines = null
 }) => {
   const view = useMapViewState(map);
   // State for tracking which groups are expanded
@@ -76,6 +77,8 @@ const LayersPanel = ({
     if (!group) return [];
     return group.layers.filter((layerId) => {
       const cfg = layers[layerId];
+      // Hide subwayLines from UI - it's toggled automatically with subwayEntrances
+      if (layerId === 'subwayLines') return false;
       return cfg && !cfg.disabled;
     });
   };
@@ -98,8 +101,37 @@ const LayersPanel = ({
     });
   };
 
+  // Memoize sprite candidate sources to avoid redundant computation
+  // Key: layerId + viewType + spriteBase (stable identifiers)
+  const spriteCacheRef = React.useRef(new Map());
+  const preloadRef = React.useRef(new Set());
+  
+  // Preload sprites for visible layers with enhanced rendering
+  useEffect(() => {
+    if (!view?.viewType) return;
+    const viewType = view.viewType;
+    const angle = viewType === 'isometric' ? 135 : 0;
+    
+    Object.entries(layers || {}).forEach(([layerId, config]) => {
+      if (!config?.enhancedRendering?.enabled || !config?.enhancedRendering?.spriteBase) return;
+      
+      const spriteBase = config.enhancedRendering.spriteBase;
+      const cacheKey = `${layerId}:${viewType}:${spriteBase}`;
+      
+      // Only preload once per cache key
+      if (preloadRef.current.has(cacheKey)) return;
+      
+      const candidates = getCandidateSrcs(config, angle, viewType);
+      if (candidates && candidates.length > 0) {
+        // Preload the first candidate (primary sprite) to prevent pop-in
+        preloadChain(candidates.slice(0, 2)).catch(() => {}); // Fire and forget
+        preloadRef.current.add(cacheKey);
+      }
+    });
+  }, [layers, view?.viewType]);
+  
   // Render the appropriate icon for a layer
-  const renderLayerIcon = (layerId, config) => {
+  const renderLayerIcon = useCallback((layerId, config) => {
     const icon = INFRASTRUCTURE_ICONS[layerId];
     
     // If enhanced rendering is enabled for this layer, use the shared spriteResolver
@@ -107,18 +139,40 @@ const LayersPanel = ({
     if (config?.enhancedRendering?.enabled) {
       const viewType = view?.viewType || 'isometric';
       const angle = viewType === 'isometric' ? 135 : 0;
-      const candidates = getCandidateSrcs(config, angle, viewType);
-      const src = candidates[0] || null;
+      
+      // Create a stable cache key based on layer config that only changes when sprite data changes
+      const spriteBase = config?.enhancedRendering?.spriteBase;
+      const cacheKey = `${layerId}:${viewType}:${spriteBase || ''}`;
+      
+      // Check cache first - only recompute if config or view changed
+      let candidates = spriteCacheRef.current.get(cacheKey);
+      if (!candidates) {
+        candidates = getCandidateSrcs(config, angle, viewType);
+        spriteCacheRef.current.set(cacheKey, candidates);
+        // Limit cache size to prevent memory leaks
+        if (spriteCacheRef.current.size > 100) {
+          const firstKey = spriteCacheRef.current.keys().next().value;
+          spriteCacheRef.current.delete(firstKey);
+        }
+        // Preload immediately when computing new candidates
+        if (candidates && candidates.length > 0) {
+          preloadChain(candidates.slice(0, 2)).catch(() => {});
+        }
+      }
+      
+      // Use first ready image from cache to prevent pop-in, fallback to first candidate
+      const readySrc = firstReadyInChain(candidates) || candidates[0] || null;
       return (
         <div 
           className={`w-6 h-6 flex items-center justify-center flex-shrink-0 ${config.loading ? 'animate-pulse' : ''}`}
           style={{ opacity: config.requested ? 1 : 0.3 }}
         >
-          {src ? (
+          {readySrc ? (
             <img 
-              src={src}
+              src={readySrc}
               alt={config.name}
               className="w-7 h-7 object-contain"
+              loading="eager"
               style={{
                 filter: config.loading ? 'grayscale(100%)' : 'none',
                 opacity: config.requested ? 1 : 0.6
@@ -206,7 +260,7 @@ const LayersPanel = ({
         }}
       />
     );
-  };
+  }, [view?.viewType]);
 
   // Render a group header with toggle functionality
   const renderGroupHeader = (groupId, group) => {
@@ -277,6 +331,13 @@ const LayersPanel = ({
     const isEmpty = !!config.empty;
     const isError = !!config.error;
 
+    // Special handling for subway entrances: show both entrances and lines controls
+    const isSubwayEntrances = layerId === 'subwayEntrances';
+    const subwayLinesConfig = isSubwayEntrances ? layers.subwayLines : null;
+    const subwayLinesRequested = subwayLinesConfig ? !!subwayLinesConfig.requested : false;
+    const subwayLinesLoading = subwayLinesConfig ? !!subwayLinesConfig.loading : false;
+    const subwayLinesEnabled = subwayLinesConfig ? (focusedArea && !subwayLinesConfig.disabled) : false;
+
     const renderStatusIcon = () => {
       if (isError) return <AlertCircle className="w-4 h-4 text-red-500" title="Error loading" />;
       if (isLoading) return <Loader2 className="w-4 h-4 text-blue-600 animate-spin" title="Loading" />;
@@ -298,12 +359,14 @@ const LayersPanel = ({
         }`}
       >
         <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+          {/* Eye button for subway entrances (or main layer) */}
           <button
             onClick={() => isEnabled && !config.disabled && onToggleLayer(layerId)}
             className={`p-1 rounded flex-shrink-0 ${
               isEnabled ? 'cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700' : 'cursor-not-allowed'
             }`}
             disabled={!isEnabled || isLoading}
+            title={isSubwayEntrances ? "Toggle subway entrances" : undefined}
           >
             {isRequested ? (
               <Eye className={`w-4 h-4 ${isEnabled ? 'text-blue-600' : 'text-gray-400 dark:text-gray-500'}`} />
@@ -311,6 +374,21 @@ const LayersPanel = ({
               <EyeOff className={`w-4 h-4 ${isEnabled ? 'text-gray-600 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'}`} />
             )}
           </button>
+          
+          {/* Line button for subway lines (only shown for subway entrances) */}
+          {isSubwayEntrances && onToggleSubwayLines && (
+            <button
+              onClick={() => subwayLinesEnabled && !subwayLinesConfig?.disabled && onToggleSubwayLines('subwayLines')}
+              className={`p-1 rounded flex-shrink-0 ${
+                subwayLinesEnabled ? 'cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700' : 'cursor-not-allowed'
+              }`}
+              disabled={!subwayLinesEnabled || subwayLinesLoading}
+              title="Toggle subway lines"
+            >
+              <Minus className={`w-4 h-4 ${subwayLinesEnabled ? (subwayLinesRequested ? 'text-blue-600' : 'text-gray-600 dark:text-gray-300') : 'text-gray-400 dark:text-gray-500'}`} />
+            </button>
+          )}
+          
           {renderLayerIcon(layerId, config)}
           <span className={`text-sm font-medium truncate ${
             isRequested && isEnabled ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'

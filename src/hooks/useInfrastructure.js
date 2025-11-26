@@ -9,7 +9,7 @@ import { calculateGeometryBounds, expandBounds } from '../utils/geometryUtils';
 import { createInfrastructureTooltipContent } from '../utils/tooltipUtils';
 import { addIconsToMap, retryLoadIcons, INFRASTRUCTURE_ICONS } from '../utils/iconUtils';
 import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
-import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId, getMapViewType, buildSpriteUrl, buildFlatSpriteUrl, computeNearestSegmentClosestPointBearing, computeFeatureSpriteAngle, computeSpriteTransform, extractCameraState, computeCameraBucket } from '../utils/enhancedRenderingUtils.js';
+import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId, getMapViewType, buildSpriteUrl, buildFlatSpriteUrl, computeNearestSegmentClosestPointBearing, computeFeatureSpriteAngle, computeSpriteTransform, extractCameraState, computeCameraBucket, VIEW_TYPES } from '../utils/enhancedRenderingUtils.js';
 import { snapBearingRelativeToArea, computeAreaOrientation, quantizeBearingForView, normalizeAngle } from '../utils/bearingUtils';
 import { ensureViewportAlignedSymbols } from '../utils/mapLayerUtils';
 import { parseTrainLines } from '../utils/mtaUtils';
@@ -80,6 +80,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     bikeParking: null,
     citibikeStations: null,
     subwayEntrances: null,
+    subwayLines: null,
     fireLanes: null,
     specialDisasterRoutes: null,
     pedestrianRamps: null,
@@ -109,9 +110,12 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
   const prevFocusedAreaIdRef = useRef(null);
   const loadingLayersRef = useRef(new Set());
   const lastCameraBucketRef = useRef({});
+  const lastViewTypeRef = useRef({}); // Track viewType per layer to detect view type changes
   // Live layers ref to avoid stale-closure reads inside async callbacks
   const layersRef = useRef(layers);
   useEffect(() => { layersRef.current = layers; }, [layers]);
+  // Track previous layer visibility states to avoid unnecessary updates
+  const prevLayerVisibilityRef = useRef(new Map());
 
   // (queue functions declared after loader)
 
@@ -282,11 +286,12 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
 
   // When view type changes (isometric <-> top-down), reload enhanced sprite images in the map sprite registry
   // so on-map instances update to the correct perspective without reloading data.
+  // Only reload sprites when viewType changes, NOT when layers change (prevents flicker)
   useEffect(() => {
     if (!map) return;
     const viewType = view?.viewType || getMapViewType(map);
     try {
-      Object.entries(layers).forEach(([layerId, cfg]) => {
+      Object.entries(layersRef.current || {}).forEach(([layerId, cfg]) => {
         if (!cfg?.requested || !cfg?.enhancedRendering?.enabled) return;
         const base = cfg.enhancedRendering.spriteBase;
         // In top-down (2D) mode, only load 0-degree sprite and use continuous rotation
@@ -294,37 +299,22 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
         const allAngles = cfg.enhancedRendering.angles || [0,45,90,135,180,225,270,315];
         const angles = viewType === 'top-down' ? [0] : allAngles;
         // Replace existing images for this sprite family with the current view variant
+        // Use the publicDir from layer config if available, otherwise construct it
+        const layerPublicDir = cfg.enhancedRendering.publicDir || `/static/${base}`;
         addEnhancedSpritesToMap(map, {
           baseName: base,
-          publicDir: `/static/${base}`,
+          publicDir: layerPublicDir,
           angles,
           viewType,
           urlBuilder: buildFlatSpriteUrl,
-          replaceExisting: true
+          replaceExisting: false
         });
         // Opportunistic prefetch via DOM for sidebar/other consumers
         try { prefetchView(base, angles, viewType, { map }); } catch (_) {}
-
-        // Force a lightweight layout refresh on the symbol layer so updated images are bound
-        try {
-          const pointLayerId = `layer-${layerId}-point`;
-          if (map.getLayer(pointLayerId)) {
-            const prev = map.getLayoutProperty(pointLayerId, 'icon-image');
-            const fallbackId = INFRASTRUCTURE_ICONS[layerId]?.id;
-            if (fallbackId) {
-              // Temporarily set to a simple id, then restore the previous expression/value
-              map.setLayoutProperty(pointLayerId, 'icon-image', fallbackId);
-              // Next tick restore original to trigger rebind
-              setTimeout(() => {
-                try { map.setLayoutProperty(pointLayerId, 'icon-image', prev); } catch (_) {}
-              }, 0);
-            }
-          }
-        } catch (_) {}
       });
       try { if (typeof map.triggerRepaint === 'function') map.triggerRepaint(); } catch (_) {}
     } catch (_) {}
-  }, [map, layers, view?.viewType]);
+  }, [map, view?.viewType]); // Removed 'layers' dependency to prevent reloading on every layer toggle
 
   // On-demand image registration for infrastructure icons and enhanced sprites (styleimagemissing)
   useEffect(() => {
@@ -335,17 +325,44 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
         if (!id || typeof id !== 'string') return;
         try { if (map.hasImage && map.hasImage(id)) return; } catch (_) {}
 
-        // Enhanced sprite family: id like "base_045"
+        // Enhanced sprite family: id like "fire-hydrant_180" or "tree_maple_TOP_000" (for top-down)
+        // Parse by checking for TOP pattern first, then extracting base and angle
         if (id.includes('_')) {
-          const parts = id.split('_');
-          const base = parts[0];
-          let angle = 0;
-          try { angle = parseInt(parts[1], 10); if (!isFinite(angle)) angle = 0; } catch (_) { angle = 0; }
-          const vt = view?.viewType || getMapViewType(map);
+          let base, angle, isTopDown;
+          
+          // Check if this is a top-down sprite (pattern: base_TOP_000)
+          const topDownMatch = id.match(/^(.+)_TOP_(\d+)$/);
+          if (topDownMatch) {
+            base = topDownMatch[1];
+            angle = parseInt(topDownMatch[2], 10);
+            isTopDown = true;
+          } else {
+            // Regular sprite: base_000 (find last underscore before angle)
+            const lastUnderscore = id.lastIndexOf('_');
+            const beforeLastUnderscore = id.substring(0, lastUnderscore);
+            const afterLastUnderscore = id.substring(lastUnderscore + 1);
+            base = beforeLastUnderscore;
+            try { 
+              angle = parseInt(afterLastUnderscore, 10); 
+              if (!isFinite(angle)) angle = 0; 
+            } catch (_) { 
+              angle = 0; 
+            }
+            isTopDown = false;
+          }
+          
+          const vt = isTopDown ? VIEW_TYPES.TOP_DOWN : (view?.viewType || getMapViewType(map));
+          
+          // Find the layer config to get the correct publicDir
+          const layerConfig = Object.values(layersRef.current || {}).find(l => 
+            l?.enhancedRendering?.spriteBase === base
+          );
+          const layerPublicDir = layerConfig?.enhancedRendering?.publicDir || `/static/${base}`;
+          
           try {
             await addEnhancedSpritesToMap(map, {
               baseName: base,
-              publicDir: `/static/${base}`,
+              publicDir: layerPublicDir,
               angles: [angle],
               viewType: vt,
               urlBuilder: buildFlatSpriteUrl,
@@ -418,7 +435,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     
     try { map.on('rotate', onRotate); } catch (_) {}
     return () => { try { map.off('rotate', onRotate); } catch (_) {} };
-  }, [map, view?.viewType, layers]);
+  }, [map, view?.viewType, view?.bearing]); // Removed 'layers' dependency - use layersRef instead
 
   // Recompute per-feature icon_image for enhanced infra when bearing/view changes
   // Uses same logic as dropped objects: compensate for map bearing in isometric view
@@ -426,17 +443,24 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     if (!map) return;
     try {
       const state = extractCameraState({ map, view });
-      Object.entries(layers).forEach(([layerId, cfg]) => {
+      Object.entries(layersRef.current || {}).forEach(([layerId, cfg]) => {
         if (!cfg?.requested || !cfg?.enhancedRendering?.enabled) return;
         const data = infrastructureData?.[layerId];
         if (!data || !Array.isArray(data.features) || data.features.length === 0) return;
 
         const snappedBucket = computeCameraBucket({ cameraState: state, bucketPrecisionDeg: 1, slices: 8 });
         const prevBucket = lastCameraBucketRef.current[layerId];
-        if (typeof prevBucket === 'number' && prevBucket === snappedBucket) {
+        const prevViewType = lastViewTypeRef.current?.[layerId];
+        const currentViewType = state.viewType;
+        
+        // Force update if viewType changed (top-down <-> isometric), even if bucket is same
+        const viewTypeChanged = prevViewType !== currentViewType;
+        if (!viewTypeChanged && typeof prevBucket === 'number' && prevBucket === snappedBucket) {
           return;
         }
         lastCameraBucketRef.current[layerId] = snappedBucket;
+        if (!lastViewTypeRef.current) lastViewTypeRef.current = {};
+        lastViewTypeRef.current[layerId] = currentViewType;
 
         const areaGeom = (() => { try {
           return (focusedArea?.properties?.__subFocus ? focusedArea : null)?.geometry || (focusedArea?.geometry);
@@ -487,7 +511,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     } catch (_) {}
     // In 2D mode, bearing changes don't require data rebuild (icon-rotate with 'map' alignment handles it)
     // In isometric mode, bearing changes DO require different sprites (perspective changes)
-  }, [map, layers, infrastructureData, view?.bearing, view?.viewType, view?.pitch, focusedArea]);
+  }, [map, infrastructureData, view?.bearing, view?.viewType, view?.pitch, focusedArea]); // Removed 'layers' dependency - use layersRef.current instead
 
   // Add infrastructure layer to map - move this before loadInfrastructureLayer
   const addInfrastructureLayerToMap = useCallback((layerId, data) => {
@@ -740,19 +764,47 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       try {
         const cfg = layers[layerId];
         if (cfg?.enhancedRendering?.enabled) {
-          // Ensure sprites are loaded for variants
+          // Ensure sprites are loaded for variants BEFORE adding layer to map
           try {
             const viewType = view?.viewType || getMapViewType(map);
+            const spriteBase = cfg.enhancedRendering.spriteBase;
+            const layerPublicDir = cfg.enhancedRendering.publicDir || `/static/${spriteBase}`;
+            const angles = cfg.enhancedRendering.angles || [0, 45, 90, 135, 180, 225, 270, 315];
+            
+            // Preload ALL angle variants before adding layer to prevent styleimagemissing events
             await addEnhancedSpritesToMap(map, {
-              baseName: cfg.enhancedRendering.spriteBase,
-              publicDir: `/static/${cfg.enhancedRendering.spriteBase}`,
-              angles: cfg.enhancedRendering.angles,
+              baseName: spriteBase,
+              publicDir: layerPublicDir,
+              angles,
               viewType,
-              urlBuilder: buildFlatSpriteUrl
+              urlBuilder: buildFlatSpriteUrl,
+              replaceExisting: false
             });
+            
+            // Verify critical sprites are registered before proceeding
+            const criticalAngles = viewType === 'top-down' ? [0] : [0, 45, 90, 135, 180, 225, 270, 315];
+            for (const angle of criticalAngles) {
+              const spriteId = buildSpriteImageId(spriteBase, angle, viewType);
+              let registered = false;
+              for (let attempt = 0; attempt < 10; attempt++) {
+                try {
+                  if (map.hasImage && map.hasImage(spriteId)) {
+                    registered = true;
+                    break;
+                  }
+                } catch (_) {}
+                await new Promise(resolve => setTimeout(resolve, 50));
+              }
+              if (!registered && DEBUG_INFRA) {
+                console.warn(`[loadInfrastructureLayer] Sprite ${spriteId} not registered after preload for ${layerId}`);
+              }
+            }
+            
             // Opportunistic prefetch for current view
-            try { prefetchView(cfg.enhancedRendering.spriteBase, cfg.enhancedRendering.angles, viewType, { map }); } catch(_) {}
-          } catch (_) {}
+            try { prefetchView(spriteBase, angles, viewType, { map }); } catch(_) {}
+          } catch (err) {
+            if (DEBUG_INFRA) console.warn(`[loadInfrastructureLayer] Failed to preload sprites for ${layerId}:`, err);
+          }
 
           // For point features, compute a bearing from nearest CSCL centerline when desired
           let lineFeatures = [];
@@ -932,7 +984,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
                 visible: stillRequested ? true : false
               }
             }));
-            try { if (stillRequested) toggleInfrastructureLayerVisibility(layerId, true); } catch (_) {}
+            try { if (stillRequested) toggleInfrastructureLayerVisibility(layerId, true).catch(() => {}); } catch (_) {}
           } catch (_) {}
         };
 
@@ -1121,8 +1173,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     }
   }, [map, focusedArea, layers, setLayers, clearLayer]);
 
-  // Toggle infrastructure layer visibility - use useCallback
-  const toggleInfrastructureLayerVisibility = useCallback((layerId, visible) => {
+  // Toggle infrastructure layer visibility - preload sprites before showing (React/MapLibre best practice)
+  const toggleInfrastructureLayerVisibility = useCallback(async (layerId, visible) => {
     if (!map) return;
     
     const pointLayerId = `layer-${layerId}-point`;
@@ -1130,6 +1182,66 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     const polygonLayerId = `layer-${layerId}-polygon`;
     
     try {
+      // If making visible, ensure sprites are preloaded first (React/MapLibre best practice)
+      if (visible) {
+        const layerConfig = layersRef.current?.[layerId];
+        if (layerConfig?.enhancedRendering?.enabled && layerConfig?.enhancedRendering?.spriteBase) {
+          const viewType = view?.viewType || getMapViewType(map);
+          const spriteBase = layerConfig.enhancedRendering.spriteBase;
+          const angles = layerConfig.enhancedRendering.angles || [0, 45, 90, 135, 180, 225, 270, 315];
+          
+          // Preload all angle variants before showing layer to prevent flicker
+          // Use spriteResolver's preloadImage for better MapLibre integration
+          try {
+            // Ensure map style is ready
+            if (map.isStyleLoaded && !map.isStyleLoaded()) {
+              await new Promise((resolve) => {
+                map.once('style.load', resolve);
+              });
+            }
+            
+            // Preload sprites using addEnhancedSpritesToMap which properly registers with MapLibre
+            // Use the publicDir from layer config if available, otherwise construct it
+            const layerPublicDir = layerConfig.enhancedRendering.publicDir || `/static/${spriteBase}`;
+            await addEnhancedSpritesToMap(map, {
+              baseName: spriteBase,
+              publicDir: layerPublicDir,
+              angles,
+              viewType,
+              urlBuilder: buildFlatSpriteUrl,
+              replaceExisting: false
+            });
+            
+            // Verify that sprites are actually registered with MapLibre before proceeding
+            // This prevents race conditions where MapLibre tries to render before sprites are ready
+            const criticalAngles = [0, 45, 90, 135, 180, 225, 270, 315].filter(a => angles.includes(a));
+            for (const angle of criticalAngles) {
+              const spriteId = buildSpriteImageId(spriteBase, angle, viewType);
+              // Poll up to 5 times (250ms total) to ensure sprite is registered
+              let registered = false;
+              for (let attempt = 0; attempt < 5; attempt++) {
+                try {
+                  if (map.hasImage && map.hasImage(spriteId)) {
+                    registered = true;
+                    break;
+                  }
+                } catch (_) {}
+                await new Promise(resolve => setTimeout(resolve, 50));
+              }
+              if (!registered) {
+                // Continue anyway - styleimagemissing handler will catch it
+                // But log for debugging
+                if (DEBUG_INFRA) console.warn(`[useInfrastructure] Sprite ${spriteId} not registered after preload for ${layerId}`);
+                break;
+              }
+            }
+          } catch (err) {
+            // Continue even if sprite loading fails - styleimagemissing will handle it
+            console.warn(`[useInfrastructure] Failed to preload sprites for ${layerId}:`, err);
+          }
+        }
+      }
+      
       const next = visible ? 'visible' : 'none';
       const setIfChanged = (id) => {
         if (!map.getLayer(id)) return;
@@ -1144,7 +1256,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     } catch (error) {
       console.error(`Error toggling ${layerId} visibility:`, error);
     }
-  }, [map]);
+  }, [map, view?.viewType]);;
 
   // (toggleLayer / reloadVisibleLayers are declared after queue helpers)
 
@@ -1235,8 +1347,39 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     
     // Infrastructure layer toggling
     setLayers(prev => {
+      const updatedLayers = { ...prev };
       const currentConfig = prev[layerId];
+      if (!currentConfig) return prev; // Skip if layer doesn't exist
+      
       const willBeRequested = !currentConfig.requested;
+      
+      // Special handling for subwayEntrances: default behavior toggles subwayLines ON when turning ON
+      // (but allows independent control after)
+      if (layerId === 'subwayEntrances' && willBeRequested) {
+        const subwayLinesConfig = prev.subwayLines;
+        // If subwayLines is not requested, also toggle it ON (default behavior)
+        if (subwayLinesConfig && !subwayLinesConfig.requested) {
+          const subwayLinesWillBeRequested = true;
+          // Bump version for subwayLines
+          try {
+            const prevV = requestVersionRef.current.get('subwayLines') || 0;
+            requestVersionRef.current.set('subwayLines', prevV + 1);
+          } catch (_) {}
+          if (!subwayLinesConfig.loaded && !subwayLinesConfig.loading && !loadingLayersRef.current.has('subwayLines')) {
+            enqueueLoad('subwayLines');
+          } else {
+            try { toggleInfrastructureLayerVisibility('subwayLines', !subwayLinesConfig.empty).catch(() => {}); } catch (_) {}
+          }
+          updatedLayers.subwayLines = {
+            ...prev.subwayLines,
+            requested: subwayLinesWillBeRequested,
+            visible: subwayLinesWillBeRequested ? (subwayLinesConfig.loaded ? !subwayLinesConfig.empty : false) : false,
+            loading: subwayLinesWillBeRequested ? prev.subwayLines.loading : false
+          };
+        }
+      }
+      
+      // Handle the primary layer toggle
       // Map side effect
       if (willBeRequested) {
         // Bump version for new request intent
@@ -1247,15 +1390,16 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
         if (!currentConfig.loaded && !currentConfig.loading && !loadingLayersRef.current.has(layerId)) {
           enqueueLoad(layerId);
         } else {
-          try { toggleInfrastructureLayerVisibility(layerId, !currentConfig.empty); } catch (_) {}
+          // Preload sprites before showing layer (fire-and-forget async)
+          toggleInfrastructureLayerVisibility(layerId, !currentConfig.empty).catch(() => {});
         }
       } else {
-        // Turning off: hide, cancel any queued load, and clear loading state
-        try { toggleInfrastructureLayerVisibility(layerId, false); } catch (_) {}
+        // Turning off: hide immediately (no sprite preloading needed)
+        try { toggleInfrastructureLayerVisibility(layerId, false).catch(() => {}); } catch (_) {}
         try {
           // Remove from queue if present
           queuedSetRef.current.delete(layerId);
-          try { loadQueueRef.current = (loadQueueRef.current || []).filter((id) => id !== layerId); } catch (_) {}
+          try { loadQueueRef.current = (loadQueueRef.current || []).filter((queueId) => queueId !== layerId); } catch (_) {}
           // If currently loading, mark as not loading so UI clears spinner; fetch cannot be aborted but completion will be ignored
           loadingLayersRef.current.delete(layerId);
           // Bump version so any in-flight completion is ignored
@@ -1263,25 +1407,26 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
           requestVersionRef.current.set(layerId, prevV + 1);
         } catch (_) {}
       }
-      return {
-        ...prev,
-        [layerId]: {
-          ...prev[layerId],
-          requested: willBeRequested,
-          // Keep visible in sync with requested to avoid re-show via effects
-          visible: willBeRequested ? (currentConfig.loaded ? !currentConfig.empty : false) : false,
-          // If turning off, ensure loading flag is cleared for UI responsiveness
-          loading: willBeRequested ? prev[layerId].loading : false
-        }
+      
+      updatedLayers[layerId] = {
+        ...prev[layerId],
+        requested: willBeRequested,
+        // Keep visible in sync with requested to avoid re-show via effects
+        visible: willBeRequested ? (currentConfig.loaded ? !currentConfig.empty : false) : false,
+        // If turning off, ensure loading flag is cleared for UI responsiveness
+        loading: willBeRequested ? prev[layerId].loading : false
       };
+      
+      return updatedLayers;
     });
   }, [focusedArea, enqueueLoad, toggleInfrastructureLayerVisibility, setLayers]);
 
   // Reload any currently visible layers (useful after style changes)
+  // Use layersRef to avoid recreating callback on every layer change
   const reloadVisibleLayers = useCallback(() => {
     if (!map || !focusedArea) return;
     const run = () => {
-      Object.entries(layers).forEach(([layerId, config]) => {
+      Object.entries(layersRef.current || {}).forEach(([layerId, config]) => {
         if (layerId !== 'permitAreas' && !config?.disabled && !DISABLED_INFRASTRUCTURE_LAYERS.has(layerId) && config.requested && !loadingLayersRef.current.has(layerId)) {
           if (DEBUG_INFRA) console.log('[infra] enqueue after reloadVisibleLayers:', layerId);
           enqueueLoad(layerId);
@@ -1301,7 +1446,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
         run();
       }
     }, 0);
-  }, [map, focusedArea, layers, enqueueLoad]);
+  }, [map, focusedArea, enqueueLoad]); // Removed 'layers' dependency - use layersRef instead
 
   // After import rehydration completes, load any visible infrastructure layers
   useEffect(() => {
@@ -1322,10 +1467,16 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     if (!map || !focusedArea) return;
     const run = () => {
       try {
+        const prevVisibility = prevLayerVisibilityRef.current;
+        const currentVisibility = new Map();
+        
         Object.entries(layers || {}).forEach(([layerId, cfg]) => {
           if (layerId === 'permitAreas') return;
           if (cfg?.disabled || DISABLED_INFRASTRUCTURE_LAYERS.has(layerId)) return;
 
+          const visibilityKey = `${cfg?.requested}-${cfg?.visible}-${cfg?.loaded}`;
+          currentVisibility.set(layerId, visibilityKey);
+          
           // Only act on layers the user has requested to be on
           // If marked visible by state but not yet loaded/loading, fetch now
           if (cfg?.requested && cfg?.visible && !cfg?.loaded && !cfg?.loading && !loadingLayersRef.current.has(layerId)) {
@@ -1333,11 +1484,31 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
             return;
           }
 
-          // If already loaded and should be visible, ensure layer visibility in style
-          if (cfg?.requested && cfg?.visible && cfg?.loaded) {
-            try { toggleInfrastructureLayerVisibility(layerId, true); } catch (_) {}
+          // Only update visibility if the layer's visibility state actually changed
+          // This prevents unnecessary updates to all layers when one layer is toggled.
+          // Note: toggleLayer already calls toggleInfrastructureLayerVisibility for the specific layer,
+          // so this useEffect primarily handles:
+          // 1. Loading layers that are requested but not yet loaded
+          // 2. Syncing visibility after import rehydration or initial mount
+          const prevKey = prevVisibility.get(layerId);
+          const visibilityChanged = prevKey !== visibilityKey;
+          
+          // For already-loaded layers, only sync visibility if it actually changed
+          // Skip if visibility hasn't changed (prevents unnecessary updates to all layers)
+          if (cfg?.loaded && visibilityChanged && prevKey !== undefined) {
+            // Visibility state changed - sync it with the map
+            if (cfg?.requested && cfg?.visible) {
+              try { toggleInfrastructureLayerVisibility(layerId, true).catch(() => {}); } catch (_) {}
+            } else {
+              try { toggleInfrastructureLayerVisibility(layerId, false).catch(() => {}); } catch (_) {}
+            }
           }
+          // Note: For initial mount (prevKey === undefined), we skip visibility sync here
+          // because toggleLayer or loadInfrastructureLayer will handle it when layers are first loaded
         });
+        
+        // Update the ref with current visibility states
+        prevLayerVisibilityRef.current = currentVisibility;
       } catch (_) {}
     };
     try {
@@ -1429,7 +1600,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       });
 
       // Reflect map visibility for already-loaded layers
-      loadedToShow.forEach((id) => { try { toggleInfrastructureLayerVisibility(id, true); } catch (_) {} });
+      loadedToShow.forEach((id) => { try { toggleInfrastructureLayerVisibility(id, true).catch(() => {}); } catch (_) {} });
 
       // Queue the rest
       if (toLoad.length > 0) {
@@ -1446,7 +1617,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
         });
         return next;
       });
-      candidates.forEach((id) => { try { toggleInfrastructureLayerVisibility(id, false); } catch (_) {} });
+      candidates.forEach((id) => { try { toggleInfrastructureLayerVisibility(id, false).catch(() => {}); } catch (_) {} });
       bulkCancelLoading();
     }
   }, [setLayers, enqueueLoad, toggleInfrastructureLayerVisibility, bulkCancelLoading]);

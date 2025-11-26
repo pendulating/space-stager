@@ -41,6 +41,17 @@ export const INFRASTRUCTURE_ENDPOINTS = {
       'entrance_georeference'
     ]
   },
+  subwayLines: {
+    baseUrl: 'https://data.ny.gov/resource/s692-irgq.geojson',
+    // Subway lines dataset uses geometry column (MultiLineString)
+    geoField: 'geometry',
+    isLocal: false,
+    selectFields: [
+      'service',
+      'service_name',
+      'geometry'
+    ]
+  },
   fireLanes: {
     baseUrl: 'https://data.cityofnewyork.us/resource/inkn-q76z.geojson',
     geoField: 'the_geom',

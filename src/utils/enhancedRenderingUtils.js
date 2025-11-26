@@ -145,7 +145,7 @@ export const addEnhancedSpritesToMap = async (map, options) => {
 
   // Disable debug logging by default to avoid performance impact during rotation
   const DEBUG = false; // typeof window !== 'undefined' && window.__DEBUG_DROPPED_OBJECTS__;
-  if (DEBUG) console.log('[addEnhancedSprites]', { baseName, angles, viewType, replaceExisting });
+  if (DEBUG) console.log('[addEnhancedSprites]', { baseName, angles, viewType, replaceExisting, publicDir });
 
   // Load each angle variant via DOM Image
   await Promise.all(angles.map((angle) => new Promise((resolve) => {
@@ -162,38 +162,111 @@ export const addEnhancedSpritesToMap = async (map, options) => {
         }
       }
     } catch (_) {}
+    
+    // Ensure map style is loaded before attempting to add images (MapLibre requirement)
+    const ensureStyleLoaded = (callback) => {
+      // Safety timeout in case style.load never fires
+      let fired = false;
+      const run = () => {
+        if (fired) return;
+        fired = true;
+        callback();
+      };
+      setTimeout(run, 2000);
+
+      if (map.isStyleLoaded && !map.isStyleLoaded()) {
+        map.once('style.load', run);
+      } else {
+        run();
+      }
+    };
+    
     const urls = [];
     if (typeof urlBuilder === 'function') {
       urls.push(urlBuilder(baseName, angle, viewType));
       // Fallback to isometric if top-down missing
       if (viewType === VIEW_TYPES.TOP_DOWN) urls.push(urlBuilder(baseName, angle, VIEW_TYPES.ISOMETRIC));
-    } else if (publicDir) {
-      urls.push(`${publicDir}/${baseName}_${padAngle(angle)}.png`);
     }
-    // Legacy fallback
-    urls.push(`/data/icons/isometric-bw/${baseName}_${padAngle(angle)}.png`);
+    // Also add publicDir fallback if provided (for nested structure)
+    if (publicDir) {
+      const publicDirUrl = `${publicDir}/${baseName}_${padAngle(angle)}.png`;
+      if (!urls.includes(publicDirUrl)) {
+        urls.push(publicDirUrl);
+      }
+    }
+    // Note: Legacy bw sprites are NOT included for enhanced rendering layers
 
     if (DEBUG) console.log('[addEnhancedSprites] loading', { id, urls });
 
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      if (DEBUG) console.log('[addEnhancedSprites] loaded successfully', { id, src: img.src });
+    
+    const registerImage = () => {
       try {
         const has = map.hasImage && map.hasImage(id);
         if (replaceExisting && has) {
           if (typeof map.updateImage === 'function') {
-            try { map.updateImage(id, img); } catch (_) { try { map.removeImage(id); map.addImage(id, img); } catch (__) {} }
+            try { 
+              map.updateImage(id, img); 
+              resolve(true);
+            } catch (_) { 
+              try { 
+                map.removeImage(id); 
+                map.addImage(id, img); 
+                resolve(true);
+              } catch (__) {
+                resolve(false);
+              }
+            }
           } else {
-            try { map.removeImage(id); } catch (_) {}
-            try { map.addImage(id, img); } catch (_) {}
+            try { 
+              map.removeImage(id); 
+            } catch (_) {}
+            try { 
+              map.addImage(id, img); 
+              resolve(true);
+            } catch (_) {
+              resolve(false);
+            }
           }
         } else if (!has) {
           map.addImage(id, img);
-        } // else has and !replaceExisting → keep existing
-      } catch (_) {}
-      resolve(true);
+          // Verify image was actually added before resolving
+          try {
+            if (map.hasImage && map.hasImage(id)) {
+              resolve(true);
+            } else {
+              // Retry after a short delay
+              setTimeout(() => {
+                try {
+                  if (!map.hasImage(id)) map.addImage(id, img);
+                  resolve(true);
+                } catch (_) {
+                  resolve(false);
+                }
+              }, 10);
+            }
+          } catch (_) {
+            resolve(true); // Assume success if we can't verify
+          }
+        } else {
+          // Already exists and !replaceExisting
+          resolve(true);
+        }
+      } catch (err) {
+        if (DEBUG) console.error('[addEnhancedSprites] error registering image', { id, err });
+        resolve(false);
+      }
     };
+    
+    img.onload = () => {
+      if (DEBUG) console.log('[addEnhancedSprites] loaded successfully', { id, src: img.src });
+      // Ensure style is loaded before registering
+      ensureStyleLoaded(() => {
+        registerImage();
+      });
+    };
+    
     let i = 0;
     img.onerror = () => {
       if (DEBUG) console.warn('[addEnhancedSprites] failed to load', { id, failedUrl: urls[i], attemptIndex: i });
@@ -263,7 +336,6 @@ export const buildSpriteFallbacks = (baseName, angle, viewType = VIEW_TYPES.ISOM
   const nestedIso = buildSpriteUrl(baseName, angle, VIEW_TYPES.ISOMETRIC); // nested iso
   const flat = buildFlatSpriteUrl(baseName, angle, viewType); // flat current view
   const flatIso = buildFlatSpriteUrl(baseName, angle, VIEW_TYPES.ISOMETRIC); // flat iso
-  const legacy = buildLegacyIsometricUrl(baseName, angle);
   const chain = [];
   // Prioritize flat structure which matches current public assets
   if (!chain.includes(flat)) chain.push(flat);
@@ -271,7 +343,7 @@ export const buildSpriteFallbacks = (baseName, angle, viewType = VIEW_TYPES.ISOM
   // Then include nested structure as deeper fallbacks
   if (!chain.includes(nestedPrimary)) chain.push(nestedPrimary);
   if (!chain.includes(nestedIso)) chain.push(nestedIso);
-  if (!chain.includes(legacy)) chain.push(legacy);
+  // Note: Legacy bw sprites are NOT included for enhanced rendering layers
   return chain;
 };
 

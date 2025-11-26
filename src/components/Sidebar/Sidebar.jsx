@@ -128,6 +128,7 @@ const Sidebar = ({
           layers={layers}
           focusedArea={focusedArea}
           onToggleLayer={onToggleLayer}
+          onToggleSubwayLines={onToggleLayer}
           onClearFocus={onClearFocus}
           isSitePlanMode={isSitePlanMode}
           geographyType={geographyType}

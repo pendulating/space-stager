@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useEffect, useState } from 'react';
 import { Popup as MapLibrePopup } from 'maplibre-gl';
-import { quantizeAngleTo45, quantizeToSlices, addEnhancedSpritesToMap, buildSpriteImageId, getMapViewType, buildFlatSpriteUrl, computeSpriteTransform, extractCameraState } from '../../utils/enhancedRenderingUtils';
+import { quantizeAngleTo45, quantizeToSlices, addEnhancedSpritesToMap, buildSpriteImageId, getMapViewType, buildFlatSpriteUrl, computeSpriteTransform, extractCameraState, VIEW_TYPES } from '../../utils/enhancedRenderingUtils';
 import { getCenterOffsetForPitch, quantizeBearingForView } from '../../utils/bearingUtils';
 import { ensureViewportAlignedSymbols } from '../../utils/mapLayerUtils';
 import { useMapViewState } from '../../hooks/useMapViewState';
@@ -629,13 +629,34 @@ const DroppedObjects = ({
       try {
         const id = e && e.id;
         if (!id || typeof id !== 'string') return;
-        const parts = id.split('_');
-        const vt = view?.viewType || getMapViewType(map);
-        if (parts.length >= 2) {
-          // Enhanced family: register only the requested angle to minimize churn
-          const base = parts[0];
-          let angle = 0;
-          try { angle = parseInt(parts[1], 10); if (!isFinite(angle)) angle = 0; } catch (_) { angle = 0; }
+        // Enhanced sprite family: id like "fire-hydrant_180" or "tree_maple_TOP_000" (for top-down)
+        // Parse by checking for TOP pattern first, then extracting base and angle
+        if (id.includes('_')) {
+          let base, angle, isTopDown;
+          
+          // Check if this is a top-down sprite (pattern: base_TOP_000)
+          const topDownMatch = id.match(/^(.+)_TOP_(\d+)$/);
+          if (topDownMatch) {
+            base = topDownMatch[1];
+            angle = parseInt(topDownMatch[2], 10);
+            isTopDown = true;
+          } else {
+            // Regular sprite: base_000 (find last underscore before angle)
+            const lastUnderscore = id.lastIndexOf('_');
+            const beforeLastUnderscore = id.substring(0, lastUnderscore);
+            const afterLastUnderscore = id.substring(lastUnderscore + 1);
+            base = beforeLastUnderscore;
+            try { 
+              angle = parseInt(afterLastUnderscore, 10); 
+              if (!isFinite(angle)) angle = 0; 
+            } catch (_) { 
+              angle = 0; 
+            }
+            isTopDown = false;
+          }
+          
+          const vt = isTopDown ? VIEW_TYPES.TOP_DOWN : (view?.viewType || getMapViewType(map));
+          
           await addEnhancedSpritesToMap(map, {
             baseName: base,
             publicDir: `/static/${base}`,

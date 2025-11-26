@@ -15,7 +15,7 @@ export const LAYER_GROUPS = {
   'transit': {
     name: 'Transit',
     icon: '🚇',
-    layers: ['subwayEntrances', 'stationEnvelopes', 'busStops']
+    layers: ['subwayEntrances', 'subwayLines', 'stationEnvelopes', 'busStops']
   },
   'accessibility': {
     name: 'Accessibility',
@@ -88,7 +88,7 @@ export const INITIAL_LAYERS = {
     enhancedRendering: {
       enabled: true,
       spriteBase: 'bike-rack',
-      publicDir: '/static/bike-rack/isometric/renders',
+      publicDir: '/static/bike-rack',
       facingMode: 'awayFromStreet',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
@@ -105,11 +105,20 @@ export const INITIAL_LAYERS = {
   subwayEntrances: {
     visible: false,
     requested: false,
-    name: 'Subway Entrances',
+    name: 'Subway',
     color: '#dc2626',
     loading: false,
     loaded: false,
     endpoint: '/api/subway-entrances'
+  },
+  subwayLines: {
+    visible: false,
+    requested: false,
+    name: 'Subway Lines',
+    color: '#dc2626',
+    loading: false,
+    loaded: false,
+    endpoint: 'https://data.ny.gov/resource/s692-irgq.geojson'
   },
   fireLanes: {
     visible: false,
@@ -151,7 +160,7 @@ export const INITIAL_LAYERS = {
     enhancedRendering: {
       enabled: true,
       spriteBase: 'parking-meter',
-      publicDir: '/static/parking-meter/isometric/renders',
+      publicDir: '/static/parking-meter',
       facingMode: 'towardStreet',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
@@ -177,7 +186,7 @@ export const INITIAL_LAYERS = {
     enhancedRendering: {
       enabled: true,
       spriteBase: 'linknyc', // expects {base}_{000|045|...}.png
-      publicDir: '/static/linknyc/isometric/renders',
+      publicDir: '/static/linknyc',
       desiredParallelTo: 'cscl',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
@@ -256,7 +265,7 @@ export const INITIAL_LAYERS = {
     enhancedRendering: {
       enabled: true,
       spriteBase: 'tree_maple',
-      publicDir: '/static/tree_maple/isometric/renders',
+      publicDir: '/static/tree_maple',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
   },
@@ -271,7 +280,7 @@ export const INITIAL_LAYERS = {
     enhancedRendering: {
       enabled: true,
       spriteBase: 'fire-hydrant',
-      publicDir: '/static/fire-hydrant/isometric/renders',
+      publicDir: '/static/fire-hydrant',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
   },
@@ -296,7 +305,7 @@ export const INITIAL_LAYERS = {
     enhancedRendering: {
       enabled: true,
       spriteBase: 'bench',
-      publicDir: '/static/bench/isometric/renders',
+      publicDir: '/static/bench',
       facingMode: 'awayFromStreet',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
@@ -311,7 +320,7 @@ export const INITIAL_LAYERS = {
     enhancedRendering: {
       enabled: true,
       spriteBase: 'trash-can',
-      publicDir: '/static/trash-can/isometric/renders',
+      publicDir: '/static/trash-can',
       desiredParallelTo: 'cscl',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }

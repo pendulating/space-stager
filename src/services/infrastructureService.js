@@ -32,7 +32,7 @@ export const loadInfrastructureData = async (layerId, bounds) => {
     let whereConditions = [];
     
     // Add bounding box (or polygon intersects) filter
-    if ((layerId === 'bikeLanes' || layerId === 'fireLanes' || layerId === 'specialDisasterRoutes' || layerId === 'stationEnvelopes') && endpoint.geoField) {
+    if ((layerId === 'bikeLanes' || layerId === 'fireLanes' || layerId === 'specialDisasterRoutes' || layerId === 'stationEnvelopes' || layerId === 'subwayLines') && endpoint.geoField) {
       // Use polygon intersects for line-based layers to better approximate area buffer
       const wktPoly = `POLYGON((
         ${minLng} ${minLat},
@@ -438,6 +438,10 @@ export const filterFeaturesByType = (features, layerId) => {
   if (!features || !Array.isArray(features)) return [];
   
   return features.filter(feature => {
+    // For subwayLines, only require geometry (properties may be empty)
+    if (layerId === 'subwayLines') {
+      return feature && feature.geometry && (feature.geometry.type === 'LineString' || feature.geometry.type === 'MultiLineString');
+    }
     if (!feature || !feature.properties) return false;
     
     const props = feature.properties || {};
@@ -481,6 +485,9 @@ export const filterFeaturesByType = (features, layerId) => {
         
       case 'subwayEntrances':
         return true; // All subway entrance features are valid
+        
+      case 'subwayLines':
+        return feature.geometry && (feature.geometry.type === 'LineString' || feature.geometry.type === 'MultiLineString');
         
       case 'fireLanes':
         return true; // All fire lane features are valid
@@ -868,6 +875,63 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
           'line-width': 4,
           'line-opacity': 0.8,
           'line-dasharray': [4, 2]
+        }
+      };
+    case 'subwayLines':
+      // Subway lines with route-based coloring using service column
+      // Map service values to MTA route colors
+      return {
+        type: 'line',
+        layout: {
+          'line-cap': 'round',
+          'line-join': 'round'
+        },
+        paint: {
+          'line-color': [
+            'case',
+            ['has', 'service'],
+            [
+              'match',
+              ['get', 'service'],
+              // Red lines: 1, 2, 3
+              '1', '#EE352E',
+              '2', '#EE352E',
+              '3', '#EE352E',
+              // Green lines: 4, 5, 6
+              '4', '#00933C',
+              '5', '#00933C',
+              '6', '#00933C',
+              // Blue lines: A, C, E
+              'A', '#0039A6',
+              'C', '#0039A6',
+              'E', '#0039A6',
+              // Orange lines: B, D, F, M
+              'B', '#FF6319',
+              'D', '#FF6319',
+              'F', '#FF6319',
+              'M', '#FF6319',
+              // Yellow lines: N, Q, R, W
+              'N', '#FCCC0A',
+              'Q', '#FCCC0A',
+              'R', '#FCCC0A',
+              'W', '#FCCC0A',
+              // Purple: 7
+              '7', '#B933AD',
+              // Light Green: G
+              'G', '#6CBE45',
+              // Brown: J, Z
+              'J', '#996633',
+              'Z', '#996633',
+              // Gray: L, S
+              'L', '#A7A9AC',
+              'S', '#A7A9AC',
+              // Default fallback
+              baseColor
+            ],
+            baseColor // Fallback to base color if no service
+          ],
+          'line-width': 4,
+          'line-opacity': 0.9
         }
       };
     case 'pedestrianRamps':

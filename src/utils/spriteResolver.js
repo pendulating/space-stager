@@ -11,9 +11,9 @@
  *  - nested isometric dir
  *  - flat current-view (/static/{base}/{file}.png)
  *  - flat isometric
- *  - legacy isometric (/data/icons/isometric-bw)
+ * Note: Legacy bw sprites are NOT included for enhanced rendering layers
  */
-import { buildSpriteFallbacks, VIEW_TYPES, quantizeAngleTo45, padAngle } from './enhancedRenderingUtils';
+import { buildSpriteFallbacks, VIEW_TYPES, quantizeAngleTo45, padAngle, buildSpriteImageId } from './enhancedRenderingUtils';
 import { getContrastingBackgroundForIcon } from './colorUtils';
 
 // Simple LRU helpers
@@ -127,9 +127,11 @@ export const prefetchView = (baseName, angles = [0,45,90,135,180,225,270,315], v
   try {
     angles.forEach((angle) => {
       const chain = buildSpriteFallbacks(baseName, angle, viewType);
+      // Use buildSpriteImageId to match the format MapLibre expects (handles TOP prefix for top-down)
+      const spriteId = buildSpriteImageId(baseName, angle, viewType);
       // Kick off fetch for primary and first fallback to reduce first-paint flicker
-      if (chain[0]) preloadImage(chain[0], { map, spriteId: `${baseName}_${padAngle(angle)}`, replaceExisting });
-      if (chain[1]) preloadImage(chain[1], { map, spriteId: `${baseName}_${padAngle(angle)}`, replaceExisting });
+      if (chain[0]) preloadImage(chain[0], { map, spriteId, replaceExisting });
+      if (chain[1]) preloadImage(chain[1], { map, spriteId, replaceExisting });
     });
   } catch (_) {}
 };
