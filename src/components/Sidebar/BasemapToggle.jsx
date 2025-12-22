@@ -3,7 +3,7 @@ import { switchBasemap } from '../../utils/mapUtils';
 import { BASEMAP_OPTIONS } from '../../constants/mapConfig';
 
 const BasemapToggle = ({ map, onStyleChange }) => {
-  const [currentBasemap, setCurrentBasemap] = useState('carto');
+  const [currentBasemap, setCurrentBasemap] = useState('arcgis');
   const [isLoading, setIsLoading] = useState(false);
 
   // Sync with actual map style when map loads
@@ -13,6 +13,12 @@ const BasemapToggle = ({ map, onStyleChange }) => {
     // Check if map has a style loaded
     const checkMapStyle = () => {
       try {
+        // Prefer explicit app-level tracker if available
+        if (map.__currentBasemap) {
+          setCurrentBasemap(map.__currentBasemap);
+          return;
+        }
+
         const style = map.getStyle();
         if (style && style.sources) {
           // Try to determine current basemap from style sources and layers
@@ -20,6 +26,8 @@ const BasemapToggle = ({ map, onStyleChange }) => {
             setCurrentBasemap('satellite');
           } else if (style.sprite && style.sprite.includes('cartocdn')) {
             setCurrentBasemap('carto');
+          } else if (style.sprite && style.sprite.includes('arcgis')) {
+            setCurrentBasemap('arcgis');
           }
         }
       } catch (error) {
@@ -68,7 +76,7 @@ const BasemapToggle = ({ map, onStyleChange }) => {
             key={key}
             onClick={() => handleBasemapChange(key)}
             disabled={isLoading}
-            className={`flex-1 basis-1/2 h-full text-sm rounded-md flex items-center justify-center transition-colors ${
+            className={`flex-1 h-full text-sm rounded-md flex items-center justify-center transition-colors ${
               currentBasemap === key
                 ? 'bg-blue-500 text-white'
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'

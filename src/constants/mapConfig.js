@@ -1,6 +1,6 @@
 // constants/mapConfig.js
 export const MAP_CONFIG = {
-  style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+  style: 'https://tiles.arcgis.com/tiles/yG5s3afENB5iO9fj/arcgis/rest/services/NYC_Basemap_v3/VectorTileServer/resources/styles/root.json',
   center: [-73.985, 40.758],
   zoom: 16,
   preserveDrawingBuffer: true,
@@ -9,6 +9,11 @@ export const MAP_CONFIG = {
 };
 
 export const BASEMAP_OPTIONS = {
+  arcgis: {
+    name: 'NYC',
+    type: 'style',
+    url: 'https://tiles.arcgis.com/tiles/yG5s3afENB5iO9fj/arcgis/rest/services/NYC_Basemap_v3/VectorTileServer/resources/styles/root.json'
+  },
   carto: {
     name: 'Paper',
     type: 'style',

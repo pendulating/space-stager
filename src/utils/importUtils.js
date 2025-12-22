@@ -44,7 +44,7 @@ export const importPlan = (eOrFile, map, draw, setCustomShapes, setDroppedObject
       // Restore basemap (best-effort)
       try {
         try { helpers.setImportProgress && helpers.setImportProgress('basemap', 'Switching basemap…'); } catch (_) {}
-        const key = isV1 ? (data.basemap?.key || 'carto') : 'carto';
+        const key = isV1 ? (data.basemap?.key || 'arcgis') : 'arcgis';
         await switchBasemap(map, key);
         // Wait for style to fully load before proceeding so subsequent layer logic attaches to the right style
         try {

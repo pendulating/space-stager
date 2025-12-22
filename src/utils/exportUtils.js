@@ -66,14 +66,16 @@ import {
   isPointInPolygon
 } from './transitParkingUtils';
 
-// Detect current basemap key used by the app (carto or satellite)
+// Detect current basemap key used by the app (arcgis, carto or satellite)
 const detectBasemapKey = (map) => {
   try {
+    if (map?.__currentBasemap) return map.__currentBasemap;
     if (map?.getLayer && map.getLayer('nyc-satellite-layer')) return 'satellite';
     const style = map?.getStyle ? map.getStyle() : null;
+    if (style?.sprite && String(style.sprite).includes('arcgis')) return 'arcgis';
     if (style?.sprite && String(style.sprite).includes('cartocdn')) return 'carto';
   } catch (_) {}
-  return 'carto';
+  return 'arcgis';
 };
 
 // Export siteplan/event plan (versioned JSON serializer)

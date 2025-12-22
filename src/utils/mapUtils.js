@@ -1,6 +1,31 @@
 // utils/mapUtils.js
 import { MAP_LIBRARIES, MAP_CONFIG, NYC_BASEMAPS, BASEMAP_OPTIONS } from '../constants/mapConfig';
 
+export const loadArcgisStyle = async (styleUrl) => {
+  const arcgisService = styleUrl.split('/resources/styles/')[0];
+  const res = await fetch(styleUrl, { mode: 'cors' });
+  if (!res.ok) {
+    throw new Error(`ArcGIS style fetch failed: ${res.status}`);
+  }
+  const style = await res.json();
+
+  // Normalize sprite/glyphs to absolute URLs, preserving MapLibre tokens
+  style.sprite = `${arcgisService}/resources/sprites/sprite`;
+  style.glyphs = `${arcgisService}/resources/fonts/{fontstack}/{range}.pbf`;
+
+  // Normalize vector tiles/urls to absolute URLs
+  if (style.sources) {
+    Object.values(style.sources).forEach((source) => {
+      if (source?.type === 'vector') {
+        // Force tiles to the VectorTileServer endpoint and drop url to avoid non-TileJSON fetch
+        source.tiles = [`${arcgisService}/tile/{z}/{y}/{x}.pbf`];
+        if (source.url) delete source.url;
+      }
+    });
+  }
+  return style;
+};
+
 const dispatchMapboxDrawReady = () => {
   if (typeof window === 'undefined') return;
   if (dispatchMapboxDrawReady._fired) return;
@@ -101,11 +126,24 @@ export const initializeMap = async (container) => {
       return false;
     }
   })();
-  const styleUrl = envStyleUrl || (prefersDark ? BASEMAP_OPTIONS.carto.darkUrl : BASEMAP_OPTIONS.carto.url);
+  
+  let styleUrl = envStyleUrl || BASEMAP_OPTIONS.arcgis.url;
+  let finalStyle = styleUrl;
+
+  // If using ArcGIS, load and normalize the style object before initializing
+  if (styleUrl.includes('arcgis')) {
+    try {
+      finalStyle = await loadArcgisStyle(styleUrl);
+    } catch (err) {
+      console.error('Failed to load ArcGIS style, falling back to Carto', err);
+      styleUrl = prefersDark ? BASEMAP_OPTIONS.carto.darkUrl : BASEMAP_OPTIONS.carto.url;
+      finalStyle = styleUrl;
+    }
+  }
 
   const mapInstance = new window.maplibregl.Map({
     container,
-    style: styleUrl,
+    style: finalStyle,
     center: MAP_CONFIG.center,
     zoom: MAP_CONFIG.zoom,
     preserveDrawingBuffer: MAP_CONFIG.preserveDrawingBuffer,
@@ -199,8 +237,9 @@ export const initializeMap = async (container) => {
       }
 
       // Track current base style
-      mapInstance.__currentBasemap = 'carto';
-      mapInstance.__currentCartoStyleUrl = styleUrl;
+      mapInstance.__currentBasemap = styleUrl.includes('arcgis') ? 'arcgis' : 'carto';
+      mapInstance.__currentCartoStyleUrl = styleUrl.includes('carto') ? styleUrl : '';
+      mapInstance.__currentArcgisStyleUrl = styleUrl.includes('arcgis') ? styleUrl : '';
 
       resolve(mapInstance);
     });
@@ -293,7 +332,7 @@ export const createNYCBasemapStyle = (basemapType = '2018') => {
 };
 
 export const switchBasemap = (map, basemapKey, onStyleChange) => {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     if (!map) {
       reject(new Error('Map instance not provided'));
       return;
@@ -497,6 +536,9 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
           setTimeout(() => { onStyleChange({ type: 'overlay' }); }, 100);
         }
 
+        // Track current basemap
+        map.__currentBasemap = 'satellite';
+
         // Wait for the map to become idle after adding raster sources/layers and hiding base layers
         try {
           const done = () => resolve();
@@ -511,21 +553,9 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
         
       } else if (basemapKey === 'carto') {
         // For carto, remove satellite and restore any hidden layers from snapshot; avoid style reload
-        console.log(`switchBasemap: Switching back to carto style (restore snapshot)`);
-        try {
-          if (map.__basemapState?.hiddenLayers?.length) {
-            map.__basemapState.hiddenLayers.forEach(({ id, visibility }) => {
-              try { map.setLayoutProperty(id, 'visibility', visibility); } catch (_) {}
-            });
-            console.log(`switchBasemap: Restored ${map.__basemapState.hiddenLayers.length} hidden layers`);
-          }
-          // Clear snapshot
-          if (map.__basemapState) map.__basemapState.hiddenLayers = [];
-        } catch (e) {
-          console.error(`switchBasemap: Error restoring hidden layers:`, e);
-        }
+        console.log(`switchBasemap: Switching to Carto (Paper) basemap`);
 
-        // Remove NYC satellite overlay
+        // Remove NYC satellite overlay if present
         try {
           if (map.getLayer('nyc-satellite-layer')) {
             map.removeLayer('nyc-satellite-layer');
@@ -545,12 +575,18 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
         })();
         const desiredUrl = prefersDark ? BASEMAP_OPTIONS.carto.darkUrl : BASEMAP_OPTIONS.carto.url;
         const currentUrl = map.__currentCartoStyleUrl || '';
-        if (currentUrl !== desiredUrl) {
-          console.log('switchBasemap: Adjusting Carto base style to match theme');
+        
+        // We only need setStyle if we are NOT currently on a Carto base, OR the theme changed
+        const isBaseCarto = !!currentUrl && map.getStyle()?.sprite?.includes('cartocdn');
+        const needsFullReload = !isBaseCarto || currentUrl !== desiredUrl;
+
+        if (needsFullReload) {
+          console.log('switchBasemap: Applying Carto style (full reload)');
           const center = map.getCenter();
           const zoom = map.getZoom();
           const bearing = map.getBearing();
           const pitch = map.getPitch();
+          
           const onStyleLoaded = () => {
             if (typeof map.off === 'function') {
               map.off('style.load', onStyleLoaded);
@@ -558,9 +594,11 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
             try { map.jumpTo({ center, zoom, bearing, pitch }); } catch (_) {}
             map.__currentCartoStyleUrl = desiredUrl;
             map.__currentBasemap = 'carto';
+            map.__currentArcgisStyleUrl = '';
             if (onStyleChange) onStyleChange({ type: 'style' });
             resolve();
           };
+          
           map.once('style.load', onStyleLoaded);
           try {
             try { if (typeof window !== 'undefined') window.dispatchEvent(new Event('map:style:will-change')); } catch (_) {}
@@ -570,10 +608,22 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
             map.setStyle(desiredUrl);
           }
         } else {
-          // Notify overlay change only (no full style reload). Wait for idle for safety.
-          if (onStyleChange && typeof onStyleChange === 'function') {
-            setTimeout(() => onStyleChange({ type: 'overlay' }), 100);
+          console.log(`switchBasemap: Restoring Carto without style reload`);
+          // Restore any hidden layers from snapshot
+          try {
+            if (map.__basemapState?.hiddenLayers?.length) {
+              map.__basemapState.hiddenLayers.forEach(({ id, visibility }) => {
+                try { map.setLayoutProperty(id, 'visibility', visibility); } catch (_) {}
+              });
+              map.__basemapState.hiddenLayers = [];
+            }
+          } catch (e) {
+            console.error(`switchBasemap: Error restoring hidden layers:`, e);
           }
+
+          map.__currentBasemap = 'carto';
+          if (onStyleChange) onStyleChange({ type: 'overlay' });
+          
           try {
             const proceed = () => resolve();
             if (typeof map.loaded === 'function' && typeof map.areTilesLoaded === 'function') {
@@ -584,7 +634,71 @@ export const switchBasemap = (map, basemapKey, onStyleChange) => {
           } catch (_) {
             resolve();
           }
-          console.log(`switchBasemap: Successfully restored carto without style reload`);
+        }
+      } else if (basemapKey === 'arcgis') {
+        // For ArcGIS, load normalized style and replace entirely
+        console.log(`switchBasemap: Switching to ArcGIS (NYC) basemap`);
+
+        // Remove NYC satellite overlay if present
+        try {
+          if (map.getLayer('nyc-satellite-layer')) {
+            map.removeLayer('nyc-satellite-layer');
+          }
+          if (map.getSource('nyc-satellite')) {
+            map.removeSource('nyc-satellite');
+          }
+        } catch (_) {}
+
+        const desiredUrl = BASEMAP_OPTIONS.arcgis.url;
+        const isBaseArcgis = map.getStyle()?.sprite?.includes('arcgis');
+        const needsFullReload = !isBaseArcgis;
+
+        if (needsFullReload) {
+          console.log('switchBasemap: Applying ArcGIS style (full reload)');
+          const center = map.getCenter();
+          const zoom = map.getZoom();
+          const bearing = map.getBearing();
+          const pitch = map.getPitch();
+
+          const onStyleLoaded = () => {
+            if (typeof map.off === 'function') {
+              map.off('style.load', onStyleLoaded);
+            }
+            try { map.jumpTo({ center, zoom, bearing, pitch }); } catch (_) {}
+            map.__currentBasemap = 'arcgis';
+            map.__currentArcgisStyleUrl = desiredUrl;
+            map.__currentCartoStyleUrl = '';
+            if (onStyleChange) onStyleChange({ type: 'style' });
+            resolve();
+          };
+
+          map.once('style.load', onStyleLoaded);
+
+          try {
+            const normalizedStyle = await loadArcgisStyle(desiredUrl);
+            try { if (typeof window !== 'undefined') window.dispatchEvent(new Event('map:style:will-change')); } catch (_) {}
+            map.setStyle(normalizedStyle, { diff: false });
+          } catch (err) {
+            console.error('Failed to switch to ArcGIS style', err);
+            reject(err);
+          }
+        } else {
+          console.log(`switchBasemap: Restoring ArcGIS without style reload`);
+          // Restore any hidden layers from snapshot
+          try {
+            if (map.__basemapState?.hiddenLayers?.length) {
+              map.__basemapState.hiddenLayers.forEach(({ id, visibility }) => {
+                try { map.setLayoutProperty(id, 'visibility', visibility); } catch (_) {}
+              });
+              map.__basemapState.hiddenLayers = [];
+            }
+          } catch (e) {
+            console.error(`switchBasemap: Error restoring hidden layers:`, e);
+          }
+
+          map.__currentBasemap = 'arcgis';
+          if (onStyleChange) onStyleChange({ type: 'overlay' });
+          resolve();
         }
       }
       

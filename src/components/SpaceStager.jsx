@@ -708,12 +708,17 @@ const SpaceStager = () => {
     }
   }, [map, permitAreas, layers, infrastructure, drawTools.forceReinitialize]);
 
-  // Sync Carto basemap with dark mode, but do NOT disturb satellite overlay if active
+  // Sync Carto basemap with dark mode, but do NOT disturb satellite overlay or ArcGIS if active
   useEffect(() => {
     if (!map) return;
     try {
       // If satellite overlay is active, preserve it and skip theme-driven base style switches
       if (typeof map.getLayer === 'function' && map.getLayer('nyc-satellite-layer')) {
+        return;
+      }
+
+      // If current basemap is NOT carto, don't force a switch
+      if (map.__currentBasemap !== 'carto') {
         return;
       }
 
