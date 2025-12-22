@@ -1208,7 +1208,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     // Ignore clicks that intersect annotation layers to avoid clashing with annotation popup
     try {
       const pt = [e.point.x, e.point.y];
-      const layers = ['annotation-text', 'annotation-arrows', 'annotation-arrowheads'];
+      const layers = ['annotation-text', 'annotation-arrowheads'];
       const annHits = map.queryRenderedFeatures && map.queryRenderedFeatures(pt, { layers });
       if (annHits && annHits.length) { try { console.debug('PERMIT: bail annotation hit', { hits: annHits.length }); } catch (_) {} return; }
     } catch (_) {}
@@ -1247,7 +1247,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     // Ignore dblclicks that intersect annotation layers to avoid clashing with annotation popup
     try {
       const pt = [e.point.x, e.point.y];
-      const layers = ['annotation-text', 'annotation-arrows', 'annotation-arrowheads'];
+      const layers = ['annotation-text', 'annotation-arrowheads'];
       const annHits = map.queryRenderedFeatures && map.queryRenderedFeatures(pt, { layers });
       if (annHits && annHits.length) { try { console.debug('PERMIT: bail annotation hit dblclick', { hits: annHits.length }); } catch (_) {} return; }
     } catch (_) {}
@@ -1271,7 +1271,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     // Ignore clicks on annotation layers to avoid closing their popup
     try {
       const pt = [e.point.x, e.point.y];
-      const layers = ['annotation-text', 'annotation-arrows', 'annotation-arrowheads'];
+      const layers = ['annotation-text', 'annotation-arrowheads'];
       const annHits = map.queryRenderedFeatures && map.queryRenderedFeatures(pt, { layers });
       if (annHits && annHits.length) { try { console.debug('PERMIT: bail annotation hit general', { hits: annHits.length }); } catch (_) {} return; }
     } catch (_) {}

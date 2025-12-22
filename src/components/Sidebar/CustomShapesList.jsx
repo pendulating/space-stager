@@ -31,7 +31,7 @@ const CustomShapesList = ({
   const handleSaveEdit = (e) => {
     e.stopPropagation();
     if (onShapeRename && editingShape) {
-      onShapeRename(editingShape, editValue);
+      onShapeRename(editingShape, { label: editValue });
     }
     setEditingShape(null);
     setEditValue('');
@@ -150,9 +150,15 @@ const CustomShapesList = ({
   
 
   
+  const SHAPE_TYPE_NAMES = {
+    'Point': 'Point',
+    'LineString': 'Line',
+    'Polygon': 'Polygon'
+  };
+
   const customShapes = filteredFeatures.map(feature => ({
     id: feature.id,
-    type: feature.geometry.type,
+    type: SHAPE_TYPE_NAMES[feature.geometry.type] || feature.geometry.type,
     label: feature.properties?.label || '',
     properties: feature.properties
   }));
