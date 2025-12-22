@@ -15,6 +15,7 @@ export default {
         'permit-yellow': '#fbbf24'
       },
       fontFamily: {
+        sans: ['"Public Sans"', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', '"Noto Sans"', 'sans-serif', '"Apple Color Emoji"', '"Segoe UI Emoji"', '"Segoe UI Symbol"', '"Noto Color Emoji"'],
         'helvetica-neue-bold-condensed': ['"Helvetica Neue LT Pro 77 Bold Condensed"', 'Helvetica Neue', 'Helvetica', 'Arial', 'sans-serif'],
       },
       animation: {
