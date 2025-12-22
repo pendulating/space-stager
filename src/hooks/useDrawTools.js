@@ -1,90 +1,7 @@
 // hooks/useDrawTools.js
 import { useState, useEffect, useRef, useCallback } from 'react';
 import RectObjectMode from '../draw-modes/rectObjectMode';
-// Custom modes (to be created):
-// - draw_text_annotation: a point placement that prompts for label
-// For now, register a placeholder mode that behaves like draw_point
-const TextAnnotationMode = {
-  onSetup() { try { console.debug('DRAW: enter TextAnnotationMode'); } catch (_) {} return {}; },
-  onClick(state, e) {
-    try { console.debug('DRAW: TextAnnotationMode onClick', { lng: e?.lngLat?.lng, lat: e?.lngLat?.lat }); } catch (_) {}
-    // Delegate to built-in point placement for now
-    const pt = this.newFeature({ type: 'Feature', properties: { type: 'text', label: '' }, geometry: { type: 'Point', coordinates: [e.lngLat.lng, e.lngLat.lat] } });
-    this.addFeature(pt);
-    try { console.debug('DRAW: firing draw.create for text'); } catch (_) {}
-    this.map.fire('draw.create', { features: [pt.toGeoJSON()] });
-    try { console.debug('DRAW: changing mode to simple_select for text'); } catch (_) {}
-    this.changeMode('simple_select', { featureIds: [pt.id] });
-  },
-  toDisplayFeatures(state, geojson, display) { display(geojson); },
-  onStop() { try { console.debug('DRAW: exit TextAnnotationMode'); } catch (_) {} }
-};
-
-// Custom two-click arrow mode independent of base; creates a 2-point line and finalizes on second click
-const ArrowTwoPointMode = {
-  onSetup() {
-    try { console.debug('DRAW: enter ArrowTwoPointMode'); } catch (_) {}
-    try { this.setActionableState({ trash: true }); } catch (_) {}
-    return { start: null, line: null };
-  },
-  onClick(state, e) {
-    try { console.debug('DRAW: ArrowTwoPointMode onClick', { lng: e?.lngLat?.lng, lat: e?.lngLat?.lat, hasStart: !!state.start }); } catch (_) {}
-    const lng = e.lngLat && e.lngLat.lng;
-    const lat = e.lngLat && e.lngLat.lat;
-    if (typeof lng !== 'number' || typeof lat !== 'number') return;
-    const clicked = [lng, lat];
-
-    if (!state.start) {
-      state.start = clicked;
-      try {
-        const line = this.newFeature({
-          type: 'Feature',
-          properties: {},
-          geometry: { type: 'LineString', coordinates: [clicked, clicked] }
-        });
-        this.addFeature(line);
-        state.line = line;
-        try { console.debug('DRAW: ArrowTwoPointMode created preview line', { id: line.id }); } catch (_) {}
-      } catch (_) {}
-      return;
-    }
-
-    try {
-      if (state.line && state.line.updateCoordinate) {
-        state.line.updateCoordinate(1, clicked[0], clicked[1]);
-      }
-      try { console.debug('DRAW: firing draw.create for arrow'); } catch (_) {}
-      try { this.map.fire('draw.create', { features: [state.line.toGeoJSON()] }); } catch (_) {}
-      try { console.debug('DRAW: changing mode to simple_select for arrow'); } catch (_) {}
-      this.changeMode('simple_select', { featureIds: [state.line.id] });
-    } catch (_) {}
-  },
-  onMouseMove(state, e) {
-    try { if (!state.start || !state.line) return; console.debug('DRAW: ArrowTwoPointMode onMouseMove'); } catch (_) {}
-    try {
-      const lng = e.lngLat && e.lngLat.lng;
-      const lat = e.lngLat && e.lngLat.lat;
-      if (typeof lng !== 'number' || typeof lat !== 'number') return;
-      if (state.line.updateCoordinate) state.line.updateCoordinate(1, lng, lat);
-    } catch (_) {}
-  },
-  toDisplayFeatures(state, geojson, display) { display(geojson); },
-  onStop(state) {
-    try { console.debug('DRAW: exit ArrowTwoPointMode'); } catch (_) {}
-    try {
-      const gj = state.line && state.line.toGeoJSON ? state.line.toGeoJSON() : null;
-      const coords = gj && gj.geometry && Array.isArray(gj.geometry.coordinates) ? gj.geometry.coordinates : [];
-      if (!coords || coords.length < 2) {
-        try { this.deleteFeature([state.line.id]); } catch (_) {}
-      }
-    } catch (_) {}
-  },
-  onTrash(state) {
-    try { console.debug('DRAW: ArrowTwoPointMode onTrash'); } catch (_) {}
-    try { if (state.line) this.deleteFeature([state.line.id]); } catch (_) {}
-    this.changeMode('simple_select');
-  }
-};
+import { DRAW_STYLES } from '../constants/drawStyles';
 
 export const useDrawTools = (map, focusedArea = null) => {
   const draw = useRef(null);
@@ -98,6 +15,7 @@ export const useDrawTools = (map, focusedArea = null) => {
   const [drawInitialized, setDrawInitialized] = useState(false);
   const [showLabels, setShowLabelsState] = useState(true);
   const [activeRectObjectTypeId, setActiveRectObjectTypeId] = useState(null);
+  const [renderTrigger, setRenderTrigger] = useState(0);
   
   const setShowLabels = useCallback((value) => {
     setShowLabelsState(value);
@@ -121,35 +39,14 @@ export const useDrawTools = (map, focusedArea = null) => {
           setActiveTool(null);
           return;
         }
-        if (currentTool === 'arrow' && feature && feature.geometry && feature.geometry.type === 'LineString') {
-          // Tag as arrow and normalize to two points
-          feature.properties = Object.assign({}, feature.properties, { type: 'arrow' });
-          const coords = Array.isArray(feature.geometry.coordinates) ? feature.geometry.coordinates : [];
-          if (coords.length > 2) {
-            feature.geometry.coordinates = [coords[0], coords[coords.length - 1]];
-          }
-          try { draw.current && draw.current.add(feature); } catch (_) {}
-          // If custom mode already switched to simple_select, don't toggle again here
-          if (currentMode !== 'simple_select') {
-            try { draw.current && draw.current.changeMode('simple_select', { featureIds: [feature.id] }); } catch (_) {}
-            setActiveTool(null);
-          }
-        } else if (currentTool === 'text' && feature && feature.geometry && feature.geometry.type === 'Point') {
-          feature.properties = Object.assign({}, feature.properties, { type: 'text', label: feature.properties?.label || '' });
-          if (draw.current) draw.current.add(feature);
-          // Open the inline text editor immediately for convenience
-          try { window.dispatchEvent(new CustomEvent('annotations:changed')); } catch (_) {}
-          try { if (map && typeof map.fire === 'function') map.fire('ui:open-text-editor', { featureId: feature.id }); } catch (_) {}
-          // Toggle off tool after placement
-          try { draw.current.changeMode('simple_select', { featureIds: [feature.id] }); } catch (_) {}
-          setActiveTool(null);
-        } else if (currentTool === 'point' || currentTool === 'line' || currentTool === 'polygon') {
+        if (currentTool === 'point' || currentTool === 'line' || currentTool === 'polygon') {
           // For built-in modes, place a single feature then toggle off
           try { draw.current && draw.current.changeMode('simple_select', { featureIds: [feature.id] }); } catch (_) {}
           setActiveTool(null);
         }
       } catch (_) {}
       setSelectedShape(feature.id);
+      setRenderTrigger(v => v + 1);
     },
     handleDrawUpdate: (e) => {
       console.log('Shape updated:', e.features);
@@ -172,48 +69,14 @@ export const useDrawTools = (map, focusedArea = null) => {
         };
 
         const currentTool = activeToolRef.current;
-        if (currentTool === 'arrow' && f.geometry.type === 'LineString') {
-          if (coords.length >= 2) {
-            try {
-              const a = coords[coords.length - 2];
-              const b = coords[coords.length - 1];
-              // Compute compass bearing (0°=north, 90°=east) for Map symbol rotation
-              const theta = Math.atan2(b[0] - a[0], b[1] - a[1]);
-              let bearingDeg = (theta * 180 / Math.PI);
-              if (bearingDeg < 0) bearingDeg += 360;
-              f.properties = Object.assign({}, f.properties, { type: 'arrow', bearing: bearingDeg });
-              f.geometry.coordinates = [coords[0], coords[coords.length - 1]];
-              addIfChanged(f);
-              try { console.debug('DRAW: update -> changeMode simple_select (arrow creation)'); } catch (_) {}
-              try { draw.current.changeMode('simple_select', { featureIds: [f.id] }); } catch (_) {}
-            } catch (_) {}
-          }
-          return;
-        }
-
-        if (f.properties && f.properties.type === 'arrow' && f.geometry.type === 'LineString') {
-          if (coords.length >= 2) {
-            const a = coords[coords.length - 2];
-            const b = coords[coords.length - 1];
-            const theta = Math.atan2(b[0] - a[0], b[1] - a[1]);
-            let bearingDeg = (theta * 180 / Math.PI);
-            if (bearingDeg < 0) bearingDeg += 360;
-            f.properties.bearing = bearingDeg;
-            addIfChanged(f);
-          }
-          if (coords.length > 2) {
-            const trimmed = [coords[0], coords[coords.length - 1]];
-            f.geometry.coordinates = trimmed;
-            addIfChanged(f);
-            try { console.debug('DRAW: trimmed arrow to 2 points, changeMode simple_select'); } catch (_) {}
-            try { draw.current.changeMode('simple_select', { featureIds: [f.id] }); } catch (_) {}
-          }
-        }
       } catch (_) {}
+      setRenderTrigger(v => v + 1);
     },
     handleDrawDelete: (e) => {
       try { console.debug('DRAW: handleDrawDelete', { ids: e?.features?.map(f => f.id) }); } catch (_) {}
       setSelectedShape(null);
+      setShapeLabel('');
+      setRenderTrigger(v => v + 1);
     },
     handleSelectionChange: (e) => {
       try { console.debug('DRAW: handleSelectionChange', { count: e?.features?.length, id: e?.features?.[0]?.id }); } catch (_) {}
@@ -225,6 +88,7 @@ export const useDrawTools = (map, focusedArea = null) => {
         setSelectedShape(null);
         setShapeLabel('');
       }
+      setRenderTrigger(v => v + 1);
     }
   });
 
@@ -270,10 +134,9 @@ export const useDrawTools = (map, focusedArea = null) => {
           controls: {},
           defaultMode: 'simple_select',
           userProperties: true,
+          styles: DRAW_STYLES,
           modes: Object.assign({}, window.MapboxDraw.modes, { 
-            draw_rect_object: RectObjectMode,
-            draw_text_annotation: TextAnnotationMode,
-            draw_arrow_two_point: ArrowTwoPointMode
+            draw_rect_object: RectObjectMode
           })
         });
         
@@ -360,11 +223,16 @@ export const useDrawTools = (map, focusedArea = null) => {
     return () => {
       if (map && draw.current) {
         try {
-          map.off('draw.create', eventHandlers.current.handleDrawCreate);
-          map.off('draw.update', eventHandlers.current.handleDrawUpdate);
-          map.off('draw.delete', eventHandlers.current.handleDrawDelete);
-          map.off('draw.selectionchange', eventHandlers.current.handleSelectionChange);
-          map.removeControl(draw.current);
+          // Double check map still exists and has off/removeControl
+          if (map.off) {
+            map.off('draw.create', eventHandlers.current.handleDrawCreate);
+            map.off('draw.update', eventHandlers.current.handleDrawUpdate);
+            map.off('draw.delete', eventHandlers.current.handleDrawDelete);
+            map.off('draw.selectionchange', eventHandlers.current.handleSelectionChange);
+          }
+          if (map.removeControl) {
+            map.removeControl(draw.current);
+          }
         } catch (error) {
           console.warn('Error during draw controls cleanup:', error);
         }
@@ -387,17 +255,21 @@ export const useDrawTools = (map, focusedArea = null) => {
         if (draw.current) {
           // Rebind by removing/adding control to inject layers for current style
           try {
-            map.off('draw.create', eventHandlers.current.handleDrawCreate);
-            map.off('draw.update', eventHandlers.current.handleDrawUpdate);
-            map.off('draw.delete', eventHandlers.current.handleDrawDelete);
-            map.off('draw.selectionchange', eventHandlers.current.handleSelectionChange);
+            if (map.off) {
+              map.off('draw.create', eventHandlers.current.handleDrawCreate);
+              map.off('draw.update', eventHandlers.current.handleDrawUpdate);
+              map.off('draw.delete', eventHandlers.current.handleDrawDelete);
+              map.off('draw.selectionchange', eventHandlers.current.handleSelectionChange);
+            }
           } catch (_) {}
-          try { map.removeControl(draw.current); } catch (_) {}
-          map.addControl(draw.current);
-          map.on('draw.create', eventHandlers.current.handleDrawCreate);
-          map.on('draw.update', eventHandlers.current.handleDrawUpdate);
-          map.on('draw.delete', eventHandlers.current.handleDrawDelete);
-          map.on('draw.selectionchange', eventHandlers.current.handleSelectionChange);
+          try { if (map.removeControl) map.removeControl(draw.current); } catch (_) {}
+          try {
+            map.addControl(draw.current);
+            map.on('draw.create', eventHandlers.current.handleDrawCreate);
+            map.on('draw.update', eventHandlers.current.handleDrawUpdate);
+            map.on('draw.delete', eventHandlers.current.handleDrawDelete);
+            map.on('draw.selectionchange', eventHandlers.current.handleSelectionChange);
+          } catch (_) {}
           if (existingShapes && existingShapes.features && existingShapes.features.length > 0) {
             try { draw.current.add(existingShapes); } catch (_) {}
           }
@@ -411,7 +283,10 @@ export const useDrawTools = (map, focusedArea = null) => {
           controls: {},
           defaultMode: 'simple_select',
           userProperties: true,
-          modes: Object.assign({}, window.MapboxDraw.modes, { draw_rect_object: RectObjectMode })
+          styles: DRAW_STYLES,
+          modes: Object.assign({}, window.MapboxDraw.modes, { 
+            draw_rect_object: RectObjectMode
+          })
         });
         draw.current = drawInstance;
         map.addControl(drawInstance);
@@ -469,24 +344,6 @@ export const useDrawTools = (map, focusedArea = null) => {
         // Use standard polygon mode but tag on create via handler above
         try { draw.current.changeMode('draw_polygon'); } catch (_) { draw.current.changeMode('simple_select'); }
         break;
-      case 'text':
-        // Use custom text annotation mode to ensure type is set before draw.create
-        try {
-          draw.current.changeMode('draw_text_annotation');
-        } catch (_) {
-          // Fallback to point; handleDrawCreate will tag, but editor may not auto-open
-          draw.current.changeMode('draw_point');
-        }
-        break;
-      case 'arrow':
-        // Use custom two-point arrow mode
-        try {
-          draw.current.changeMode('draw_arrow_two_point');
-        } catch (_) {
-          // Fallback to line mode; tagging happens on create
-          draw.current.changeMode('draw_line_string');
-        }
-        break;
       default:
         draw.current.changeMode('simple_select');
         setActiveTool(null);
@@ -531,29 +388,37 @@ export const useDrawTools = (map, focusedArea = null) => {
       if (feature) {
         feature.properties.label = shapeLabel;
         draw.current.add(feature);
+        setRenderTrigger(v => v + 1);
         try { window.dispatchEvent(new CustomEvent('annotations:changed')); } catch (_) {}
       }
     }
   }, [selectedShape, shapeLabel]);
 
-  // Rename a specific shape
-  const renameShape = useCallback((shapeId, newLabel) => {
+  // Update properties of a specific shape
+  const updateShape = useCallback((shapeId, updates) => {
     if (!draw.current) return;
     
     const feature = draw.current.get(shapeId);
     if (feature) {
-      feature.properties.label = newLabel;
+      feature.properties = Object.assign({}, feature.properties || {}, updates);
       draw.current.add(feature);
+      setRenderTrigger(v => v + 1);
       try { window.dispatchEvent(new CustomEvent('annotations:changed')); } catch (_) {}
     }
     
-    console.log('Shape renamed:', shapeId, 'to:', newLabel);
+    console.log('Shape updated:', shapeId, 'with:', updates);
   }, []);
 
   // Delete selected shape
   const deleteSelectedShape = useCallback(() => {
     if (selectedShape && draw.current) {
-      draw.current.delete(selectedShape);
+      const idToDelete = selectedShape;
+      // Change mode to clear internal selection state before deleting
+      try { draw.current.changeMode('simple_select', { featureIds: [] }); } catch (_) {}
+      draw.current.delete(idToDelete);
+      setSelectedShape(null);
+      setShapeLabel('');
+      setRenderTrigger(v => v + 1);
     }
   }, [selectedShape]);
 
@@ -562,6 +427,7 @@ export const useDrawTools = (map, focusedArea = null) => {
     if (draw.current) {
       draw.current.changeMode('simple_select', { featureIds: [shapeId] });
       setSelectedShape(shapeId);
+      setRenderTrigger(v => v + 1);
     }
   }, []);
 
@@ -572,6 +438,7 @@ export const useDrawTools = (map, focusedArea = null) => {
       setSelectedShape(null);
       setShapeLabel('');
       console.log('All custom shapes cleared');
+      setRenderTrigger(v => v + 1);
     }
   }, []);
 
@@ -588,17 +455,21 @@ export const useDrawTools = (map, focusedArea = null) => {
         if (draw.current) {
           // Rebind by removing/adding control to inject layers for current style
           try {
-            map.off('draw.create', eventHandlers.current.handleDrawCreate);
-            map.off('draw.update', eventHandlers.current.handleDrawUpdate);
-            map.off('draw.delete', eventHandlers.current.handleDrawDelete);
-            map.off('draw.selectionchange', eventHandlers.current.handleSelectionChange);
+            if (map.off) {
+              map.off('draw.create', eventHandlers.current.handleDrawCreate);
+              map.off('draw.update', eventHandlers.current.handleDrawUpdate);
+              map.off('draw.delete', eventHandlers.current.handleDrawDelete);
+              map.off('draw.selectionchange', eventHandlers.current.handleSelectionChange);
+            }
           } catch (_) {}
-          try { map.removeControl(draw.current); } catch (_) {}
-          map.addControl(draw.current);
-          map.on('draw.create', eventHandlers.current.handleDrawCreate);
-          map.on('draw.update', eventHandlers.current.handleDrawUpdate);
-          map.on('draw.delete', eventHandlers.current.handleDrawDelete);
-          map.on('draw.selectionchange', eventHandlers.current.handleSelectionChange);
+          try { if (map.removeControl) map.removeControl(draw.current); } catch (_) {}
+          try {
+            map.addControl(draw.current);
+            map.on('draw.create', eventHandlers.current.handleDrawCreate);
+            map.on('draw.update', eventHandlers.current.handleDrawUpdate);
+            map.on('draw.delete', eventHandlers.current.handleDrawDelete);
+            map.on('draw.selectionchange', eventHandlers.current.handleSelectionChange);
+          } catch (_) {}
           if (existingShapes && existingShapes.features && existingShapes.features.length > 0) {
             try { draw.current.add(existingShapes); } catch (_) {}
           }
@@ -612,7 +483,10 @@ export const useDrawTools = (map, focusedArea = null) => {
           controls: {},
           defaultMode: 'simple_select',
           userProperties: true,
-          modes: Object.assign({}, window.MapboxDraw.modes, { draw_rect_object: RectObjectMode })
+          styles: DRAW_STYLES,
+          modes: Object.assign({}, window.MapboxDraw.modes, { 
+            draw_rect_object: RectObjectMode
+          })
         });
         draw.current = drawInstance;
         map.addControl(drawInstance);
@@ -662,7 +536,7 @@ export const useDrawTools = (map, focusedArea = null) => {
     setShapeLabel,
     activateDrawingTool,
     updateShapeLabel,
-    renameShape,
+    updateShape,
     deleteSelectedShape,
     selectShape,
     clearCustomShapes,

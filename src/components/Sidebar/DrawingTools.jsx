@@ -13,9 +13,7 @@ const DrawingTools = ({ activeTool, onToolSelect, selectedShape, onDelete, drawA
   const tools = [
     { id: 'point', icon: Dot, title: 'Point' },
     { id: 'line', icon: DashedLineIcon, title: 'Line' },
-    { id: 'polygon', icon: Square, title: 'Polygon' },
-    { id: 'text', icon: Type, title: 'Text' },
-    { id: 'arrow', icon: ArrowRight, title: 'Arrow' }
+    { id: 'polygon', icon: Square, title: 'Polygon' }
   ];
 
   return (
@@ -43,7 +41,7 @@ const DrawingTools = ({ activeTool, onToolSelect, selectedShape, onDelete, drawA
           </button>
         </div>
       )}
-      <div className="grid grid-cols-5 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         {tools.map(({ id, icon: Icon, title }) => (
           <div key={id} className="relative group">
             <span aria-hidden="true" className="block pb-[100%]" />

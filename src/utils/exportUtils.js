@@ -1639,13 +1639,9 @@ const drawCustomShapesOnPdf = (pdf, shapes, project, toMm) => {
     const kind = (shape.properties && shape.properties.type) || '';
     if (g.type === 'Point') {
       const p = toMm(project(g.coordinates[0], g.coordinates[1]));
-      if (kind === 'text') {
-        // Defer actual text draw to topmost pass
-      } else {
-        // Default point marker + numbered badge
-        pdf.circle(p.x, p.y, 1.2, 'S');
-        labelPoint = p;
-      }
+      // Default point marker + numbered badge
+      pdf.circle(p.x, p.y, 1.2, 'S');
+      labelPoint = p;
     } else if (g.type === 'LineString') {
       const coords = g.coordinates.map(([lng, lat]) => toMm(project(lng, lat)));
       if (coords.length < 2) return;
@@ -1680,26 +1676,35 @@ const drawCustomShapesOnPdf = (pdf, shapes, project, toMm) => {
       };
       // Place badge at the geometric midpoint instead of an endpoint
       labelPoint = computePolylineMidpoint(coords);
-      // Arrowhead if this is an arrow
-      if (kind === 'arrow' || (shape.properties && shape.properties.arrow === true)) {
-        const a = coords[coords.length - 2];
-        const b = coords[coords.length - 1];
-        const dx = b.x - a.x; const dy = b.y - a.y;
+      // Arrowhead if this is an arrow or has specific arrowhead properties
+      const props = shape.properties || {};
+      const size = 3; // mm
+
+      const drawArrowhead = (p1, p2) => {
+        const dx = p2.x - p1.x; const dy = p2.y - p1.y;
         const len = Math.hypot(dx, dy) || 1;
         const ux = dx / len; const uy = dy / len;
-        const size = 3; // mm
-        // Triangle points at end
-        const tip = b;
-        const left = { x: b.x - ux * size - uy * (size * 0.6), y: b.y - uy * size + ux * (size * 0.6) };
-        const right = { x: b.x - ux * size + uy * (size * 0.6), y: b.y - uy * size - ux * (size * 0.6) };
-        // Match line stroke color
+        const left = { x: p2.x - ux * size - uy * (size * 0.6), y: p2.y - uy * size + ux * (size * 0.6) };
+        const right = { x: p2.x - ux * size + uy * (size * 0.6), y: p2.y - uy * size - ux * (size * 0.6) };
         pdf.setFillColor(59, 130, 246);
         if (typeof pdf.triangle === 'function') {
-          try { pdf.triangle(tip.x, tip.y, left.x, left.y, right.x, right.y, 'F'); } catch (_) {
-            pdf.lines([[left.x - tip.x, left.y - tip.y], [right.x - left.x, right.y - left.y], [tip.x - right.x, tip.y - right.y]], tip.x, tip.y, [1,1], 'F', true);
+          try { pdf.triangle(p2.x, p2.y, left.x, left.y, right.x, right.y, 'F'); } catch (_) {
+            pdf.lines([[left.x - p2.x, left.y - p2.y], [right.x - left.x, right.y - left.y], [p2.x - right.x, p2.y - right.y]], p2.x, p2.y, [1,1], 'F', true);
           }
         } else {
-          pdf.lines([[left.x - tip.x, left.y - tip.y], [right.x - left.x, right.y - left.y], [tip.x - right.x, tip.y - right.y]], tip.x, tip.y, [1,1], 'F', true);
+          pdf.lines([[left.x - p2.x, left.y - p2.y], [right.x - left.x, right.y - left.y], [p2.x - right.x, p2.y - right.y]], p2.x, p2.y, [1,1], 'F', true);
+        }
+      };
+
+      if (kind === 'arrow' || props.arrow === true || props.arrowEnd === true) {
+        if (coords.length >= 2) {
+          drawArrowhead(coords[coords.length - 2], coords[coords.length - 1]);
+        }
+      }
+      
+      if (props.arrowStart === true) {
+        if (coords.length >= 2) {
+          drawArrowhead(coords[1], coords[0]);
         }
       }
     } else if (g.type === 'Polygon') {
@@ -1721,15 +1726,14 @@ const drawCustomShapesOnPdf = (pdf, shapes, project, toMm) => {
 const drawCustomTextLabelsOnPdf = (pdf, shapes, project, toMm) => {
   try {
     if (!Array.isArray(shapes) || shapes.length === 0) return;
-    shapes.forEach((shape) => {
-      try {
-        const g = shape && shape.geometry;
-        const props = shape && shape.properties;
-        if (!g || g.type !== 'Point') return;
-        if (!props || props.type !== 'text') return;
-        const label = String(props.label || '').trim();
-        if (!label) return;
-        const p = toMm(project(g.coordinates[0], g.coordinates[1]));
+  shapes.forEach((shape) => {
+    try {
+      const g = shape && shape.geometry;
+      const props = shape && shape.properties;
+      if (!g || g.type !== 'Point') return;
+      const label = String(props.label || '').trim();
+      if (!label) return;
+      const p = toMm(project(g.coordinates[0], g.coordinates[1]));
         const x = p.x, y = p.y;
         const pad = 0.8;
         const w = pdf.getTextWidth(label) + pad * 2;
@@ -2345,14 +2349,15 @@ const drawCustomShapesOnCanvas = (ctx, mapArea, map, customShapes) => {
           lastPx = { x: mapPixelX, y: mapPixelY };
         });
         ctx.stroke();
-        if (props.type === 'arrow') {
+        const drawCanvasArrowhead = (p1, p2) => {
           try {
-            const coords = shape.geometry.coordinates;
-            const aPx = map.project(coords[coords.length - 2]);
-            const bPx = map.project(coords[coords.length - 1]);
+            const aPx = map.project(p1);
+            const bPx = map.project(p2);
             const ax = mapArea.x + aPx.x, ay = mapArea.y + aPx.y;
             const bx = mapArea.x + bPx.x, by = mapArea.y + bPx.y;
-            const dx = bx - ax, dy = by - ay; const len = Math.hypot(dx, dy) || 1; const ux = dx / len, uy = dy / len;
+            const dx = bx - ax, dy = by - ay; 
+            const len = Math.hypot(dx, dy) || 1; 
+            const ux = dx / len, uy = dy / len;
             const size = 16;
             ctx.fillStyle = '#111827';
             ctx.beginPath();
@@ -2362,6 +2367,20 @@ const drawCustomShapesOnCanvas = (ctx, mapArea, map, customShapes) => {
             ctx.closePath();
             ctx.fill();
           } catch (_) {}
+        };
+
+        if (props.type === 'arrow' || props.arrow === true || props.arrowEnd === true) {
+          const coords = shape.geometry.coordinates;
+          if (coords.length >= 2) {
+            drawCanvasArrowhead(coords[coords.length - 2], coords[coords.length - 1]);
+          }
+        }
+        
+        if (props.arrowStart === true) {
+          const coords = shape.geometry.coordinates;
+          if (coords.length >= 2) {
+            drawCanvasArrowhead(coords[1], coords[0]);
+          }
         }
         
         // Draw label at midpoint if available

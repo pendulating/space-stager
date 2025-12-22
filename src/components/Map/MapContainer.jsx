@@ -16,7 +16,6 @@ import ActiveToolIndicator from './ActiveToolIndicator';
 import LoadingOverlay from './LoadingOverlay';
 import PlacementPreview from './PlacementPreview';
 import EdgeMarkers from './EdgeMarkers';
-import TextAnnotationEditor, { AnnotationActionPill } from './TextAnnotationEditor';
 import { useMapViewState } from '../../hooks/useMapViewState';
 import { useRotationControls } from '../../hooks/useRotationControls';
 import { useCameraRotation } from '../../hooks/useCameraRotation';
@@ -26,7 +25,7 @@ import { rotateRectanglePolygonMercator, normalizeAngle } from '../../utils/obje
 import ViewportInset from './ViewportInset';
 import { useGlobalKeymap } from '../../hooks/useGlobalKeymap';
 
-const DEBUG = false; // Set to true to enable MapContainer debug logs
+const DEBUG = false;
 
 const MapContainer = forwardRef(({ 
   map,
@@ -66,7 +65,6 @@ const MapContainer = forwardRef(({
   const mapContainerRef = useRef(null);
   const [noteEditingObject, setNoteEditingObject] = useState(null);
   const [dimensionsEditingObject, setDimensionsEditingObject] = useState(null);
-  const [textEditorFeatureId, setTextEditorFeatureId] = useState(null);
   const [annotationsTrigger, setAnnotationsTrigger] = useState(0);
   const [rectMovingId, setRectMovingId] = useState(null);
   const subFocusArmedRef = useRef(false);
@@ -74,12 +72,8 @@ const MapContainer = forwardRef(({
   const arrowIconId = 'annotation-arrowhead';
   const previewSourceId = 'draw-preview';
   const { selectedObjectId, selectedKind, select, clearSelection } = useDroppedObjects();
-  // Track current arrow overlay so we can reliably close it on key/delete or draw events
   const arrowOverlayRef = useRef(null);
-  // Track current annotations popup (MapLibre Popup) so global handlers can close it
-  const annotationPopupRef = useRef(null);
 
-  // Helper function to update cursor for subfocus mode
   const updateSubFocusCursor = useCallback((isSubFocus) => {
     try {
       if (!map) return;
@@ -88,15 +82,9 @@ const MapContainer = forwardRef(({
       if (!canvas && !container) return;
       
       if (isSubFocus) {
-        // MapboxDraw controls cursor via CSS classes on the map container
-        // The CSS rule is: .mapboxgl-map.mouse-add .mapboxgl-canvas-container.mapboxgl-interactive { cursor: crosshair; }
-        // We need to add the mouse-add class to the .mapboxgl-map element
         if (container) {
           container.classList.add('mouse-add');
-          // Also set inline style as fallback
           container.style.cursor = 'crosshair';
-          
-          // Find the canvas container element and set cursor there too
           const canvasContainer = container.querySelector('.mapboxgl-canvas-container');
           if (canvasContainer) {
             canvasContainer.style.cursor = 'crosshair';
@@ -106,12 +94,10 @@ const MapContainer = forwardRef(({
           canvas.style.cursor = 'crosshair';
         }
       } else {
-        // Reset cursor when not in subfocus mode (unless other modes set it)
         if (!placementMode) {
           if (container) {
             container.classList.remove('mouse-add');
             container.style.cursor = '';
-            
             const canvasContainer = container.querySelector('.mapboxgl-canvas-container');
             if (canvasContainer) {
               canvasContainer.style.cursor = '';
@@ -125,14 +111,7 @@ const MapContainer = forwardRef(({
     } catch (_) {}
   }, [map, placementMode]);
 
-  // Map view state (single source of truth for pitch/bearing/zoom/viewType)
   const view = useMapViewState(map);
-  const suppressRotateSnapRef = useRef(false);
-  const lastDiscreteBearingRef = useRef(null);
-  // Track last area orientation and whether we were in isometric view
-  const lastThetaRef = useRef(null);
-  const lastIsoRef = useRef(null);
-  // Compute a stable area-bearing from the focused area for alignment
   const areaBearingDeg = useMemo(() => {
     try {
       const g = (permitAreas?.hasSubFocus ? permitAreas?.subFocusArea?.geometry : permitAreas?.focusedArea?.geometry);
@@ -141,14 +120,11 @@ const MapContainer = forwardRef(({
     } catch (_) { return 0; }
   }, [permitAreas?.focusedArea?.geometry, permitAreas?.subFocusArea?.geometry, permitAreas?.hasSubFocus, view?.pitch, map]);
 
-  // Compass / camera state
   const [bearing, setBearing] = useState(0);
   const [pitch, setPitch] = useState(0);
 
-  // Zone Creator: mandatory in intersections mode, always wire interactions there
   useZoneCreator(map, 'intersections');
 
-  // Derive camera for compass/projection toggle from view hook
   useEffect(() => {
     try {
       setBearing(view?.bearing || 0);
@@ -156,31 +132,17 @@ const MapContainer = forwardRef(({
     } catch (_) {}
   }, [view?.bearing, view?.pitch]);
 
-  // no-op
-
-  // Force immediate label refresh on external annotation change events
   useEffect(() => {
     const bump = () => setAnnotationsTrigger(v => v + 1);
     window.addEventListener('annotations:changed', bump);
-    // Open text editor when requested by draw tools
-    const onOpenText = (e) => {
-      try {
-        const id = e?.detail?.featureId;
-        if (id) setTextEditorFeatureId(id);
-      } catch (_) {}
-    };
-    window.addEventListener('ui:open-text-editor', onOpenText);
     return () => window.removeEventListener('annotations:changed', bump);
   }, []);
 
-  // Hide the rectangle Edit/✕ popup while a rectangle is being dragged/resized
   useEffect(() => {
     const onRectMoveTick = (e) => {
       try {
         const id = e && e.detail && e.detail.id;
         if (id) setRectMovingId(id);
-        // Close any annotation popup immediately so it doesn't trail the rect
-        try { if (annotationPopupRef.current) { annotationPopupRef.current.remove(); annotationPopupRef.current = null; } } catch (_) {}
       } catch (_) {}
     };
     const onRectMoveEnd = () => { try { setRectMovingId(null); } catch (_) {} };
@@ -192,7 +154,6 @@ const MapContainer = forwardRef(({
     };
   }, []);
 
-  // Listen for sub-focus arming/disarming events
   useEffect(() => {
     const arm = () => { 
       subFocusArmedRef.current = true;
@@ -204,7 +165,6 @@ const MapContainer = forwardRef(({
     };
     window.addEventListener('subfocus:arm', arm);
     window.addEventListener('subfocus:disarm', disarm);
-    // Apply event: geometry comes from draw tools; compute and set subfocus without persisting draw feature
     const apply = (e) => {
       try {
         const geom = e?.detail?.geometry;
@@ -222,26 +182,20 @@ const MapContainer = forwardRef(({
     };
   }, [updateSubFocusCursor, permitAreas]);
 
-  // Set cursor to pin icon when in sub-area drawing mode
   useEffect(() => {
     if (!map) return;
-    
     const isSubFocusMode = drawTools?.activeTool === 'subfocus' || subFocusArmedRef.current;
     updateSubFocusCursor(isSubFocusMode);
-    
-    // Also listen for map container mouse events to ensure cursor stays updated
     const onMouseMove = () => {
       const currentIsSubFocus = drawTools?.activeTool === 'subfocus' || subFocusArmedRef.current;
       updateSubFocusCursor(currentIsSubFocus);
     };
-    
     try {
       const container = map.getContainer();
       if (container) {
         container.addEventListener('mousemove', onMouseMove);
       }
     } catch (_) {}
-    
     return () => {
       try {
         const container = map.getContainer();
@@ -249,7 +203,6 @@ const MapContainer = forwardRef(({
           container.removeEventListener('mousemove', onMouseMove);
         }
       } catch (_) {}
-      // Reset cursor on cleanup
       try {
         const canvas = map.getCanvas();
         if (canvas && !placementMode) {
@@ -259,15 +212,11 @@ const MapContainer = forwardRef(({
     };
   }, [map, drawTools?.activeTool, placementMode, updateSubFocusCursor]);
 
-  // Build derived features (text points, shape labels, arrow lines, and arrowheads) from Draw features
   const derivedAnnotations = useMemo(() => {
     try {
-      // Defensive: if Draw is not yet initialized, return empty to avoid stale render
       const fc = drawTools?.draw?.current && drawTools.draw.current.getAll ? drawTools.draw.current.getAll() : null;
       const features = fc && Array.isArray(fc.features) ? fc.features : [];
-      const texts = [];
       const shapeLabels = [];
-      const arrows = [];
       const arrowheads = [];
       const mapBearing = (() => {
         try { return ((Number(view?.bearing || 0) % 360) + 360) % 360; } catch (_) { return 0; }
@@ -275,38 +224,51 @@ const MapContainer = forwardRef(({
       (features || []).forEach((f) => {
         if (!f || !f.geometry) return;
         const props = f.properties || {};
-        // 1) Explicit text annotations
-        if (props.type === 'text' && f.geometry.type === 'Point' && props.label) {
-          // Flip by 180° when map bearing would make the text upside-down in viewport
-          const flip = (mapBearing > 90 && mapBearing < 270) ? 180 : 0;
-          texts.push({ type: 'Feature', geometry: f.geometry, properties: { sourceId: f.id, type: 'text', label: props.label, textSize: props.textSize || 14, textColor: props.textColor || '#111827', halo: props.halo !== false, textRotate: flip } });
-          return;
-        }
-        // 2) Arrow annotations: always derive line + arrowhead (even when labeled)
-        if (props.type === 'arrow' && f.geometry.type === 'LineString') {
+        if (f.geometry.type === 'LineString') {
           const coords = f.geometry.coordinates || [];
           if (coords.length >= 2) {
-            const a = coords[coords.length - 2];
-            const b = coords[coords.length - 1];
-            arrows.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: [a, b] }, properties: { sourceId: f.id } });
-            // Compute compass bearing (0°=north, clockwise) consistent with Maplibre icon-rotate
-            const theta = Math.atan2(b[0] - a[0], b[1] - a[1]);
-            let bearingDeg = (theta * 180) / Math.PI;
-            if (bearingDeg < 0) bearingDeg += 360;
-            arrowheads.push({ type: 'Feature', geometry: { type: 'Point', coordinates: b }, properties: { sourceId: f.id, bearing: bearingDeg, size: f.properties?.arrowSize || 1 } });
-            // Optional label for arrow: midpoint text if label present
+            if (props.arrowEnd || props.type === 'arrow') {
+              const a = coords[coords.length - 2];
+              const b = coords[coords.length - 1];
+              const theta = Math.atan2(b[0] - a[0], b[1] - a[1]);
+              let bearingDeg = (theta * 180) / Math.PI;
+              if (bearingDeg < 0) bearingDeg += 360;
+              arrowheads.push({ type: 'Feature', geometry: { type: 'Point', coordinates: b }, properties: { sourceId: f.id, bearing: bearingDeg, size: props.arrowSize || 1 } });
+            }
+            if (props.arrowStart) {
+              const a = coords[1];
+              const b = coords[0];
+              const theta = Math.atan2(b[0] - a[0], b[1] - a[1]);
+              let bearingDeg = (theta * 180) / Math.PI;
+              if (bearingDeg < 0) bearingDeg += 360;
+              arrowheads.push({ type: 'Feature', geometry: { type: 'Point', coordinates: b }, properties: { sourceId: f.id, bearing: bearingDeg, size: props.arrowSize || 1 } });
+            }
             if (typeof props.label === 'string' && props.label.trim()) {
-              const mid = [ (a[0] + b[0]) / 2, (a[1] + b[1]) / 2 ];
-              // Base rotation follows the arrow direction in map space; flip by 180° if the resultant viewport angle would be upside-down
-              let textRotate = bearingDeg;
-              const viewportAngle = ((mapBearing + textRotate) % 360 + 360) % 360;
-              if (viewportAngle > 90 && viewportAngle < 270) textRotate = (textRotate + 180) % 360;
+              let mid;
+              if (coords.length === 2) {
+                mid = [ (coords[0][0] + coords[1][0]) / 2, (coords[0][1] + coords[1][1]) / 2 ];
+              } else {
+                let sumLng = 0, sumLat = 0;
+                coords.forEach(c => { sumLng += c[0]; sumLat += c[1]; });
+                mid = [sumLng / coords.length, sumLat / coords.length];
+              }
+              let textRotate = 0;
+              if (props.arrowEnd || props.type === 'arrow') {
+                const a = coords[coords.length - 2];
+                const b = coords[coords.length - 1];
+                const theta = Math.atan2(b[0] - a[0], b[1] - a[1]);
+                textRotate = (theta * 180) / Math.PI;
+                if (textRotate < 0) textRotate += 360;
+                const viewportAngle = ((mapBearing + textRotate) % 360 + 360) % 360;
+                if (viewportAngle > 90 && viewportAngle < 270) textRotate = (textRotate + 180) % 360;
+              } else {
+                textRotate = (mapBearing > 90 && mapBearing < 270) ? 180 : 0;
+              }
               shapeLabels.push({ type: 'Feature', geometry: { type: 'Point', coordinates: mid }, properties: { sourceId: f.id, label: props.label, textSize: props.textSize || 14, textColor: props.textColor || '#111827', halo: props.halo !== false, textRotate } });
             }
           }
           return;
         }
-        // 3) Generic non-text shapes with a label: derive a label point (centroid/midpoint)
         if (typeof props.label === 'string' && props.label.trim()) {
           const g = f.geometry;
           let center = null;
@@ -340,11 +302,10 @@ const MapContainer = forwardRef(({
           }
         }
       });
-      return { type: 'FeatureCollection', features: [...texts, ...shapeLabels, ...arrows, ...arrowheads] };
+      return { type: 'FeatureCollection', features: [...shapeLabels, ...arrowheads] };
     } catch (_) { return { type: 'FeatureCollection', features: [] }; }
-  }, [drawTools?.draw?.current, clickToPlace.objectUpdateTrigger, annotationsTrigger, view?.bearing]);
+  }, [drawTools?.draw?.current, clickToPlace.objectUpdateTrigger, annotationsTrigger, view?.renderTick]);
 
-  // Register arrowhead icon; re-register on style load and handle missing images
   useEffect(() => {
     if (!map) return;
     const register = () => {
@@ -357,39 +318,27 @@ const MapContainer = forwardRef(({
         canvas.width = size; canvas.height = size;
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0,0,size,size);
-        // Draw an open chevron (two line segments) pointing up (north)
         const tipX = size * 0.5;
         const tipY = size * 0.2;
-        const arm = size * 0.28; // vertical extent down from tip
-        const spread = arm * 0.7; // horizontal spread
+        const arm = size * 0.28;
+        const spread = arm * 0.7;
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 6;
         ctx.lineCap = 'round';
-        // Left limb (down-left from tip)
-        ctx.beginPath();
-        ctx.moveTo(tipX, tipY);
-        ctx.lineTo(tipX - spread, tipY + arm);
-        ctx.stroke();
-        // Right limb (down-right from tip)
-        ctx.beginPath();
-        ctx.moveTo(tipX, tipY);
-        ctx.lineTo(tipX + spread, tipY + arm);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(tipX, tipY); ctx.lineTo(tipX - spread, tipY + arm); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(tipX, tipY); ctx.lineTo(tipX + spread, tipY + arm); ctx.stroke();
         const data = ctx.getImageData(0,0,size,size);
         if (map.addImage) map.addImage(arrowIconId, data, { pixelRatio: 2 });
       } catch (e) {
         console.warn('Failed to register arrow icon', e);
       }
     };
-    // Initial attempt: prefer waiting for style load to avoid early addImage failures on basemap switches
     try {
       const ready = (typeof map.isStyleLoaded === 'function') ? map.isStyleLoaded() : true;
       if (ready) register(); else map.once('style.load', register);
     } catch (_) { register(); }
-    // On style load
     const onStyleLoad = () => register();
     map.on('style.load', onStyleLoad);
-    // Handle on-demand missing image
     const onMissing = (e) => { try { if (e && e.id === arrowIconId) register(); } catch (_) {} };
     map.on('styleimagemissing', onMissing);
     return () => {
@@ -398,17 +347,14 @@ const MapContainer = forwardRef(({
     };
   }, [map]);
 
-  // Enforce single-selection across points and rectangles at the map layer level
   useEffect(() => {
     if (!map) return;
     try {
       if (selectedKind === 'point') {
-        // Clear rectangle handles immediately
         try {
           const hs = map.getSource && map.getSource('dropped-rectangles-handles');
           if (hs && hs.setData) hs.setData({ type: 'FeatureCollection', features: [] });
         } catch (_) {}
-        // Force rectangle selection flag off in the base source to avoid stale styling
         try {
           const rs = map.getSource && map.getSource('dropped-rectangles');
           const fc = rs && rs._data;
@@ -418,7 +364,6 @@ const MapContainer = forwardRef(({
           }
         } catch (_) {}
       } else if (selectedKind === 'rect') {
-        // Hide point selection ring immediately
         try {
           if (map.getLayer && map.getLayer('dropped-objects-selected')) {
             map.setFilter('dropped-objects-selected', ['==', ['get', 'id'], '__none__']);
@@ -428,7 +373,6 @@ const MapContainer = forwardRef(({
     } catch (_) {}
   }, [map, selectedKind]);
 
-  // Sync derived annotations source & layers
   useEffect(() => {
     if (!map) return;
     const ensure = () => {
@@ -439,7 +383,6 @@ const MapContainer = forwardRef(({
           const src = map.getSource(derivedSourceId);
           src.setData(derivedAnnotations);
         }
-        // Determine insertion point: below draw layers if present
         let insertBeforeId;
         try {
           const style = map.getStyle ? map.getStyle() : null;
@@ -448,7 +391,6 @@ const MapContainer = forwardRef(({
             : null;
           insertBeforeId = firstDrawLayer ? firstDrawLayer.id : undefined;
         } catch (_) {}
-        // Text layer (both explicit text annotations and shape labels)
         if (!map.getLayer('annotation-text')) {
           map.addLayer({
             id: 'annotation-text',
@@ -459,15 +401,12 @@ const MapContainer = forwardRef(({
               'text-field': ['get', 'label'],
               'text-size': ['coalesce', ['get', 'textSize'], 14],
               'text-font': ['literal', ['Open Sans Bold','Arial Unicode MS Bold']],
-              // Center text for standalone text annotations; keep shape labels above
-              'text-offset': ['case', ['==', ['get', 'type'], 'text'], ['literal', [0, 0]], ['literal', [0, -1.0]]],
-              'text-anchor': ['case', ['==', ['get', 'type'], 'text'], 'center', 'bottom'],
-              // Keep labels perfectly horizontal in the viewport regardless of map rotation/pitch
+              'text-offset': ['literal', [0, -1.0]],
+              'text-anchor': 'bottom',
               'text-rotate': 0,
               'text-rotation-alignment': 'viewport',
               'text-pitch-alignment': 'viewport',
               'text-keep-upright': true,
-              // Favor always-visible labels for user annotations
               'text-allow-overlap': true,
               'text-ignore-placement': true
             },
@@ -475,12 +414,10 @@ const MapContainer = forwardRef(({
               'text-color': ['coalesce', ['get', 'textColor'], '#111827'],
               'text-halo-color': '#ffffff',
               'text-halo-width': 1.0,
-              // Hide map-canvas text; we'll draw DOM overlay labels above all layers to fix z-order
               'text-opacity': 0
             }
-          });
+          }, insertBeforeId);
         } else {
-          // Ensure rotation properties are applied if the layer already exists
           try { map.setLayoutProperty('annotation-text', 'text-rotate', 0); } catch (_) {}
           try { map.setLayoutProperty('annotation-text', 'text-rotation-alignment', 'viewport'); } catch (_) {}
           try { map.setLayoutProperty('annotation-text', 'text-pitch-alignment', 'viewport'); } catch (_) {}
@@ -489,24 +426,6 @@ const MapContainer = forwardRef(({
           try { map.setLayoutProperty('annotation-text', 'text-ignore-placement', true); } catch (_) {}
           try { map.setPaintProperty('annotation-text', 'text-opacity', 0); } catch (_) {}
         }
-        // Arrow lines layer (black)
-        if (!map.getLayer('annotation-arrows')) {
-          map.addLayer({
-            id: 'annotation-arrows',
-            type: 'line',
-            source: derivedSourceId,
-            filter: ['==', ['geometry-type'], 'LineString'],
-            layout: {
-              'line-cap': 'round',
-              'line-join': 'round'
-            },
-            paint: {
-              'line-color': '#000000',
-              'line-width': 3
-            }
-          }, insertBeforeId);
-        }
-        // Arrowhead layer
         if (!map.getLayer('annotation-arrowheads')) {
           map.addLayer({
             id: 'annotation-arrowheads',
@@ -534,86 +453,12 @@ const MapContainer = forwardRef(({
     };
     const ready = typeof map.isStyleLoaded === 'function' ? map.isStyleLoaded() : true;
     if (ready) ensure(); else map.once('style.load', ensure);
-    // Also schedule a second pass shortly after to catch late Draw binding after import
     try { setTimeout(() => { try { ensure(); } catch (_) {} }, 100); } catch (_) {}
   }, [map, derivedAnnotations]);
 
-  // Mirror Draw features into a dedicated preview source so lines render during editing
-  useEffect(() => {
-    if (!map) return;
-
-    const ensureSourceAndLayers = () => {
-      try {
-        const fc = drawTools?.draw?.current && drawTools.draw.current.getAll ? drawTools.draw.current.getAll() : { type: 'FeatureCollection', features: [] };
-        const data = { type: 'FeatureCollection', features: Array.isArray(fc.features) ? fc.features : [] };
-
-        if (!map.getSource(previewSourceId)) {
-          map.addSource(previewSourceId, { type: 'geojson', data });
-        } else {
-          const src = map.getSource(previewSourceId);
-          src.setData(data);
-        }
-
-        const style = map.getStyle && map.getStyle();
-        const layers = (style && style.layers) ? style.layers : [];
-        const firstDrawLayer = layers.find((l) => typeof l?.id === 'string' && (l.id.startsWith('mapbox-gl-draw') || l.id.startsWith('gl-draw')));
-        const beforeId = firstDrawLayer ? firstDrawLayer.id : undefined;
-
-        if (!map.getLayer('draw-preview-line')) {
-          map.addLayer({
-            id: 'draw-preview-line',
-            type: 'line',
-            source: previewSourceId,
-            filter: ['all', ['==', ['geometry-type'], 'LineString'], ['!=', ['get', 'type'], 'arrow']],
-            layout: { 'line-cap': 'round', 'line-join': 'round' },
-            paint: {
-              'line-color': '#2563eb',
-              'line-width': 3,
-              'line-opacity': 0.85
-            }
-          }, beforeId);
-        }
-
-        if (!map.getLayer('draw-preview-polygon-fill')) {
-          map.addLayer({
-            id: 'draw-preview-polygon-fill',
-            type: 'fill',
-            source: previewSourceId,
-            filter: ['==', ['geometry-type'], 'Polygon'],
-            paint: {
-              'fill-color': '#2563eb',
-              'fill-opacity': 0.18
-            }
-          }, beforeId);
-        }
-
-        if (!map.getLayer('draw-preview-polygon-outline')) {
-          map.addLayer({
-            id: 'draw-preview-polygon-outline',
-            type: 'line',
-            source: previewSourceId,
-            filter: ['==', ['geometry-type'], 'Polygon'],
-            layout: { 'line-cap': 'round', 'line-join': 'round' },
-            paint: {
-              'line-color': '#2563eb',
-              'line-width': 2,
-              'line-opacity': 0.8
-            }
-          }, beforeId);
-        }
-      } catch (err) {
-        console.warn('Failed to maintain draw preview layers', err);
-      }
-    };
-
-    ensureSourceAndLayers();
-  }, [map, drawTools?.draw, annotationsTrigger]);
-
-  // Build DOM overlay labels from derived annotations so they can render above all map layers and SVG overlays
   const domAnnotationLabels = useMemo(() => {
     try {
       if (!map || !derivedAnnotations || !Array.isArray(derivedAnnotations.features)) return [];
-      // Only points with a label
       const feats = derivedAnnotations.features.filter(f => f && f.geometry && f.geometry.type === 'Point' && f.properties && typeof f.properties.label === 'string' && f.properties.label.trim());
       return feats.map((f, idx) => {
         const [lng, lat] = f.geometry.coordinates || [];
@@ -626,354 +471,55 @@ const MapContainer = forwardRef(({
     } catch (_) { return []; }
   }, [map, derivedAnnotations, view?.renderTick]);
 
-  // Keep annotation layers above MapboxDraw layers (which may be added later)
   useEffect(() => {
     if (!map) return;
     const bringToTop = (id) => {
       try { if (map.getLayer(id)) map.moveLayer(id); } catch (_) {}
     };
-    // Hide Draw's default point styling for text annotations and line styling for arrows
-    const hideDrawTextPoints = () => {
+    const styleDrawLayers = () => {
       try {
         const style = map.getStyle && map.getStyle();
         const layers = (style && style.layers) ? style.layers : [];
         layers.forEach((l) => {
-          try {
-            if (!l || !l.id || !l.source) return;
-            const isDrawSource = l.source === 'mapbox-gl-draw-cold' || l.source === 'mapbox-gl-draw-hot';
-            if (!isDrawSource) return;
-            const existing = map.getFilter && map.getFilter(l.id);
-            if (l.type === 'circle' || (typeof l.id === 'string' && (l.id.includes('point') || l.id.includes('point-stroke')))) {
-              const base = existing || ['==', ['geometry-type'], 'Point'];
-              const next = ['all', base, ['!=', ['get', 'type'], 'text']];
-              map.setFilter(l.id, next);
-              if (l.type === 'circle') {
-                try { map.setPaintProperty(l.id, 'circle-opacity', ['case', ['==', ['get', 'type'], 'text'], 0, 1]); } catch (_) {}
-                try { map.setPaintProperty(l.id, 'circle-stroke-opacity', ['case', ['==', ['get', 'type'], 'text'], 0, 1]); } catch (_) {}
-              }
-            } else if (l.type === 'line') {
-              const base = existing || ['==', ['geometry-type'], 'LineString'];
-              // Keep active/hot features visible to ensure selection/deletion works repeatedly
-              const next = ['all', base, ['any', ['!=', ['get', 'type'], 'arrow'], ['==', ['get', 'active'], 'true']]];
-              map.setFilter(l.id, next);
-            }
-          } catch (_) {}
+          if (!l || !l.id || !l.source) return;
+          const isDrawSource = l.source === 'mapbox-gl-draw-cold' || l.source === 'mapbox-gl-draw-hot';
+          if (!isDrawSource) return;
+          if (l.type === 'circle' || (typeof l.id === 'string' && (l.id.includes('point') || l.id.includes('point-stroke')))) {
+            try { 
+              map.setPaintProperty(l.id, 'circle-opacity', 1);
+              map.setPaintProperty(l.id, 'circle-stroke-opacity', 1);
+            } catch (_) {}
+          } 
         });
       } catch (_) {}
     };
     const t = setTimeout(() => {
       bringToTop('annotation-text');
-      bringToTop('annotation-arrows');
       bringToTop('annotation-arrowheads');
-      hideDrawTextPoints();
+      styleDrawLayers();
     }, 50);
     return () => clearTimeout(t);
   }, [map, drawTools?.draw, derivedAnnotations]);
 
-  // Add click-to-edit popup for annotation layers
-  useEffect(() => {
-    if (!map) return;
-    let popup = null;
-    let suppressSequence = false;
-    const Ctor = (typeof window !== 'undefined' && (window.maplibregl || window.mapboxgl) && (window.maplibregl.Popup || window.mapboxgl.Popup)) || null;
-    const ensurePopup = () => {
-      if (popup) { annotationPopupRef.current = popup; return popup; }
-      if (!Ctor) return null;
-      try { popup = new Ctor({ closeButton: false, closeOnClick: false, offset: [0, -12] }); } catch (_) { popup = null; }
-      annotationPopupRef.current = popup;
-      return popup;
-    };
-    const openAt = (lngLat, el) => {
-      const p = ensurePopup();
-      if (!p || !el) return;
-      p.setDOMContent(el);
-      p.setLngLat(lngLat);
-      p.addTo(map);
-      annotationPopupRef.current = p;
-      try { console.debug('ANNOT: popup opened', { lngLat }); } catch (_) {}
-      try {
-        const root = p.getElement && p.getElement();
-        if (root) {
-          root.style.background = 'transparent';
-          root.style.border = 'none';
-          root.style.boxShadow = 'none';
-          const contentEl = root.querySelector('.maplibregl-popup-content, .mapboxgl-popup-content');
-          if (contentEl) {
-            contentEl.style.background = 'transparent';
-            contentEl.style.border = 'none';
-            contentEl.style.boxShadow = 'none';
-            contentEl.style.padding = '0';
-          }
-          const tipEl = root.querySelector('.maplibregl-popup-tip, .mapboxgl-popup-tip');
-          if (tipEl) tipEl.style.display = 'none';
-        }
-      } catch (_) {}
-    };
-    const buildPill = (buttons = []) => {
-      const wrap = document.createElement('div');
-      const box = document.createElement('div');
-      box.className = 'rounded-full px-2 py-1 text-[11px] shadow-sm flex gap-1 bg-white/90 dark:bg-gray-900/80 border border-gray-200/60 dark:border-gray-700/60';
-      box.style.transform = 'translateY(4px) scale(0.97)';
-      box.style.opacity = '0';
-      box.style.transition = 'opacity 140ms ease, transform 160ms cubic-bezier(.2,.7,.3,1)';
-      buttons.forEach(({ label, onClick, className }) => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.textContent = label;
-        b.className = className || 'px-2 py-0.5 rounded-full border border-gray-300/70 dark:border-gray-700 text-gray-700 dark:text-gray-200 bg-white/70 dark:bg-gray-800/50 hover:bg-white/90';
-        b.onclick = (e) => { e.stopPropagation(); onClick && onClick(e); try { popup && popup.remove(); } catch (_) {} };
-        box.appendChild(b);
-      });
-      wrap.appendChild(box);
-      requestAnimationFrame(() => { box.style.transform = 'translateY(0) scale(1)'; box.style.opacity = '1'; });
-      return wrap;
-    };
-
-    const closeArrowOverlay = () => {
-      try {
-        const ref = arrowOverlayRef.current;
-        if (ref && ref.root && ref.mount) {
-          try { ref.root.unmount(); } catch (_) {}
-          try { if (ref.mount.parentNode) ref.mount.parentNode.removeChild(ref.mount); } catch (_) {}
-        }
-      } catch (_) {}
-      arrowOverlayRef.current = null;
-    };
-
-    const openForFeature = (feature, lngLat) => {
-      try {
-        try { console.debug('ANNOT: openForFeature', { id: feature?.properties?.sourceId, geomType: feature?.geometry?.type }); } catch (_) {}
-        const srcId = feature?.properties?.sourceId;
-        if (!srcId) return;
-        // Treat both line and arrowhead point as arrow features if they carry a sourceId
-        const isArrow = !!srcId && ((feature && feature.geometry && feature.geometry.type !== 'Point') || (feature && feature.properties && typeof feature.properties.bearing !== 'undefined'));
-        const getDraw = () => (drawTools && drawTools.draw && drawTools.draw.current) ? drawTools.draw.current : (map && map.getControl ? map.getControl('MapboxDraw') : null);
-        const drawCtrl = getDraw();
-        if (isArrow) {
-          // Use MapLibre popup just like DroppedObjects for reliability
-          try { if (popup) popup.remove(); } catch (_) {}
-          const el = buildPill([
-            { label: 'Label…', onClick: () => {
-              try {
-                const val = typeof window !== 'undefined' ? window.prompt('Arrow label') : null;
-                if (val != null && drawCtrl) {
-                  if (drawCtrl.setFeatureProperty) drawCtrl.setFeatureProperty(srcId, 'label', String(val));
-                  else {
-                    try { const f = drawCtrl.get(srcId); if (f) { f.properties = Object.assign({}, f.properties || {}, { label: String(val) }); drawCtrl.add(f); } } catch (_) {}
-                  }
-                  try { window.dispatchEvent(new Event('annotations:changed')); } catch (_) {}
-                  setAnnotationsTrigger(v => v + 1);
-                }
-              } catch (_) {}
-            } },
-            { label: 'Remove', className: 'text-white rounded-full px-2 py-0.5 bg-red-500 hover:bg-red-600', onClick: () => {
-              try { drawCtrl && drawCtrl.delete && drawCtrl.delete(srcId); } catch (_) {}
-              setAnnotationsTrigger(v => v + 1);
-            } }
-          ]);
-          openAt(lngLat, el);
-        } else {
-          const el = buildPill([
-            { label: 'Edit', onClick: () => setTextEditorFeatureId(srcId) },
-            { label: 'Remove', className: 'text-white rounded-full px-2 py-0.5 bg-red-500 hover:bg-red-600', onClick: () => { try { console.debug('ANNOT: remove clicked for text', { srcId, hasDraw: !!drawCtrl }); drawCtrl && drawCtrl.delete && drawCtrl.delete(srcId); } catch (_) {} setAnnotationsTrigger(v => v + 1); } }
-          ]);
-          openAt(lngLat, el);
-        }
-      } catch (_) {}
-    };
-
-    // Direct layer-bound handlers mirroring DroppedObjects approach (more reliable than canvas capture)
-    const onArrowClick = (e) => {
-      try {
-        if (!e || !e.features || !e.features[0]) return;
-        const f = e.features[0];
-        if (e && e.preventDefault) e.preventDefault();
-        const oe = e && (e.originalEvent || e.point && e.point.originalEvent);
-        if (oe && typeof oe.stopPropagation === 'function') oe.stopPropagation();
-        openForFeature(f, e.lngLat);
-      } catch (_) {}
-    };
-    const cursorPointerOn = () => { try { map && map.getCanvas && (map.getCanvas().style.cursor = 'pointer'); } catch (_) {} };
-    const cursorPointerOff = () => { try { map && map.getCanvas && (map.getCanvas().style.cursor = ''); } catch (_) {} };
-    const bindAnnotationLayerHandlers = () => {
-      try {
-        if (map.getLayer && map.getLayer('annotation-arrows')) {
-          map.on('click', 'annotation-arrows', onArrowClick);
-          map.on('mouseenter', 'annotation-arrows', cursorPointerOn);
-          map.on('mouseleave', 'annotation-arrows', cursorPointerOff);
-        }
-      } catch (_) {}
-      try {
-        if (map.getLayer && map.getLayer('annotation-arrowheads')) {
-          map.on('click', 'annotation-arrowheads', onArrowClick);
-          map.on('mouseenter', 'annotation-arrowheads', cursorPointerOn);
-          map.on('mouseleave', 'annotation-arrowheads', cursorPointerOff);
-        }
-      } catch (_) {}
-    };
-    bindAnnotationLayerHandlers();
-    const onStyleLoadRebindAnnots = () => bindAnnotationLayerHandlers();
-    try { map.on('style.load', onStyleLoadRebindAnnots); } catch (_) {}
-
-    const canvas = map && map.getCanvas ? map.getCanvas() : null;
-    if (!canvas) return;
-    const layers = ['annotation-text', 'annotation-arrows', 'annotation-arrowheads'];
-
-    const onMouseDownCapture = (ev) => {
-      try {
-        const rect = canvas.getBoundingClientRect();
-        const x = ev.clientX - rect.left;
-        const y = ev.clientY - rect.top;
-        const feats = map.queryRenderedFeatures && map.queryRenderedFeatures([x, y], { layers });
-        if (feats && feats.length > 0) {
-          try { console.debug('ANNOT: mousedown hit', { x, y, hits: feats.length }); } catch (_) {}
-          // Prevent Draw/map handlers and open pill
-          ev.preventDefault();
-          if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
-          if (typeof ev.stopPropagation === 'function') ev.stopPropagation();
-          ev.cancelBubble = true;
-          suppressSequence = true;
-          try { console.debug('ANNOT: preventing downstream handlers (mousedown)'); } catch (_) {}
-          const lngLat = map.unproject([x, y]);
-          openForFeature(feats[0], lngLat);
-        } else if (popup) {
-          try { console.debug('ANNOT: outside click on canvas; closing popup'); } catch (_) {}
-          try { popup.remove(); } catch (_) {}
-          // Allow event to propagate normally
-        }
-      } catch (_) {}
-    };
-
-    const onMouseUpCapture = (ev) => {
-      try {
-        if (suppressSequence) {
-          try { console.debug('ANNOT: mouseup capture suppressed (open sequence)'); } catch (_) {}
-          ev.preventDefault();
-          if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
-          if (typeof ev.stopPropagation === 'function') ev.stopPropagation();
-          ev.cancelBubble = true;
-        }
-      } catch (_) {}
-    };
-
-    const onClickCapture = (ev) => {
-      try {
-        if (suppressSequence) {
-          try { console.debug('ANNOT: click capture suppressed (open sequence)'); } catch (_) {}
-          ev.preventDefault();
-          if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
-          if (typeof ev.stopPropagation === 'function') ev.stopPropagation();
-          ev.cancelBubble = true;
-          suppressSequence = false;
-        }
-      } catch (_) {}
-    };
-
-    const onDblClickCapture = (ev) => {
-      try {
-        if (suppressSequence) {
-          try { console.debug('ANNOT: dblclick capture suppressed (open sequence)'); } catch (_) {}
-          ev.preventDefault();
-          if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
-          if (typeof ev.stopPropagation === 'function') ev.stopPropagation();
-          ev.cancelBubble = true;
-          suppressSequence = false;
-        }
-      } catch (_) {}
-    };
-
-    const onDocPointerDownCapture = (ev) => {
-      try {
-        if (!popup) return;
-        const root = popup.getElement && popup.getElement();
-        if (!root) return;
-        if (!root.contains(ev.target)) {
-          try { console.debug('ANNOT: document outside pointerdown; closing popup'); } catch (_) {}
-          try { popup.remove(); } catch (_) {}
-          annotationPopupRef.current = null;
-        }
-      } catch (_) {}
-    };
-
-    const onDrawUpdateClose = () => {
-      try {
-        if (popup) {
-          try { console.debug('ANNOT: draw.update -> closing popup'); } catch (_) {}
-          popup.remove();
-        }
-        try { if (arrowOverlayRef.current) { console.debug('ANNOT: draw.update -> closing arrow overlay'); } } catch (_) {}
-        try {
-          const ref = arrowOverlayRef.current;
-          if (ref && ref.root && ref.mount) {
-            try { ref.root.unmount(); } catch (_) {}
-            try { if (ref.mount.parentNode) ref.mount.parentNode.removeChild(ref.mount); } catch (_) {}
-          }
-        } catch (_) {}
-        arrowOverlayRef.current = null;
-        annotationPopupRef.current = null;
-      } catch (_) {}
-    };
-
-    // Capture-phase listeners on the canvas
-    try { canvas.addEventListener('mousedown', onMouseDownCapture, true); } catch (_) {}
-    try { canvas.addEventListener('mouseup', onMouseUpCapture, true); } catch (_) {}
-    try { canvas.addEventListener('click', onClickCapture, true); } catch (_) {}
-    try { canvas.addEventListener('dblclick', onDblClickCapture, true); } catch (_) {}
-    // Global outside-click handler (capture)
-    try { document.addEventListener('pointerdown', onDocPointerDownCapture, true); } catch (_) {}
-    // Close on Draw updates (moving annotations)
-    try { map.on('draw.update', onDrawUpdateClose); } catch (_) {}
-    // Also close on feature deletion and selection changes
-    try { map.on('draw.delete', onDrawUpdateClose); } catch (_) {}
-    try { map.on('draw.selectionchange', onDrawUpdateClose); } catch (_) {}
-    try { map.on('draw.modechange', onDrawUpdateClose); } catch (_) {}
-
-    return () => {
-      try { canvas.removeEventListener('mousedown', onMouseDownCapture, true); } catch (_) {}
-      try { canvas.removeEventListener('mouseup', onMouseUpCapture, true); } catch (_) {}
-      try { canvas.removeEventListener('click', onClickCapture, true); } catch (_) {}
-      try { canvas.removeEventListener('dblclick', onDblClickCapture, true); } catch (_) {}
-      try { document.removeEventListener('pointerdown', onDocPointerDownCapture, true); } catch (_) {}
-      try { map.off('draw.update', onDrawUpdateClose); } catch (_) {}
-      try { map.off('draw.delete', onDrawUpdateClose); } catch (_) {}
-      try { map.off('draw.selectionchange', onDrawUpdateClose); } catch (_) {}
-      try { map.off('draw.modechange', onDrawUpdateClose); } catch (_) {}
-      try { if (popup) { console.debug('ANNOT: cleanup removing popup'); popup.remove(); } } catch (_) {}
-      try {
-        const ref = arrowOverlayRef.current;
-        if (ref && ref.root && ref.mount) {
-          try { ref.root.unmount(); } catch (_) {}
-          try { if (ref.mount.parentNode) ref.mount.parentNode.removeChild(ref.mount); } catch (_) {}
-        }
-      } catch (_) {}
-      arrowOverlayRef.current = null;
-      annotationPopupRef.current = null;
-    };
-  }, [map]);
-
-  // Re-apply hiding of Draw points for text on style changes and mode changes
   useEffect(() => {
     if (!map) return;
     const rerun = () => {
       try {
         const style = map.getStyle && map.getStyle();
         if (!style) return;
-        // Reuse logic by triggering a small timeout for ordering
         setTimeout(() => {
           try {
             const layers = style.layers || [];
             layers.forEach((l) => {
-              try {
-                if (!l || !l.id || !l.source) return;
-                const isDrawSource = l.source === 'mapbox-gl-draw-cold' || l.source === 'mapbox-gl-draw-hot';
-                const looksLikePointLayer = typeof l.id === 'string' && (l.id.includes('point') || l.id.includes('point-stroke'));
-                if (isDrawSource && looksLikePointLayer) {
-                  const existing = map.getFilter && map.getFilter(l.id);
-                  const base = existing || ['==', ['geometry-type'], 'Point'];
-                  const next = ['all', base, ['!=', ['get', 'type'], 'text']];
-                  map.setFilter(l.id, next);
-                }
-              } catch (_) {}
+              if (!l || !l.id || !l.source) return;
+              const isDrawSource = l.source === 'mapbox-gl-draw-cold' || l.source === 'mapbox-gl-draw-hot';
+              if (!isDrawSource) return;
+              if (l.type === 'circle' || (typeof l.id === 'string' && (l.id.includes('point') || l.id.includes('point-stroke')))) {
+                try { 
+                  map.setPaintProperty(l.id, 'circle-opacity', 1);
+                  map.setPaintProperty(l.id, 'circle-stroke-opacity', 1);
+                } catch (_) {}
+              } 
             });
           } catch (_) {}
         }, 0);
@@ -989,7 +535,6 @@ const MapContainer = forwardRef(({
     };
   }, [map]);
 
-  // Expose current rect mode + id for sidebar active highlight
   useEffect(() => {
     try {
       window.__app = Object.assign({}, window.__app || {}, {
@@ -1006,18 +551,12 @@ const MapContainer = forwardRef(({
     } catch (_) {}
   }, [drawTools, infrastructure]);
 
-  // Compass click handler
   const handleCompassClick = () => {
     if (map && map.rotateTo) {
       map.rotateTo(0, { duration: 500 });
     }
   };
 
-  // Projection toggle
-  const snapToNearest45 = (deg) => {
-    const centerOffset = getCenterOffsetForPitch(view?.pitch || 0);
-    return quantizeToSlices(deg, 8, centerOffset);
-  };
   const handleToggleProjection = () => {
     if (!map) return;
     const currentCenter = map.getCenter ? map.getCenter() : null;
@@ -1025,26 +564,18 @@ const MapContainer = forwardRef(({
     const isIso = (map.getPitch ? map.getPitch() : 0) > 15;
     const currentBearing = (map.getBearing ? map.getBearing() : 0) || 0;
     if (isIso) {
-      // Return to top-down
-      try {
-        map.easeTo({ pitch: 0, bearing: currentBearing, center: currentCenter || undefined, zoom: currentZoom, duration: 600 });
-      } catch (_) {}
+      try { map.easeTo({ pitch: 0, bearing: currentBearing, center: currentCenter || undefined, zoom: currentZoom, duration: 600 }); } catch (_) {}
     } else {
-      // Go to isometric: high pitch, snap bearing to nearest 45°
-      try {
-        map.easeTo({ pitch: 60, bearing: currentBearing, center: currentCenter || undefined, zoom: currentZoom, duration: 600 });
-      } catch (_) {}
+      try { map.easeTo({ pitch: 60, bearing: currentBearing, center: currentCenter || undefined, zoom: currentZoom, duration: 600 }); } catch (_) {}
     }
   };
 
-  // Centralized camera rotation (Q/E and rotateend snap)
   useCameraRotation({
     map,
     getAreaGeometry: () => (permitAreas?.hasSubFocus ? permitAreas?.subFocusArea?.geometry : permitAreas?.focusedArea?.geometry) || null,
     isEnabled: true
   });
 
-  // Delete selected dropped object or selected annotation with Delete/Backspace (select mode only)
   useGlobalKeymap([
     {
       key: ['Delete', 'Backspace'],
@@ -1066,13 +597,11 @@ const MapContainer = forwardRef(({
             if (selectedKind === 'rect') {
               try { clickToPlace.removeDroppedObject(id); } catch (_) {}
               try { clearSelection(); } catch (_) {}
-              try { if (annotationPopupRef.current) { annotationPopupRef.current.remove(); annotationPopupRef.current = null; } } catch (_) {}
               return;
             }
             if (selectedKind === 'point') {
               try { clickToPlace.removeDroppedObject(id); } catch (_) {}
               try { clearSelection(); } catch (_) {}
-              try { if (annotationPopupRef.current) { annotationPopupRef.current.remove(); annotationPopupRef.current = null; } } catch (_) {}
               return;
             }
           }
@@ -1082,44 +611,30 @@ const MapContainer = forwardRef(({
               drawTools.deleteSelectedShape();
             }
           } catch (_) {}
-          try { if (annotationPopupRef.current) { annotationPopupRef.current.remove(); annotationPopupRef.current = null; } } catch (_) {}
-          try { if (arrowOverlayRef.current) { const ref = arrowOverlayRef.current; ref.root.unmount(); if (ref.mount.parentNode) ref.mount.parentNode.removeChild(ref.mount); arrowOverlayRef.current = null; } } catch (_) {}
         } catch (_) {}
       }
     }
   ]);
 
-  // Disable double-click zoom when map is loaded to prevent conflicts with permit area selection
   React.useEffect(() => {
     if (mapLoaded && map && map.doubleClickZoom) {
       map.doubleClickZoom.disable();
     }
   }, [mapLoaded, map]);
 
-  // Open text editor on text feature creation anywhere
   useEffect(() => {
     if (!map) return;
-    const onCreateAny = (e) => {
-      try {
-        const f = e?.features?.[0];
-        if (f && f.geometry?.type === 'Point' && f.properties?.type === 'text') {
-          setTextEditorFeatureId(f.id);
-        }
-        setAnnotationsTrigger(v => v + 1);
-      } catch (_) {}
-    };
+    const onCreateAny = (e) => { setAnnotationsTrigger(v => v + 1); };
     map.on('draw.create', onCreateAny);
     return () => { try { map.off('draw.create', onCreateAny); } catch (_) {} };
   }, [map, drawTools]);
 
-  // Refresh derived annotations on updates/deletes as well
   useEffect(() => {
     if (!map || !drawTools?.draw?.current) return;
     const bump = () => setAnnotationsTrigger(v => v + 1);
     map.on('draw.update', bump);
     map.on('draw.delete', bump);
     map.on('draw.selectionchange', bump);
-    // Ensure we also respond after Style reload or initial Draw render (post-import timing)
     map.on('draw.render', bump);
     map.on('style.load', bump);
     return () => {
@@ -1131,7 +646,6 @@ const MapContainer = forwardRef(({
     };
   }, [map, drawTools]);
 
-  // Listen for rectangle draw completion to convert into dropped object and remove draw feature
   useEffect(() => {
     if (!map) return;
     const onCreate = (e) => {
@@ -1139,11 +653,9 @@ const MapContainer = forwardRef(({
         const f = e?.features?.[0];
         if (!f || f.geometry?.type !== 'Polygon') return;
         const typeId = f.properties?.user_rectObjectType;
-        // If a rectangle-object type was set, this is an equipment rectangle → convert to dropped object
         if (typeId) {
           const objectType = placeableObjects?.find(p => p.id === typeId);
           if (!objectType) return;
-          // Build dropped object
           const coords = f.geometry.coordinates?.[0] || [];
           if (coords.length < 4) return;
           const centroid = { lng: (coords[0][0] + coords[2][0]) / 2, lat: (coords[0][1] + coords[2][1]) / 2 };
@@ -1164,16 +676,12 @@ const MapContainer = forwardRef(({
           try { drawTools.draw.current.delete(f.id); } catch (_) {}
           return;
         }
-
-        // If sub-focus mode is armed and this is a regular polygon (not an equipment rectangle),
-        // treat it as the sub-focus scope and do NOT persist the draw feature as an annotation
         if (subFocusArmedRef.current && !typeId && permitAreas?.focusedArea && permitAreas?.setSubFocusPolygon) {
           const ok = permitAreas.setSubFocusPolygon({ type: 'Feature', properties: {}, geometry: f.geometry });
           try { drawTools.draw.current.delete(f.id); } catch (_) {}
           subFocusArmedRef.current = false;
           if (ok) return;
         }
-        // If a text annotation was created, open inline editor (also handle when created via point tool then tagged)
         setAnnotationsTrigger(v => v + 1);
       } catch (err) {
         console.warn('Failed to convert rect feature to dropped object', err);
@@ -1183,29 +691,6 @@ const MapContainer = forwardRef(({
     return () => { try { map.off('draw.create', onCreate); } catch (_) {} };
   }, [map, drawTools, placeableObjects, clickToPlace, permitAreas]);
 
-  if (DEBUG) console.log('MapContainer: Rendering with map instance', {
-    hasMap: !!map,
-    hasProject: map && typeof map.project === 'function',
-    mapLoaded,
-    droppedObjectsCount: droppedObjects?.length || 0
-  });
-
-  // Utility: point-in-polygon for selection (lon/lat ring)
-  const pointInPolygon = (point, ring) => {
-    try {
-      let inside = false;
-      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-        const xi = ring[i][0], yi = ring[i][1];
-        const xj = ring[j][0], yj = ring[j][1];
-        const intersect = ((yi > point[1]) !== (yj > point[1])) &&
-          (point[0] < (xj - xi) * (point[1] - yi) / ((yj - yi) || 1e-12) + xi);
-        if (intersect) inside = !inside;
-      }
-      return inside;
-    } catch (_) { return false; }
-  };
-
-  // Selection controller
   const { handleClick: handleSelectionClick } = useSelectionController({
     map,
     placeableObjects,
@@ -1215,17 +700,12 @@ const MapContainer = forwardRef(({
     setSelectedPointId: (id) => select(id, 'point')
   });
 
-  // Clear selection when clicking off dropped objects and rectangles
   useEffect(() => {
     if (!map) return;
     const onBackgroundClick = (e) => {
       try {
         if (placementMode) return;
-        // If another handler consumed this click, don't clear
-        try {
-          if (e && (e.defaultPrevented || (e.originalEvent && e.originalEvent.defaultPrevented))) return;
-        } catch (_) {}
-
+        try { if (e && (e.defaultPrevented || (e.originalEvent && e.originalEvent.defaultPrevented))) return; } catch (_) {}
         const layerIds = [];
         try { if (map.getLayer && map.getLayer('dropped-objects-symbol')) layerIds.push('dropped-objects-symbol'); } catch (_) {}
         try { if (map.getLayer && map.getLayer('dropped-objects-circle')) layerIds.push('dropped-objects-circle'); } catch (_) {}
@@ -1234,44 +714,14 @@ const MapContainer = forwardRef(({
         try { if (map.getLayer && map.getLayer('dropped-rectangles-pattern')) layerIds.push('dropped-rectangles-pattern'); } catch (_) {}
         try { if (map.getLayer && map.getLayer('dropped-rectangles-line')) layerIds.push('dropped-rectangles-line'); } catch (_) {}
         try { if (map.getLayer && map.getLayer('dropped-rectangles-handles')) layerIds.push('dropped-rectangles-handles'); } catch (_) {}
-
-        const hits = (map.queryRenderedFeatures && typeof e?.point !== 'undefined')
-          ? map.queryRenderedFeatures(e.point, { layers: layerIds })
-          : [];
-        if (!hits || hits.length === 0) {
-          clearSelection();
-        }
+        const hits = (map.queryRenderedFeatures && typeof e?.point !== 'undefined') ? map.queryRenderedFeatures(e.point, { layers: layerIds }) : [];
+        if (!hits || hits.length === 0) { clearSelection(); }
       } catch (_) {}
     };
     try { map.on('click', onBackgroundClick); } catch (_) {}
     return () => { try { map.off('click', onBackgroundClick); } catch (_) {} };
   }, [map, placementMode, clearSelection]);
 
-  // Keyboard handler for dimensions editor (press 'D' when rectangle is selected)
-  useGlobalKeymap([
-    {
-      key: ['d', 'D'],
-      preventDefault: true,
-      priority: 60,
-      enabled: () => {
-        try {
-          const ae = typeof document !== 'undefined' ? document.activeElement : null;
-          if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return false;
-        } catch (_) {}
-        return true;
-      },
-      onEvent: () => {
-        try {
-          if (selectedKind === 'rect' && selectedObjectId) {
-            const obj = droppedObjects?.find(o => o.id === selectedObjectId);
-            if (obj) setDimensionsEditingObject(obj);
-          }
-        } catch (_) {}
-      }
-    }
-  ]);
-
-  // Rotation controller (handles placement mode and selected objects)
   useRotationControls({
     map,
     isPlacementActive: !!placementMode,
@@ -1282,7 +732,6 @@ const MapContainer = forwardRef(({
         const id = selectedObjectId;
         clickToPlace.updateDroppedObject(id, (prev) => {
           if (!prev || prev?.geometry?.type !== 'Polygon') return prev;
-          // Rotate in Web Mercator (map plane) for stability regardless of pitch
           const newGeom = rotateRectanglePolygonMercator(prev.geometry, delta);
           const curRot = Number(prev?.properties?.rotationDeg || 0);
           let nextRot = normalizeAngle(curRot + delta);
@@ -1298,7 +747,6 @@ const MapContainer = forwardRef(({
           if (!prev) return prev;
           const cur = Number(prev?.properties?.rotationDeg || 0);
           let next = normalizeAngle(cur + deltaDeg);
-          // Free continuous rotation - no snapping in 2D mode
           const nextProps = Object.assign({}, prev.properties || {}, { rotationDeg: next });
           return { ...prev, properties: nextProps };
         });
@@ -1312,8 +760,7 @@ const MapContainer = forwardRef(({
         const d = drawTools.draw && drawTools.draw.current; if (!d || !id) return;
         const f = d.get(id); if (!f || !f.geometry) return;
         const g = f.geometry;
-        // Rotate in WebMercator (map plane) for stability regardless of pitch
-        const R = 6378137; // meters
+        const R = 6378137;
         const toMerc = ([lng, lat]) => {
           const x = R * (lng * Math.PI / 180);
           const y = R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2));
@@ -1324,17 +771,14 @@ const MapContainer = forwardRef(({
           const lat = (2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * 180 / Math.PI;
           return [lng, lat];
         };
-        const coordsAll = (g.type === 'LineString') ? g.coordinates
-          : (g.type === 'Polygon') ? (g.coordinates[0] || []) : null;
+        const coordsAll = (g.type === 'LineString') ? g.coordinates : (g.type === 'Polygon') ? (g.coordinates[0] || []) : null;
         if (!Array.isArray(coordsAll) || coordsAll.length < 2) return;
         const mercPts = coordsAll.map(toMerc);
-        // Centroid in mercator
         let cx = 0, cy = 0;
         mercPts.forEach(([x, y]) => { cx += x; cy += y; });
         cx /= mercPts.length; cy /= mercPts.length;
         const rad = deltaDeg * Math.PI / 180;
-        const cos = Math.cos(rad);
-        const sin = Math.sin(rad);
+        const cos = Math.cos(rad); const sin = Math.sin(rad);
         const rotateMerc = ([x, y]) => {
           const dx = x - cx, dy = y - cy;
           const rx = cx + dx * cos - dy * sin;
@@ -1362,26 +806,9 @@ const MapContainer = forwardRef(({
 
   return (
     <div className="flex-1 relative transition-all duration-300 ease-in-out">
-      {/* Compass + Projection Toggle Overlay */}
-      <div
-        className="absolute bottom-4 left-4 z-50 flex flex-row items-end gap-2"
-        style={{ pointerEvents: 'none' }}
-      >
-        <button
-          className="bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 rounded-full w-12 h-12 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
-          style={{ pointerEvents: 'auto' }}
-          title="Reset to North (0°)"
-          onClick={handleCompassClick}
-        >
-          <div
-            style={{
-              transform: `rotate(${-bearing}deg)`,
-              transition: 'transform 0.3s cubic-bezier(.4,2,.6,1)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}
-          >
+      <div className="absolute bottom-4 left-4 z-50 flex flex-row items-end gap-2" style={{ pointerEvents: 'none' }}>
+        <button className="bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 rounded-full w-12 h-12 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform" style={{ pointerEvents: 'auto' }} title="Reset to North (0°)" onClick={handleCompassClick}>
+          <div style={{ transform: `rotate(${-bearing}deg)`, transition: 'transform 0.3s cubic-bezier(.4,2,.6,1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
               <circle cx="16" cy="16" r="15" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" fill="currentColor" fillOpacity="0.9" className="text-white dark:text-gray-800" />
               <polygon points="16,6 19,18 16,15 13,18" fill="#2563eb" />
@@ -1389,391 +816,133 @@ const MapContainer = forwardRef(({
             </svg>
           </div>
         </button>
-
-        <button
-          className="bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 rounded-full w-12 h-12 flex items-center justify-center hover:scale-105 active:scale-95"
-          style={{ pointerEvents: 'auto' }}
-          title="Toggle projection (Top-down / Isometric)"
-          onClick={handleToggleProjection}
-        >
-          <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
-            {(pitch > 15) ? 'ISO' : '2D'}
-          </span>
+        <button className="bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 rounded-full w-12 h-12 flex items-center justify-center hover:scale-105 active:scale-95" style={{ pointerEvents: 'auto' }} title="Toggle projection (Top-down / Isometric)" onClick={handleToggleProjection}>
+          <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">{(pitch > 15) ? 'ISO' : '2D'}</span>
         </button>
       </div>
       
-      {/* Map root container (receives MapLibre canvas) */}
-      <div 
-        ref={ref}
-        className="absolute inset-0"
-        style={{ width: '100%', height: '100%' }}
-      />
-
-      {/* Placement/interaction overlay above the map (only active during placement) */}
-      <div 
-        className={`absolute inset-0 ${placementMode ? 'cursor-crosshair' : ''}`}
-        style={{ width: '100%', height: '100%', pointerEvents: placementMode ? 'auto' : 'none' }}
-        onMouseMove={handleMapMouseMove}
-        onClick={(e) => {
-          try {
-            // If an upstream handler already handled this event (e.g., annotation mousedown/click), skip
-            if (e && (e.defaultPrevented || (e.nativeEvent && e.nativeEvent.defaultPrevented))) return;
-            if (e && e.cancelBubble) return;
-          } catch (_) {}
+      <ActiveToolIndicator activeTool={activeTool} />
+      {isLoading && <LoadingOverlay />}
+      <ViewportInset map={map} focusedArea={focusedArea} isRightSidebarOpen={isRightSidebarOpen} />
+      <div ref={ref} className="absolute inset-0" style={{ width: '100%', height: '100%' }} />
+      <div className={`absolute inset-0 ${placementMode ? 'cursor-crosshair' : ''}`} style={{ width: '100%', height: '100%', pointerEvents: placementMode ? 'auto' : 'none' }} onMouseMove={handleMapMouseMove} onClick={(e) => {
+          try { if (e && (e.defaultPrevented || (e.nativeEvent && e.nativeEvent.defaultPrevented))) return; if (e && e.cancelBubble) return; } catch (_) {}
           try { handleMapClick(e); } catch (_) {}
-          try {
-            if (e && (e.defaultPrevented || (e.nativeEvent && e.nativeEvent.defaultPrevented))) return;
-            if (e && e.cancelBubble) return;
-          } catch (_) {}
-          // Only run selection logic when not in placement mode
-          if (!placementMode) {
-            handleSelectionClick(e);
-          }
+          try { if (e && (e.defaultPrevented || (e.nativeEvent && e.nativeEvent.defaultPrevented))) return; if (e && e.cancelBubble) return; } catch (_) {}
+          if (!placementMode) { handleSelectionClick(e); }
         }}
       />
       
-      <DroppedObjects
-        objects={droppedObjects}
-        placeableObjects={placeableObjects}
-        map={map}
-        onRemoveObject={clickToPlace.removeDroppedObject}
-        objectUpdateTrigger={clickToPlace.objectUpdateTrigger}
-        onEditNote={(obj) => setNoteEditingObject(obj)}
-        isNoteEditing={!!noteEditingObject}
-        selectedId={selectedKind === 'point' ? selectedObjectId : null}
-        onSelectObject={(obj) => {
+      <DroppedObjects objects={droppedObjects} placeableObjects={placeableObjects} map={map} onRemoveObject={clickToPlace.removeDroppedObject} objectUpdateTrigger={clickToPlace.objectUpdateTrigger} onEditNote={(obj) => setNoteEditingObject(obj)} isNoteEditing={!!noteEditingObject} selectedId={selectedKind === 'point' ? selectedObjectId : null} onSelectObject={(obj) => {
           try {
             const t = placeableObjects.find(p => p.id === obj.type);
-            if (t?.geometryType === 'rect') {
-              select(obj.id, 'rect');
-            } else {
-              // Select any non-rect point object for rotation
-              select(obj.id, 'point');
-            }
+            if (t?.geometryType === 'rect') { select(obj.id, 'rect'); } else { select(obj.id, 'point'); }
           } catch (_) {}
-        }}
-        onMoveObject={(id, lng, lat) => {
-          try {
-            clickToPlace.updateDroppedObject(id, (prev) => {
-              if (!prev) return prev;
-              return { ...prev, position: { lng, lat } };
-            });
-          } catch (_) {}
-        }}
-        areaBearingDeg={areaBearingDeg}
+        }} onMoveObject={(id, lng, lat) => {
+          try { clickToPlace.updateDroppedObject(id, (prev) => { if (!prev) return prev; return { ...prev, position: { lng, lat } }; }); } catch (_) {}
+        }} areaBearingDeg={areaBearingDeg}
       />
 
-      {/* DOM overlay text labels to ensure highest z-order over map and SVG overlays */}
       <div className="pointer-events-none absolute inset-0" style={{ zIndex: 60 }}>
         {domAnnotationLabels.map((l) => (
-          <div
-            key={l.id}
-            style={{
-              position: 'absolute',
-              left: l.x,
-              top: l.y,
-              transform: 'translate(-50%, -100%)',
-              fontSize: `${l.size}px`,
-              color: l.color,
-              textShadow: l.halo ? '0 0 2px #fff, 0 0 2px #fff' : undefined,
-              fontWeight: 700,
-              whiteSpace: 'nowrap',
-              pointerEvents: 'none'
-            }}
-          >
+          <div key={l.id} style={{ position: 'absolute', left: l.x, top: l.y, transform: 'translate(-50%, -100%)', fontSize: `${l.size}px`, color: l.color, textShadow: l.halo ? '0 0 2px #fff, 0 0 2px #fff' : undefined, fontWeight: 700, whiteSpace: 'nowrap', pointerEvents: 'none' }}>
             {l.label}
           </div>
         ))}
       </div>
 
-
       {noteEditingObject && (
         <div className="absolute inset-0" style={{ pointerEvents: 'none' }}>
-          {/* Capture wheel/drag to disable map interactions while editing */}
           <div className="absolute inset-0" style={{ pointerEvents: 'auto' }} onWheel={(e) => e.preventDefault()} onMouseDown={(e) => e.preventDefault()} />
-          <DroppedObjectNoteEditor
-            map={map}
-            object={noteEditingObject}
-            objectUpdateTrigger={clickToPlace.objectUpdateTrigger}
-            onSave={(text) => {
-              clickToPlace.setDroppedObjectNote(noteEditingObject.id, text);
-              setNoteEditingObject(null);
-            }}
-            onCancel={() => setNoteEditingObject(null)}
-          />
+          <DroppedObjectNoteEditor map={map} object={noteEditingObject} objectUpdateTrigger={clickToPlace.objectUpdateTrigger} onSave={(text) => { clickToPlace.setDroppedObjectNote(noteEditingObject.id, text); setNoteEditingObject(null); }} onCancel={() => setNoteEditingObject(null)} />
         </div>
       )}
 
       {dimensionsEditingObject && (
         <div className="absolute inset-0" style={{ pointerEvents: 'none' }}>
           <div className="absolute inset-0" style={{ pointerEvents: 'auto' }} onWheel={(e) => e.preventDefault()} onMouseDown={(e) => e.preventDefault()} />
-          <RectangleDimensionsEditor
-            map={map}
-            object={dimensionsEditingObject}
-            placeableObjects={placeableObjects}
-            objectUpdateTrigger={clickToPlace.objectUpdateTrigger}
-            onSave={(widthMeters, heightMeters) => {
-              // Resize rectangle to exact dimensions
+          <RectangleDimensionsEditor map={map} object={dimensionsEditingObject} placeableObjects={placeableObjects} objectUpdateTrigger={clickToPlace.objectUpdateTrigger} onSave={(widthMeters, heightMeters) => {
               try {
                 clickToPlace.updateDroppedObject(dimensionsEditingObject.id, (prev) => {
                   if (!prev || prev?.geometry?.type !== 'Polygon') return prev;
-                  
-                  // Get current geometry and rotation
                   const ring = prev?.geometry?.coordinates?.[0] || [];
                   if (ring.length < 4) return prev;
-                  
-                  const centroid = prev.position || { 
-                    lng: (ring[0][0] + ring[2][0]) / 2, 
-                    lat: (ring[0][1] + ring[2][1]) / 2 
-                  };
+                  const centroid = prev.position || { lng: (ring[0][0] + ring[2][0]) / 2, lat: (ring[0][1] + ring[2][1]) / 2 };
                   const rotationDeg = Number(prev?.properties?.rotationDeg || 0);
-                  
-                  // Build new rectangle with exact dimensions
-                  // Convert to Web Mercator for accurate sizing
                   const R = 6378137;
-                  const toMerc = (lng, lat) => {
-                    const x = R * (lng * Math.PI / 180);
-                    const y = R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2));
-                    return { x, y };
-                  };
-                  const toLngLat = (x, y) => {
-                    const lng = (x / R) * 180 / Math.PI;
-                    const lat = (2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * 180 / Math.PI;
-                    return [lng, lat];
-                  };
-                  
+                  const toMerc = (lng, lat) => { const x = R * (lng * Math.PI / 180); const y = R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2)); return { x, y }; };
+                  const toLngLat = (x, y) => { const lng = (x / R) * 180 / Math.PI; const lat = (2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * 180 / Math.PI; return [lng, lat]; };
                   const center = toMerc(centroid.lng, centroid.lat);
-                  const halfW = widthMeters / 2;
-                  const halfH = heightMeters / 2;
-                  
-                  // Create corners relative to center
+                  const halfW = widthMeters / 2; const halfH = heightMeters / 2;
                   const rad = (rotationDeg * Math.PI) / 180;
-                  const cos = Math.cos(rad);
-                  const sin = Math.sin(rad);
-                  
-                  const corners = [
-                    [-halfW, -halfH],
-                    [halfW, -halfH],
-                    [halfW, halfH],
-                    [-halfW, halfH]
-                  ].map(([dx, dy]) => {
-                    const rx = dx * cos - dy * sin;
-                    const ry = dx * sin + dy * cos;
+                  const cos = Math.cos(rad); const sin = Math.sin(rad);
+                  const corners = [[-halfW, -halfH], [halfW, -halfH], [halfW, halfH], [-halfW, halfH]].map(([dx, dy]) => {
+                    const rx = dx * cos - dy * sin; const ry = dx * sin + dy * cos;
                     return toLngLat(center.x + rx, center.y + ry);
                   });
-                  
-                  const newGeom = {
-                    type: 'Polygon',
-                    coordinates: [[...corners, corners[0]]]
-                  };
-                  
-                  return { 
-                    ...prev, 
-                    geometry: newGeom,
-                    properties: {
-                      ...prev.properties,
-                      dimensions: { width: widthMeters, height: heightMeters }
-                    }
-                  };
+                  const newGeom = { type: 'Polygon', coordinates: [[...corners, corners[0]]] };
+                  return { ...prev, geometry: newGeom, properties: { ...prev.properties, dimensions: { width: widthMeters, height: heightMeters } } };
                 });
-              } catch (err) {
-                console.error('Failed to update rectangle dimensions:', err);
-              }
+              } catch (err) { console.error('Failed to update rectangle dimensions:', err); }
               setDimensionsEditingObject(null);
-            }}
-            onCancel={() => setDimensionsEditingObject(null)}
-          />
+            }} onCancel={() => setDimensionsEditingObject(null)} />
         </div>
       )}
       
-      {/* Labels now rendered via map symbol layer from derivedAnnotations; disable HTML overlay */}
-
-      {textEditorFeatureId && (
-        <TextAnnotationEditor
-          map={map}
-          featureId={textEditorFeatureId}
-          drawRef={drawTools.draw}
-          onSave={() => { setTextEditorFeatureId(null); setAnnotationsTrigger(v => v + 1); }}
-          onCancel={() => setTextEditorFeatureId(null)}
-        />
-      )}
-      
-      {/* Placement Preview */}
-      <PlacementPreview
-        placementMode={placementMode}
-        cursorPosition={cursorPosition}
-        placeableObjects={placeableObjects}
-        map={map}
-      />
-
-      {/* Floating per-instance nudge markers */}
-      <NudgeMarkers
-        nudges={nudges}
-        map={map}
-        objectUpdateTrigger={clickToPlace.objectUpdateTrigger}
-        onDismiss={onDismissNudge}
-        highlightedIds={highlightedIds}
-      />
-
-      <EdgeMarkers
-        map={map}
-        infrastructureData={infrastructure?.infrastructureData}
-        categories={infrastructure?.edgeMarkerCategories}
-      />
-      
+      <PlacementPreview placementMode={placementMode} cursorPosition={cursorPosition} placeableObjects={placeableObjects} map={map} />
+      <NudgeMarkers nudges={nudges} map={map} objectUpdateTrigger={clickToPlace.objectUpdateTrigger} onDismiss={onDismissNudge} highlightedIds={highlightedIds} />
+      <EdgeMarkers map={map} infrastructureData={infrastructure?.infrastructureData} categories={infrastructure?.edgeMarkerCategories} />
       {!mapLoaded && <LoadingOverlay />}
-      
       {drawTools?.activeTool && <ActiveToolIndicator tool={drawTools.activeTool} />}
+      {!drawTools?.activeTool && !permitAreas.clickedTooltip?.visible && ( <MapTooltip tooltip={permitAreas.tooltip} /> )}
+      {permitAreas.clickedTooltip?.visible && ( <ClickPopover tooltip={permitAreas.clickedTooltip} stats={permitAreas.clickedTooltip.stats} distributions={permitAreas.clickedTooltip.distributions} geometry={permitAreas.clickedTooltip.geometry} dimensionUnits={exportOptions?.dimensionUnits || 'ft'} onClose={permitAreas.dismissClickedTooltip} onFocus={permitAreas.focusClickedTooltipArea} /> )}
+      {permitAreas.showOverlapSelector && ( <OverlapSelector overlappingAreas={permitAreas.overlappingAreas} selectedIndex={permitAreas.selectedOverlapIndex} clickPosition={permitAreas.clickPosition} onSelect={permitAreas.selectOverlappingArea} onClose={permitAreas.clearOverlapSelector} /> )}
       
-      {/* Only show hover tooltip when not drawing and no clicked popover is visible */}
-      {!drawTools?.activeTool && !permitAreas.clickedTooltip?.visible && (
-        <MapTooltip tooltip={permitAreas.tooltip} />
-      )}
-
-      {/* Clicked popover (parks mode), persists and follows camera */}
-      {permitAreas.clickedTooltip?.visible && (
-        <ClickPopover 
-          tooltip={permitAreas.clickedTooltip}
-          stats={permitAreas.clickedTooltip.stats}
-          distributions={permitAreas.clickedTooltip.distributions}
-          geometry={permitAreas.clickedTooltip.geometry}
-          dimensionUnits={exportOptions?.dimensionUnits || 'ft'}
-          onClose={permitAreas.dismissClickedTooltip}
-          onFocus={permitAreas.focusClickedTooltipArea}
-        />
-      )}
-      
-      {permitAreas.showOverlapSelector && (
-        <OverlapSelector 
-          overlappingAreas={permitAreas.overlappingAreas}
-          selectedIndex={permitAreas.selectedOverlapIndex}
-          clickPosition={permitAreas.clickPosition}
-          onSelect={permitAreas.selectOverlappingArea}
-          onClose={permitAreas.clearOverlapSelector}
-        />
-      )}
-      {/* MapLibre-based rectangle rendering for proper z-ordering */}
-      {/* Rectangle action buttons overlay (edit dimensions, delete) - updates with map view */}
       {selectedKind === 'rect' && selectedObjectId && map && rectMovingId !== selectedObjectId && (() => {
         const rect = droppedObjects.find(o => o.id === selectedObjectId);
         if (!rect || !rect.geometry?.coordinates?.[0] || rect.geometry.coordinates[0].length < 4) return null;
-        
-        // Calculate centroid for button positioning
         const ring = rect.geometry.coordinates[0];
-        const centroid = [
-          (ring[0][0] + ring[2][0]) / 2,
-          (ring[0][1] + ring[2][1]) / 2
-        ];
-        
+        const centroid = [(ring[0][0] + ring[2][0]) / 2, (ring[0][1] + ring[2][1]) / 2];
         try {
           const screenPos = map.project(centroid);
-          // Consume view.renderTick to force re-render on camera move
-          const _ = view?.renderTick;
           return (
-            <div 
-              className="absolute flex gap-1 z-50 pointer-events-auto"
-              style={{
-                left: screenPos.x,
-                top: screenPos.y - 40,
-                transform: 'translateX(-50%)'
-              }}
-            >
-              <button
-                type="button"
-                className="bg-white/90 dark:bg-gray-900/80 border border-gray-300 dark:border-gray-700 rounded-full px-2 py-1 text-[10px] shadow hover:bg-white"
-                title="Edit dimensions (D)"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDimensionsEditingObject(rect);
-                }}
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                className="bg-red-500 text-white rounded-full px-2 py-1 shadow text-[10px] hover:bg-red-600"
-                title="Delete (Delete key)"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  clickToPlace.removeDroppedObject(rect.id);
-                  clearSelection();
-                }}
-              >
-                ✕
-              </button>
+            <div className="absolute flex gap-1 z-50 pointer-events-auto" style={{ left: screenPos.x, top: screenPos.y - 40, transform: 'translateX(-50%)' }}>
+              <button type="button" className="bg-white/90 dark:bg-gray-900/80 border border-gray-300 dark:border-gray-700 rounded-full px-2 py-1 text-[10px] shadow hover:bg-white" title="Edit dimensions (D)" onClick={(e) => { e.stopPropagation(); setDimensionsEditingObject(rect); }}>Edit</button>
+              <button type="button" className="bg-red-500 text-white rounded-full px-2 py-1 shadow text-[10px] hover:bg-red-600" title="Delete (Delete key)" onClick={(e) => { e.stopPropagation(); clickToPlace.removeDroppedObject(rect.id); clearSelection(); }}>✕</button>
             </div>
           );
-        } catch (_) {
-          return null;
-        }
+        } catch (_) { return null; }
       })()}
       
       {map && (
-        <DroppedRectanglesMapLibre
-          objects={droppedObjects}
-          placeableObjects={placeableObjects}
-          map={map}
-          objectUpdateTrigger={clickToPlace.objectUpdateTrigger}
-          selectedId={selectedKind === 'rect' ? selectedObjectId : null}
-          isPlacementActive={!!placementMode}
-          onSelectRect={(id) => select(id, 'rect')}
-          onResizeRect={(id, newGeom) => {
+        <DroppedRectanglesMapLibre objects={droppedObjects} placeableObjects={placeableObjects} map={map} objectUpdateTrigger={clickToPlace.objectUpdateTrigger} selectedId={selectedKind === 'rect' ? selectedObjectId : null} isPlacementActive={!!placementMode} onSelectRect={(id) => select(id, 'rect')} onResizeRect={(id, newGeom) => {
           try {
-            // Use silent mode - MapLibre source is already updated via direct manipulation
             clickToPlace.updateDroppedObject(id, (prev) => {
               if (!prev) return prev;
-              // Update dimensions label from new geometry using great-circle distances on sides
               let dims = prev?.properties?.dimensions || prev?.properties?.user_dimensions_m || {};
               try {
                 const ring = Array.isArray(newGeom?.coordinates?.[0]) ? newGeom.coordinates[0] : [];
-                if (ring.length >= 4 && map && typeof map.project === 'function') {
-                  const a = ring[0], b = ring[1], c = ring[2];
-                  const dist = (p, q) => {
-                    const R = 6378137; // meters
-                    const toRad = (d) => d * Math.PI / 180;
-                    const dLat = toRad(q[1] - p[1]);
-                    const dLon = toRad(q[0] - p[0]);
-                    const lat1 = toRad(p[1]);
-                    const lat2 = toRad(q[1]);
-                    const s = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-                    const d = 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
-                    return d;
-                  };
-                  const wMeters = dist(ring[0], ring[1]);
-                  const hMeters = dist(ring[1], ring[2]);
-                  dims = { width: wMeters, height: hMeters };
+                if (ring.length >= 4) {
+                  const dist = (p, q) => { const R = 6378137; const toRad = (d) => d * Math.PI / 180; const dLat = toRad(q[1] - p[1]); const dLon = toRad(q[0] - p[0]); const lat1 = toRad(p[1]); const lat2 = toRad(q[1]); const s = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2; return 2 * R * Math.asin(Math.min(1, Math.sqrt(s))); };
+                  dims = { width: dist(ring[0], ring[1]), height: dist(ring[1], ring[2]) };
                 }
               } catch (_) {}
-              const nextProps = Object.assign({}, prev.properties || {}, { dimensions: dims });
-              return { ...prev, geometry: newGeom, properties: nextProps };
-            }, true); // silent=true - don't trigger objectUpdateTrigger
+              return { ...prev, geometry: newGeom, properties: { ...prev.properties, dimensions: dims } };
+            }, true);
           } catch (_) {}
-          }}
-          onMoveRect={(id, newGeom) => {
+          }} onMoveRect={(id, newGeom) => {
           try {
-            // Use silent mode - MapLibre source is already updated via direct manipulation
             clickToPlace.updateDroppedObject(id, (prev) => {
               if (!prev) return prev;
-              // Update geometry and centroid position when moving
               const ring = Array.isArray(newGeom?.coordinates?.[0]) ? newGeom.coordinates[0] : [];
-              const centroid = ring.length >= 4 ? { 
-                lng: (ring[0][0] + ring[2][0]) / 2, 
-                lat: (ring[0][1] + ring[2][1]) / 2 
-              } : prev.position;
+              const centroid = ring.length >= 4 ? { lng: (ring[0][0] + ring[2][0]) / 2, lat: (ring[0][1] + ring[2][1]) / 2 } : prev.position;
               return { ...prev, geometry: newGeom, position: centroid };
-            }, true); // silent=true - don't trigger objectUpdateTrigger
+            }, true);
           } catch (_) {}
           }}
         />
       )}
-      <ViewportInset 
-        map={map} 
-        mapLoaded={mapLoaded} 
-        permitAreas={permitAreas} 
-        responsive={safeResponsive}
-        isSitePlanMode={isSitePlanMode}
-        isRightSidebarOpen={isRightSidebarOpen}
-      />
+      <ViewportInset map={map} mapLoaded={mapLoaded} permitAreas={permitAreas} responsive={safeResponsive} isSitePlanMode={isSitePlanMode} isRightSidebarOpen={isRightSidebarOpen} />
     </div>
   );
 });
