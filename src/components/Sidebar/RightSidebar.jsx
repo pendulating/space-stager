@@ -153,9 +153,11 @@ const RightSidebar = ({
             </div>
             {drawTools.selectedShape && (
               <ShapeProperties
-                shapeLabel={drawTools.shapeLabel}
-                onLabelChange={drawTools.setShapeLabel}
-                onApply={drawTools.updateShapeLabel}
+                selectedShape={drawTools.selectedShape}
+                customShapes={(drawTools.draw?.current?.getAll()?.features || []).map(f => ({ id: f.id, type: f.geometry.type, label: f.properties?.label }))}
+                draw={drawTools.draw}
+                onUpdateShape={drawTools.updateShape}
+                onDeleteShape={drawTools.deleteSelectedShape}
               />
             )}
           </div>
@@ -179,7 +181,7 @@ const RightSidebar = ({
               selectedShape={drawTools.selectedShape}
               onShapeSelect={drawTools.selectShape}
               draw={drawTools.draw}
-              onShapeRename={drawTools.renameShape}
+              onShapeRename={drawTools.updateShape}
               showLabels={drawTools.showLabels}
               onToggleLabels={drawTools.setShowLabels}
               onCountChange={(n) => setAnnotationCount(n)}
