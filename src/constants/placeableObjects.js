@@ -1,235 +1,141 @@
 // constants/placeableObjects.js
 export const PLACEABLE_OBJECTS = [
+  // STRUCTURES (Tileable Areas)
   {
     id: 'stage',
-    name: 'Stage',
+    name: 'Stage Riser',
     category: 'Structures',
     icon: '⬛',
     color: '#1f2937',
-    size: { width: 36, height: 36 },
     geometryType: 'rect',
     units: 'ft',
     defaults: { min: { w: 8, h: 6 } },
-    // Removed SVG texture; rely on solid fill color for rectangles
+    description: 'Standard 8ft x 6ft riser sections.'
   },
   {
     id: 'tent',
-    name: 'Tent',
+    name: 'Pop-up Tent',
     category: 'Structures',
     icon: '⛺',
-    color: '#f8f9fa',
-    size: { width: 48, height: 48 },
+    color: '#3b82f6',
     geometryType: 'rect',
     units: 'ft',
     defaults: { min: { w: 10, h: 10 } },
-    // Removed SVG texture; rely on solid fill color for rectangles
+    description: 'Standard 10ft x 10ft canopy.'
   },
   {
-    id: 'fire-lane',
-    name: 'Fire Lane',
-    category: 'Safety',
-    icon: '🚒',
-    color: '#dc2626',
-    size: { width: 48, height: 48 },
+    id: 'kiosk',
+    name: 'Plaza Kiosk',
+    category: 'Structures',
+    icon: '🏪',
+    color: '#4b5563',
     geometryType: 'rect',
     units: 'ft',
-    defaults: { min: { w: 12, h: 8 } }
+    defaults: { min: { w: 12, h: 9 } },
+    description: 'Standard 12ft x 9ft plaza kiosk.'
+  },
+
+  // FURNITURE (Tileable Areas with dynamic icons)
+  {
+    id: 'seating-area',
+    name: 'Seating Area',
+    category: 'Furniture',
+    icon: '🪑',
+    color: '#2563eb',
+    geometryType: 'rect',
+    units: 'ft',
+    defaults: { min: { w: 10, h: 10 } },
+    tileIcon: 'camping-chair',
+    tileSpacingFt: 4,
+    description: 'Area for chairs or bistro sets.'
+  },
+  {
+    id: 'bistro-sets',
+    name: 'Bistro Sets',
+    category: 'Furniture',
+    icon: '☕',
+    color: '#d97706',
+    geometryType: 'rect',
+    units: 'ft',
+    defaults: { min: { w: 11, h: 5.5 } }, // ~2 sets
+    tileIcon: 'table',
+    tileSpacingFt: 6,
+    description: '30 sq. ft. per table/chair set.'
+  },
+
+  // ACTIVITIES (Tileable Areas)
+  {
+    id: 'yoga-mats',
+    name: 'Yoga Area',
+    category: 'Activities',
+    icon: '🧘',
+    color: '#10b981',
+    geometryType: 'rect',
+    units: 'ft',
+    defaults: { min: { w: 10, h: 10 } },
+    tileIcon: 'trash', // placeholder
+    tileSpacingFt: 5,
+    description: '25 sq. ft. per person.'
+  },
+  {
+    id: 'dynamic-activity',
+    name: 'Zumba/Dance Area',
+    category: 'Activities',
+    icon: '💃',
+    color: '#ec4899',
+    geometryType: 'rect',
+    units: 'ft',
+    defaults: { min: { w: 14, h: 14 } },
+    tileIcon: 'balloons', // placeholder
+    tileSpacingFt: 7,
+    description: '50 sq. ft. per person for movement.'
+  },
+
+  // EQUIPMENT (Critical Point Objects - Simplified)
+  {
+    id: 'first-aid',
+    name: 'First Aid',
+    category: 'Equipment',
+    icon: '🏥',
+    imageUrl: '/data/icons/dropped-objects/sound.svg', // placeholder
+    color: '#ef4444',
+    geometryType: 'point',
+    size: { width: 32, height: 32 },
+    description: 'Emergency medical station.'
   },
   {
     id: 'grill',
-    name: 'Grill',
+    name: 'Grill/Cooking',
     category: 'Equipment',
-    icon: '🔥', // Fallback for export or if image fails
-    imageUrl: '/static/charcoal-grill/isometric/renders/charcoal-grill_000.png',
+    icon: '🔥',
+    imageUrl: '/data/icons/dropped-objects/grill.svg',
     color: '#dc2626',
-    size: { width: 36, height: 36 },
-    enhancedRendering: {
-      enabled: true,
-      spriteBase: 'charcoal-grill',
-      publicDir: '/static/charcoal-grill/isometric/renders',
-      angles: [0, 45, 90, 135, 180, 225, 270, 315]
-    }
-  },
-  {
-    id: 'chair',
-    name: 'Chair',
-    category: 'Furniture',
-    icon: '🪑', // Fallback
-    imageUrl: '/data/icons/dropped-objects/camping-chair.svg',
-    color: '#2563eb',
-    size: { width: 34, height: 34 },
-    // Enable 8-angle isometric variants for camping chairs (assets copied to public dir)
-    enhancedRendering: {
-      enabled: true,
-      spriteBase: 'camping-chair',
-      publicDir: '/static/camping-chair/isometric/renders',
-      angles: [0, 45, 90, 135, 180, 225, 270, 315]
-    }
-  },
-  {
-    id: 'cooler',
-    name: 'Cooler',
-    category: 'Equipment',
-    icon: '🧊', // Fallback
-    // Base image is not used for enhanced variants but kept for compatibility
-    imageUrl: '/static/cooler/isometric/renders/cooler_000.png',
-    color: '#0ea5e9',
-    size: { width: 34, height: 34 },
-    enhancedRendering: {
-      enabled: true,
-      spriteBase: 'cooler',
-      publicDir: '/static/cooler/isometric/renders',
-      angles: [0, 45, 90, 135, 180, 225, 270, 315]
-    }
-  },
-  {
-    id: 'plastic-table',
-    name: 'Plastic Table',
-    category: 'Furniture',
-    icon: '🔲', // Fallback
-    imageUrl: '/data/icons/isometric-bw/folding-table_000.png',
-    color: '#6b7280',
-    size: { width: 36, height: 36 },
-    enhancedRendering: {
-      enabled: true,
-      spriteBase: 'folding-table',
-      publicDir: '/data/icons/isometric-bw',
-      angles: [0, 45, 90, 135, 180, 225, 270, 315]
-    }
-  },
-  {
-    id: 'speaker',
-    name: 'Speaker',
-    category: 'Audio',
-    icon: '🔊', // Fallback
-    imageUrl: '/data/icons/isometric-bw/speaker_000.png',
-    color: '#111827',
-    size: { width: 34, height: 34 },
-    enhancedRendering: {
-      enabled: true,
-      spriteBase: 'speaker',
-      publicDir: '/data/icons/isometric-bw',
-      angles: [0, 45, 90, 135, 180, 225, 270, 315]
-    }
-  },
-  {
-    id: 'banner',
-    name: 'Banner',
-    category: 'Decor',
-    icon: '🏳️',
-    imageUrl: '/data/icons/isometric-bw/banner_000.png',
-    color: '#f59e0b',
-    size: { width: 36, height: 36 },
-    enhancedRendering: {
-      enabled: true,
-      spriteBase: 'banner',
-      publicDir: '/data/icons/isometric-bw',
-      angles: [0, 45, 90, 135, 180, 225, 270, 315]
-    }
-  },
-  {
-    id: 'projector-screen',
-    name: 'Projector Screen',
-    category: 'Structures',
-    icon: '🖼️',
-    imageUrl: '/data/icons/isometric-bw/projector-screen_000.png',
-    color: '#6b7280',
-    size: { width: 36, height: 36 },
-    enhancedRendering: {
-      enabled: true,
-      spriteBase: 'projector-screen',
-      publicDir: '/data/icons/isometric-bw',
-      angles: [0, 45, 90, 135, 180, 225, 270, 315]
-    }
-  },
-  {
-    id: 'outdoor-fan',
-    name: 'Outdoor Fan',
-    category: 'Equipment',
-    icon: '🌀',
-    imageUrl: '/data/icons/isometric-bw/outdoor-fan_000.png',
-    color: '#06b6d4',
-    size: { width: 34, height: 34 },
-    enhancedRendering: {
-      enabled: true,
-      spriteBase: 'outdoor-fan',
-      publicDir: '/data/icons/isometric-bw',
-      angles: [0, 45, 90, 135, 180, 225, 270, 315]
-    }
-  },
-  {
-    id: 'heat-lamp',
-    name: 'Heat Lamp',
-    category: 'Equipment',
-    icon: '🔆',
-    imageUrl: '/data/icons/isometric-bw/heat-lamp_000.png',
-    color: '#f97316',
-    size: { width: 34, height: 34 },
-    enhancedRendering: {
-      enabled: true,
-      spriteBase: 'heat-lamp',
-      publicDir: '/data/icons/isometric-bw',
-      angles: [0, 45, 90, 135, 180, 225, 270, 315]
-    }
-  },
-  {
-    id: 'fire-extinguisher',
-    name: 'Fire Extinguisher',
-    category: 'Safety',
-    icon: '🧯',
-    imageUrl: '/data/icons/isometric-bw/fire-extinguisher_000.png',
-    color: '#ef4444',
-    size: { width: 28, height: 28 },
-    enhancedRendering: {
-      enabled: true,
-      spriteBase: 'fire-extinguisher',
-      publicDir: '/data/icons/isometric-bw',
-      angles: [0, 45, 90, 135, 180, 225, 270, 315]
-    }
-  },
-  {
-    id: 'first-aid',
-    name: 'First Aid Kit',
-    category: 'Safety',
-    icon: '🧰',
-    imageUrl: '/data/icons/isometric-bw/first-aid_000.png',
-    color: '#22c55e',
-    size: { width: 28, height: 28 },
-    enhancedRendering: {
-      enabled: true,
-      spriteBase: 'first-aid',
-      publicDir: '/data/icons/isometric-bw',
-      angles: [0, 45, 90, 135, 180, 225, 270, 315]
-    }
-  },
-  {
-    id: 'trash-can',
-    name: 'Trash Can',
-    category: 'Waste Management',
-    icon: '🗑️',
-    imageUrl: '/data/icons/isometric-bw/trash-can_000.png',
-    color: '#374151',
-    size: { width: 34, height: 34 },
-    enhancedRendering: {
-      enabled: true,
-      spriteBase: 'trash-can',
-      publicDir: '/data/icons/isometric-bw',
-      angles: [0, 45, 90, 135, 180, 225, 270, 315]
-    }
-  },
-  {
-    id: 'plastic-seat-0',
-    name: 'Plastic Seat',
-    category: 'Furniture',
-    icon: '💺',
-    imageUrl: '/data/icons/isometric-bw/plastic-seat-0_000.png',
-    color: '#6b7280',
+    geometryType: 'point',
     size: { width: 32, height: 32 },
-    enhancedRendering: {
-      enabled: true,
-      spriteBase: 'plastic-seat-0',
-      publicDir: '/data/icons/isometric-bw',
-      angles: [0, 45, 90, 135, 180, 225, 270, 315]
-    }
+    description: 'Cooking or heating equipment.'
+  },
+  {
+    id: 'sound-system',
+    name: 'Sound System',
+    category: 'Equipment',
+    icon: '🔊',
+    imageUrl: '/data/icons/dropped-objects/sound.svg',
+    color: '#111827',
+    geometryType: 'point',
+    size: { width: 32, height: 32 },
+    description: 'Speakers and audio gear.'
+  },
+
+  // SAFETY
+  {
+    id: 'barricade',
+    name: 'Movable Barricade',
+    category: 'Safety',
+    icon: '🚧',
+    color: '#f59e0b',
+    geometryType: 'rect',
+    units: 'ft',
+    defaults: { min: { w: 8.5, h: 2 } },
+    description: 'Standard 8ft 6in barricade section.'
   }
 ];

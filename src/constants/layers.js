@@ -15,7 +15,7 @@ export const LAYER_GROUPS = {
   'transit': {
     name: 'Transit',
     icon: '🚇',
-    layers: ['subwayEntrances', 'subwayLines', 'stationEnvelopes', 'busStops']
+    layers: ['subwayEntrances', 'subwayLines', 'stationEnvelopes', 'busStops', 'sidewalks']
   },
   'accessibility': {
     name: 'Accessibility',
@@ -119,6 +119,15 @@ export const INITIAL_LAYERS = {
     loading: false,
     loaded: false,
     endpoint: 'https://data.ny.gov/resource/s692-irgq.geojson'
+  },
+  sidewalks: {
+    visible: false,
+    requested: false,
+    name: 'Sidewalks',
+    color: '#94a3b8',
+    loading: false,
+    loaded: false,
+    endpoint: 'https://data.cityofnewyork.us/resource/52n9-sdep.geojson'
   },
   fireLanes: {
     visible: false,

@@ -22,6 +22,8 @@ export function ZoneCreatorProvider({ children }) {
   const [selectedNodeIds, setSelectedNodeIds] = useState([]);
   const [selectedNodes, setSelectedNodes] = useState([]); // { id, coord: [lng, lat] }
   const [widthFeet, setWidthFeet] = useState(40);
+  const [sidewalkClearPathFt, setSidewalkClearPathFt] = useState(5);
+  const [pmpClassification, setPmpClassification] = useState(null); // { category, rank, clearPathFt }
   const [previewActive, setPreviewActive] = useState(false);
   const [emergencyLaneGeometry, setEmergencyLaneGeometry] = useState(null);
   const [complianceStatus, setComplianceStatus] = useState({
@@ -85,13 +87,17 @@ export function ZoneCreatorProvider({ children }) {
     clearNodes,
     widthFeet,
     setWidthFeet,
+    sidewalkClearPathFt,
+    setSidewalkClearPathFt,
+    pmpClassification,
+    setPmpClassification,
     previewActive,
     setPreviewActive,
     emergencyLaneGeometry,
     setEmergencyLaneGeometry,
     complianceStatus,
     setComplianceStatus
-  }), [isActive, workflowStep, availableExtensions, entireZonePdf, selectedNodeIds, selectedNodes, addNode, undoLastNode, clearNodes, widthFeet, previewActive, emergencyLaneGeometry, complianceStatus]);
+  }), [isActive, workflowStep, availableExtensions, entireZonePdf, selectedNodeIds, selectedNodes, addNode, undoLastNode, clearNodes, widthFeet, sidewalkClearPathFt, pmpClassification, previewActive, emergencyLaneGeometry, complianceStatus]);
 
   return (
     <ZoneCreatorContext.Provider value={value}>

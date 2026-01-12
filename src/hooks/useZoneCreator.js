@@ -4,6 +4,7 @@ import { useGlobalKeymap } from './useGlobalKeymap';
 import { useZoneCreatorContext, WORKFLOW_STEPS } from '../contexts/ZoneCreatorContext.jsx';
 import * as turf from '@turf/turf';
 import { analyzeTurnRadii, generateSweptPath } from '../utils/safetyUtils';
+import { autoDetectPedestrianDemand } from '../services/pedestrianDemandService';
 
 // This hook wires map interactions for Step 1 (type toggle via context) and Step 2 (node selection)
 // It only operates in intersections mode and when isActive is true.
@@ -20,12 +21,34 @@ export function useZoneCreator(map, geographyType) {
     workflowStep,
     setWorkflowStep,
     setAvailableExtensions,
-    setEmergencyLaneGeometry
+    setEmergencyLaneGeometry,
+    setSidewalkClearPathFt,
+    setPmpClassification
   } = useZoneCreatorContext();
   const listenerRef = useRef({ click: null, mouseenter: null, mouseleave: null });
   const zoneLayerIdsRef = useRef({ line: null, fill: null, emergency: null });
   const pendingExtensionsRef = useRef([]);
   const isSettlingRef = useRef(false);
+
+  // Auto-detect pedestrian demand classification
+  useEffect(() => {
+    if (selectedNodes.length < 2) {
+      setPmpClassification(null);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      const coords = selectedNodes.map(n => n.coord);
+      const detection = await autoDetectPedestrianDemand(coords);
+      if (detection) {
+        setPmpClassification(detection);
+        // Automatically set the clear path based on detection to minimize user burden
+        setSidewalkClearPathFt(detection.clearPathFt);
+      }
+    }, 1000); // Debounce to avoid excessive API calls during rapid extension
+
+    return () => clearTimeout(timer);
+  }, [selectedNodes, setPmpClassification, setSidewalkClearPathFt]);
 
   // Visual feedback layer ids from intersections source
   const idPrefix = 'intersections';
@@ -399,7 +422,9 @@ export function useZoneCreator(map, geographyType) {
           properties: { 
             name: 'Custom Street Zone',
             safety: {
-              turnAnalysis
+              turnAnalysis,
+              emergencyLane: emergencyLane,
+              sweptPath: sweptPath
             }
           },
           geometry: buffered.geometry

@@ -637,6 +637,7 @@ export const exportPermitAreaSiteplanV2 = async (
     drawDroppedObjectsOnPdf(pdf, droppedObjects, project, toMm, droppedObjectPngs, snappedBearingExport, viewTypeForExport);
     // Notes will be drawn at topmost layer later
     drawCustomShapesOnPdf(pdf, numberedShapes, project, toMm);
+    drawSafetyComplianceOnPdf(pdf, areaForExport, project, toMm);
     drawInfrastructureOnPdf(pdf, layers, exportInfra, project, toMm, mmFromPx, pngIcons, enhancedVariantPngsExport);
     // Labels last so they overlay icons/lines
     if (regsVisible.length > 0) {
@@ -1499,6 +1500,61 @@ const drawInfrastructurePolygonFillsOnPdf = (pdf, layers, infrastructureData, pr
   } catch (_) {}
 };
 
+const drawSafetyComplianceOnPdf = (pdf, focusedArea, project, toMm) => {
+  const safety = focusedArea?.properties?.safety;
+  if (!safety) return;
+
+  const { emergencyLane, sweptPath } = safety;
+
+  // 1. Draw Emergency Lane (Amber dashed)
+  if (emergencyLane && emergencyLane.geometry) {
+    pdf.setDrawColor(245, 158, 11); // Amber-500
+    pdf.setLineWidth(0.6);
+    pdf.setLineDashPattern([1.5, 1.5], 0);
+    
+    const drawPoly = (coords) => {
+      let pts = coords.map(([lng, lat]) => toMm(project(lng, lat)));
+      if (pts.length < 2) return;
+      const segments = toRelativeSegments(pts);
+      pdf.lines(segments, pts[0].x, pts[0].y, [1, 1], 'S', true);
+    };
+
+    const g = emergencyLane.geometry;
+    if (g.type === 'Polygon') {
+      drawPoly(g.coordinates[0]);
+    } else if (g.type === 'MultiPolygon') {
+      g.coordinates.forEach(poly => drawPoly(poly[0]));
+    }
+    pdf.setLineDashPattern([], 0); // Reset
+  }
+
+  // 2. Draw Swept Path (Red semi-transparent)
+  if (sweptPath && sweptPath.geometry) {
+    pdf.saveGraphicsState && pdf.saveGraphicsState();
+    const gs = new pdf.GState({ opacity: 0.1 });
+    if (pdf.setGState) pdf.setGState(gs);
+    pdf.setFillColor(239, 68, 68); // Red-500
+    pdf.setDrawColor(239, 68, 68);
+    pdf.setLineWidth(0.2);
+
+    const drawPoly = (coords) => {
+      let pts = coords.map(([lng, lat]) => toMm(project(lng, lat)));
+      if (pts.length < 3) return;
+      const segments = toRelativeSegments(pts);
+      pdf.lines(segments, pts[0].x, pts[0].y, [1, 1], 'F', true);
+      pdf.lines(segments, pts[0].x, pts[0].y, [1, 1], 'S', true);
+    };
+
+    const g = sweptPath.geometry;
+    if (g.type === 'Polygon') {
+      drawPoly(g.coordinates[0]);
+    } else if (g.type === 'MultiPolygon') {
+      g.coordinates.forEach(poly => drawPoly(poly[0]));
+    }
+    pdf.restoreGraphicsState && pdf.restoreGraphicsState();
+  }
+};
+
 const drawInfrastructureOnPdf = (pdf, layers, infrastructureData, project, toMm, mmFromPx, pngIcons, enhancedVariantPngs) => {
   if (!layers) return;
   const entries = Object.entries(layers).filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible && !cfg?.disabled);
@@ -1594,6 +1650,34 @@ const drawDroppedObjectsOnPdf = (pdf, droppedObjects, project, toMm, droppedObje
             pdf.setTextColor(17, 24, 39);
             pdf.text(label, cx, cy, { align: 'center', baseline: 'middle' });
           } catch (_) {}
+
+          // Tiling icons in PDF
+          if (objType.tileIcon && objType.tileSpacingFt) {
+            try {
+              const poly = turf.polygon(obj.geometry.coordinates);
+              const bbox = turf.bbox(poly);
+              // Use same math as DroppedRectanglesMapLibre
+              const p1 = [bbox[0], bbox[1]], p2 = [bbox[0], bbox[3]];
+              const latDegPerFt = (bbox[3] - bbox[1]) / (turf.distance(p1, p2, { units: 'miles' }) * 5280 || 1);
+              const p3 = [bbox[0], bbox[1]], p4 = [bbox[2], bbox[1]];
+              const lngDegPerFt = (bbox[2] - bbox[0]) / (turf.distance(p3, p4, { units: 'miles' }) * 5280 || 1);
+              
+              const xSpacing = objType.tileSpacingFt * lngDegPerFt;
+              const ySpacing = objType.tileSpacingFt * latDegPerFt;
+
+              pdf.setDrawColor(156, 163, 175);
+              pdf.setLineWidth(0.2);
+              
+              for (let x = bbox[0] + xSpacing / 2; x < bbox[2] + xSpacing / 2; x += xSpacing) {
+                for (let y = bbox[1] + ySpacing / 2; y < bbox[3] + ySpacing / 2; y += ySpacing) {
+                  if (turf.booleanPointInPolygon([x, y], poly)) {
+                    const pt = toMm(project(x, y));
+                    pdf.circle(pt.x, pt.y, 0.4, 'S'); // Tiny circle placeholder for tile icons
+                  }
+                }
+              }
+            } catch (_) {}
+          }
         }
       } catch (_) {}
       return;
@@ -1886,6 +1970,27 @@ const drawLegendOnPdf = (pdf, rect, layers, numberedShapes, droppedObjects, focu
         cursorY += theme.sizesMm.body + 1;
       });
     });
+  }
+
+  // Safety Features
+  const safety = focusedArea?.properties?.safety;
+  if (safety && (safety.emergencyLane || safety.sweptPath)) {
+    cursorY += theme.spacingMm.blockGap;
+    setPdfFont(pdf, 'heading', theme.sizesMm.h3);
+    pdf.setTextColor(theme.colors.muted.r, theme.colors.muted.g, theme.colors.muted.b);
+    pdf.text('SAFETY FEATURES', leftX, cursorY);
+    cursorY += theme.sizesMm.h3 + 1;
+    setPdfFont(pdf, 'body', theme.sizesMm.body);
+    pdf.setTextColor(theme.colors.text.r, theme.colors.text.g, theme.colors.text.b);
+
+    if (safety.emergencyLane) {
+      pdf.text('-- 15ft Emergency Lane (Amber)', leftX, cursorY);
+      cursorY += theme.sizesMm.body + 1;
+    }
+    if (safety.sweptPath) {
+      pdf.text('   Maneuverability Envelope (Red)', leftX, cursorY);
+      cursorY += theme.sizesMm.body + 1;
+    }
   }
 
   // Annotations
@@ -2219,12 +2324,67 @@ const isExportDebug = () => {
 
 
 
+const drawSafetyComplianceOnCanvas = (ctx, focusedArea, project, originPx) => {
+  const safety = focusedArea?.properties?.safety;
+  if (!safety) return;
+
+  const { emergencyLane, sweptPath } = safety;
+
+  // 1. Emergency Lane (Amber dashed)
+  if (emergencyLane && emergencyLane.geometry) {
+    ctx.strokeStyle = '#f59e0b'; // Amber-500
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 4]);
+    
+    const drawPoly = (coords) => {
+      const pts = coords.map(([lng, lat]) => project(lng, lat));
+      if (pts.length < 2) return;
+      ctx.beginPath();
+      pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x + originPx.x, p.y + originPx.y) : ctx.lineTo(p.x + originPx.x, p.y + originPx.y));
+      ctx.stroke();
+    };
+
+    const g = emergencyLane.geometry;
+    if (g.type === 'Polygon') {
+      drawPoly(g.coordinates[0]);
+    } else if (g.type === 'MultiPolygon') {
+      g.coordinates.forEach(poly => drawPoly(poly[0]));
+    }
+    ctx.setLineDash([]); // Reset
+  }
+
+  // 2. Swept Path (Red semi-transparent)
+  if (sweptPath && sweptPath.geometry) {
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.1)'; // Red-500 with opacity
+    ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
+    ctx.lineWidth = 1;
+
+    const drawPoly = (coords) => {
+      const pts = coords.map(([lng, lat]) => project(lng, lat));
+      if (pts.length < 3) return;
+      ctx.beginPath();
+      pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x + originPx.x, p.y + originPx.y) : ctx.lineTo(p.x + originPx.x, p.y + originPx.y));
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    };
+
+    const g = sweptPath.geometry;
+    if (g.type === 'Polygon') {
+      drawPoly(g.coordinates[0]);
+    } else if (g.type === 'MultiPolygon') {
+      g.coordinates.forEach(poly => drawPoly(poly[0]));
+    }
+  }
+};
+
 // Draw visible infrastructure overlays onto PNG canvas (points with icons, lines with stroke; polygons skipped)
 const drawOverlaysOnCanvas = async (ctx, offscreen, mapPx, originPx, layers, customShapes, droppedObjects, infrastructureData, focusedArea, pngIcons, enhancedVariantPngs) => {
   const project = (lng, lat) => offscreen.project([lng, lat]);
   if (isExportDebug()) {
     console.log('[ExportDebug] drawing overlays with originPx', originPx, 'mapPx', mapPx);
   }
+  drawSafetyComplianceOnCanvas(ctx, focusedArea, project, originPx);
   await Promise.all(Object.entries(layers)
     .filter(([id, cfg]) => id !== 'permitAreas' && cfg.visible && !cfg?.disabled)
     .map(async ([id, cfg]) => {

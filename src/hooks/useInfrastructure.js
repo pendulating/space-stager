@@ -92,7 +92,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     parksTrails: null,
     parkingLots: null,
     iceLadders: null,
-    parksSigns: null
+    parksSigns: null,
+    sidewalks: null
   });
 
   // Bulk load queue (for "All Recommended") with limited concurrency

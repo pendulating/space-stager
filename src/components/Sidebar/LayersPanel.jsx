@@ -563,15 +563,26 @@ const LayersPanel = ({
                       <div className={`flex items-center justify-between p-1.5 rounded text-[11px] ${complianceStatus.isLaneClear ? 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300' : 'bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-300'}`}>
                         <div className="flex items-center gap-2">
                           <div className={`w-1.5 h-1.5 rounded-full ${complianceStatus.isLaneClear ? 'bg-emerald-500' : 'bg-rose-500 animate-ping'}`} />
-                          15ft Emergency Lane
+                          Access & Infrastructure
                         </div>
                         <span className="font-bold">{complianceStatus.isLaneClear ? 'CLEAR' : 'BLOCKED'}</span>
                       </div>
                       
                       {!complianceStatus.isLaneClear && (
-                        <div className="flex items-start gap-1.5 px-1.5 text-[10px] text-rose-600 dark:text-rose-400 leading-tight">
-                          <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                          <span>Emergency access must remain unobstructed. Remove or relocate objects within the highlighted lane.</span>
+                        <div className="space-y-1 mt-1">
+                          {complianceStatus.obstructions.map((obs, idx) => (
+                            <div key={`${obs.id}-${idx}`} className="flex items-start gap-1.5 px-1.5 text-[10px] text-rose-600 dark:text-rose-400 leading-tight">
+                              <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                              <span>
+                                {obs.violation === 'emergency-lane' && `Emergency Lane: ${obs.name} is obstructing.`}
+                                {obs.violation === 'hydrant' && `Hydrant: ${obs.name} is within 5ft clearance.`}
+                                {obs.violation === 'bike-lane' && `Bike Lane: ${obs.name} is blocking cycle path.`}
+                                {obs.violation === 'transit-access' && `Transit: ${obs.name} is blocking access.`}
+                                {obs.violation === 'sidewalk-clear-path' && `Sidewalk: ${obs.name} may block clear path.`}
+                                {!obs.violation && `Obstruction: ${obs.name} is blocking access.`}
+                              </span>
+                            </div>
+                          ))}
                         </div>
                       )}
 

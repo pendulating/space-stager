@@ -10,7 +10,81 @@ export const SAFETY_CONSTANTS = {
   VEHICLE_BUFFER_FT: 1, // 1ft on each side
   ANALYSIS_WIDTH_FT: 10, // 8 + 1 + 1
   MAX_TURNING_RADIUS_FT: 45, // Typical for Seagrave Fire Truck
+  HYDRANT_CLEARANCE_FT: 5,
+  BIKE_LANE_CLEARANCE_FT: 8,
+  MIN_SIDEWALK_CLEAR_PATH_FT: 5,
+  CORRIDOR_CLEARANCE: {
+    GLOBAL: 12,
+    REGIONAL: 10,
+    NEIGHBORHOOD: 5
+  },
+  REVOCABLE_CONSENT_MIN_FT: 8
 };
+
+/**
+ * Check if a feature obstructs a clear path on a sidewalk.
+ * 
+ * @param {Feature} sidewalkFeature - The sidewalk polygon
+ * @param {Feature} objectFeature - The user-placed object
+ * @param {number} requiredClearPathFt - Required clear path width in feet
+ * @returns {Object} - { isObstructed: boolean, remainingWidthFt: number }
+ */
+export function analyzeSidewalkClearPath(sidewalkFeature, objectFeature, requiredClearPathFt) {
+  if (!sidewalkFeature || !objectFeature || !objectFeature.geometry) return { isObstructed: false };
+  
+  try {
+    // Basic intersection check first
+    if (!turf.booleanIntersects(sidewalkFeature, objectFeature)) return { isObstructed: false };
+
+    // In a full implementation, we would calculate the remaining width of the sidewalk
+    // after subtracting the object's footprint. 
+    // For now, we flag any intersection as a potential obstruction if it's on a sidewalk.
+    return { 
+      isObstructed: true,
+      message: `Equipment on sidewalk may obstruct the required ${requiredClearPathFt}ft clear path.`
+    };
+  } catch (_) {
+    return { isObstructed: false };
+  }
+}
+
+/**
+ * Check if a feature obstructs a buffer around a point (e.g. hydrant).
+ * 
+ * @param {Feature} pointFeature - The infrastructure point (e.g. hydrant)
+ * @param {Feature} objectFeature - The user-placed object
+ * @param {number} clearanceFt - Required clearance in feet
+ * @returns {boolean}
+ */
+export function isObstructingPointClearance(pointFeature, objectFeature, clearanceFt) {
+  if (!pointFeature || !objectFeature || !objectFeature.geometry) return false;
+  const metersPerFoot = 0.3048;
+  try {
+    const buffer = turf.buffer(pointFeature, clearanceFt * metersPerFoot, { units: 'meters' });
+    return turf.booleanIntersects(buffer, objectFeature);
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Check if a feature obstructs a lane (e.g. bike lane).
+ * 
+ * @param {Feature} laneFeature - The infrastructure line/polygon (e.g. bike lane)
+ * @param {Feature} objectFeature - The user-placed object
+ * @param {number} requiredWidthFt - Required clear path width in feet
+ * @returns {boolean}
+ */
+export function isObstructingLanePath(laneFeature, objectFeature, requiredWidthFt) {
+  if (!laneFeature || !objectFeature || !objectFeature.geometry) return false;
+  // For simplicity, we check if the object intersects the lane at all.
+  // A more advanced check would ensure a remaining 8ft clear path.
+  try {
+    return turf.booleanIntersects(laneFeature, objectFeature);
+  } catch (_) {
+    return false;
+  }
+}
 
 /**
  * Check if a feature obstructs the emergency lane.

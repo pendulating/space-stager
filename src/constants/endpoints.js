@@ -212,6 +212,14 @@ export const INFRASTRUCTURE_ENDPOINTS = {
     selectFields: [
       'station_name', 'agency', 'borough', 'shape_id'
     ]
+  },
+  pedestrianDemand: {
+    // NYC DOT Pedestrian Mobility Plan - Pedestrian Demand Map
+    // Docs: https://dev.socrata.com/foundry/data.cityofnewyork.us/fwpa-qxaf
+    baseUrl: 'https://data.cityofnewyork.us/resource/fwpa-qxaf.geojson',
+    geoField: 'the_geom',
+    isLocal: false,
+    selectFields: ['pmp_id', 'segmentid', 'street', 'category', 'rank']
   }
 };
 

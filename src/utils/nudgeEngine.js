@@ -73,15 +73,38 @@ export function evaluateNudges(input) {
   // 1. Safety Compliance Nudges (SAPO specific)
   if (complianceStatus?.obstructions && complianceStatus.obstructions.length > 0) {
     complianceStatus.obstructions.forEach(obs => {
-      const id = nudgeId('sapo-lane-clearance', obs.id);
+      let ruleId = 'sapo-safety-violation';
+      let message = `Safety Violation: ${obs.name} is obstructing a protected area.`;
+      let citation = 'https://www.nyc.gov/site/cecm/permits/street-events.page';
+
+      if (obs.violation === 'emergency-lane') {
+        ruleId = 'sapo-lane-clearance';
+        message = `SAPO 15ft Emergency Lane: ${obs.name} is obstructing the access lane.`;
+      } else if (obs.violation === 'hydrant') {
+        ruleId = 'sapo-hydrant-clearance';
+        message = `FDNY Access: ${obs.name} must be at least 5ft from the fire hydrant.`;
+        citation = 'https://www.nyc.gov/site/fdny/about/resources/code-regulations/permit-requirements.page';
+      } else if (obs.violation === 'bike-lane') {
+        ruleId = 'sapo-bike-lane-access';
+        message = `Cycling Path: ${obs.name} is blocking a dedicated bike lane (8ft clear path required).`;
+      } else if (obs.violation === 'transit-access') {
+        ruleId = 'sapo-transit-access';
+        message = `Transit Access: Keep station entrances and bus stops clear for public use.`;
+      } else if (obs.violation === 'sidewalk-clear-path') {
+        ruleId = 'sapo-sidewalk-clear-path';
+        message = obs.message || `Sidewalk Clear Path: Equipment may be obstructing the required pedestrian access route.`;
+        citation = 'https://www.nyc.gov/site/cecm/permits/street-events.page';
+      }
+
+      const id = nudgeId(ruleId, obs.id);
       activeNudges.push({
         id,
-        ruleId: 'sapo-lane-clearance',
+        ruleId,
         severity: 'warning',
-        message: `SAPO 15ft Emergency Lane: ${obs.name} is obstructing the access lane.`,
+        message,
         type: 'safety',
         subject: obs.type === 'object' ? { kind: 'droppedObject', id: obs.id } : { kind: 'customShape', id: obs.id },
-        citation: 'https://www.nyc.gov/site/cecm/permits/street-events.page',
+        citation,
         actions: ['zoomToSubject', 'highlight']
       });
     });

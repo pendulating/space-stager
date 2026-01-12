@@ -1,10 +1,11 @@
 // components/Map/DroppedRectanglesMapLibre.jsx
 // MapLibre-based rectangle rendering for proper z-ordering with dropped objects
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+import * as turf from '@turf/turf';
 import { useMapEvents } from '../../hooks/useMapEvents';
 import { ensureLayersBetweenPermitAreasAndDroppedObjects } from '../../utils/mapLayerUtils';
 
-const DEBUG = false;
+const DEBUG = true;
 const shouldDebug = () => DEBUG || Boolean(typeof window !== 'undefined' && window.__RECT_DEBUG__);
 
 const SOURCE_ID = 'dropped-rectangles';
@@ -13,6 +14,7 @@ const LINE_LAYER_ID = 'dropped-rectangles-line';
 const HANDLES_LAYER_ID = 'dropped-rectangles-handles';
 const HANDLES_SOURCE_ID = 'dropped-rectangles-handles';
 const LABELS_LAYER_ID = 'dropped-rectangles-labels';
+const LABELS_TITLE_LAYER_ID = 'dropped-rectangles-labels-title';
 const LABELS_SOURCE_ID = 'dropped-rectangles-labels';
 const PATTERN_LAYER_ID = 'dropped-rectangles-pattern';
 const MOVE_SOURCE_ID = 'dropped-rectangles-moving';
@@ -34,6 +36,9 @@ const DroppedRectanglesMapLibre = ({
   onMoveRect,
   isPlacementActive = false
 }) => {
+  if (shouldDebug()) {
+    console.info('[DroppedRectangles] Rendering with objects:', objects.length, 'selectedId:', selectedId);
+  }
   const [layersInitialized, setLayersInitialized] = useState(false);
   const [dragging, setDragging] = useState(null); // { rectId, handleIndex, startLngLat }
   const [moving, setMoving] = useState(null); // { rectId, startLngLat, offset }
@@ -47,12 +52,16 @@ const DroppedRectanglesMapLibre = ({
   
   // Filter rectangles from objects
   const rects = useMemo(() => {
-    return objects.filter(obj => {
+    const filtered = objects.filter(obj => {
       const type = placeableObjects.find(p => p.id === obj.type);
       const isRect = type && type.geometryType === 'rect';
       const hasValidGeometry = obj?.geometry?.coordinates?.[0]?.length >= 4;
       return isRect && hasValidGeometry;
     });
+    if (shouldDebug()) {
+      console.info('[DroppedRectangles] Filtered rects:', filtered.length, 'from total objects:', objects.length);
+    }
+    return filtered;
   }, [objects, placeableObjects, objectUpdateTrigger]);
 
   useEffect(() => {
@@ -124,32 +133,59 @@ const DroppedRectanglesMapLibre = ({
   useEffect(() => {
     if (!map) return;
     const textures = (placeableObjects || []).filter((o) => o && o.geometryType === 'rect' && o.texture && o.texture.url);
-    if (textures.length === 0) return;
-
+    const tileIcons = (placeableObjects || []).filter(o => o && o.tileIcon);
+    
     const registerAll = async () => {
-      for (let i = 0; i < textures.length; i++) {
-        const t = textures[i];
+      // 1. Register textures
+      for (const t of textures) {
         const id = String(t.id);
         try {
-          let has = false;
-          try { has = map.hasImage && map.hasImage(id); } catch (_) { has = false; }
-          if (has) continue;
-          // Skip SVG textures for rectangle fills per PNG-only policy
+          if (map.hasImage && map.hasImage(id)) continue;
           const url = String(t.texture.url || '');
           if (url.toLowerCase().endsWith('.svg')) continue;
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          await new Promise((resolve) => {
-            img.onload = () => resolve(true);
-            img.onerror = () => resolve(false);
-            img.src = url;
+          const img = await new Promise((resolve) => {
+            const i = new Image();
+            i.crossOrigin = 'anonymous';
+            i.onload = () => resolve(i);
+            i.onerror = () => resolve(null);
+            i.src = url;
           });
-          if (!map.hasImage(id)) {
+          if (img && !map.hasImage(id)) {
             map.addImage(id, img, { pixelRatio: 2 });
-            if (shouldDebug()) { try { console.info('[DroppedRectangles] added pattern image', id); } catch (_) {} }
+            if (shouldDebug()) console.log(`[DroppedRectangles] Registered texture: ${id}`);
           }
-        } catch (e) {
-          try { console.warn('[DroppedRectangles] failed to register texture', id, e); } catch (_) {}
+        } catch (_) {}
+      }
+
+      // 2. Register tile icons
+      for (const t of tileIcons) {
+        const id = t.tileIcon;
+        if (map.hasImage && map.hasImage(id)) continue;
+        
+        // Try multiple paths
+        const paths = [
+          `/data/icons/dropped-objects/${id}.svg`,
+          `/data/icons/layers/${id}.svg`,
+          `/data/icons/dropped-objects/SVG/${id}.svg`
+        ];
+
+        let loaded = false;
+        for (const url of paths) {
+          if (loaded) break;
+          try {
+            const img = await new Promise((resolve) => {
+              const i = new Image();
+              i.crossOrigin = 'anonymous';
+              i.onload = () => resolve(i);
+              i.onerror = () => resolve(null);
+              i.src = url;
+            });
+            if (img && !map.hasImage(id)) {
+              map.addImage(id, img, { pixelRatio: 2 });
+              if (shouldDebug()) console.log(`[DroppedRectangles] Registered tile icon: ${id} from ${url}`);
+              loaded = true;
+            }
+          } catch (_) {}
         }
       }
     };
@@ -166,6 +202,7 @@ const DroppedRectanglesMapLibre = ({
     if (!map) return;
     if (typeof map.isStyleLoaded === 'function' && !map.isStyleLoaded()) return;
     try {
+      if (shouldDebug()) console.info('[DroppedRectangles] Starting initLayers');
       // Add sources
       if (!map.getSource(SOURCE_ID)) {
         map.addSource(SOURCE_ID, {
@@ -206,21 +243,20 @@ const DroppedRectanglesMapLibre = ({
         try { return id && map.getLayer && map.getLayer(id) ? id : undefined; } catch (_) { return undefined; }
       };
       const insertBeforeId = safeBeforeId(beforeId);
+      if (shouldDebug()) console.info('[DroppedRectangles] insertBeforeId:', insertBeforeId);
 
-      // Add fill layer with pattern support (use outline for visibility even when pattern is used)
+      // Add fill layer with pattern support
       if (!map.getLayer(FILL_LAYER_ID)) {
+        if (shouldDebug()) console.info('[DroppedRectangles] Adding fill layer');
         const layerDef = {
           id: FILL_LAYER_ID,
           type: 'fill',
           source: SOURCE_ID,
           paint: {
             'fill-color': ['get', 'fillColor'],
-            // Keep an outline for contrast even if the separate line layer is temporarily missing
             'fill-outline-color': ['coalesce', ['get', 'strokeColor'], '#111827'],
-            // When a texture pattern is present, let the pattern layer render the fill; keep only outline here
             'fill-opacity': [
               'case',
-              // Hide an individual rect when feature-state hidden=true
               ['boolean', ['feature-state', 'hidden'], false], 0,
               ['has', 'fillPattern'], 0,
               0.45
@@ -231,8 +267,9 @@ const DroppedRectanglesMapLibre = ({
         try { map.setLayoutProperty(FILL_LAYER_ID, 'visibility', 'visible'); } catch (_) {}
       }
 
-      // Add separate pattern layer for textured rectangles only
+      // Add separate pattern layer
       if (!map.getLayer(PATTERN_LAYER_ID)) {
+        if (shouldDebug()) console.info('[DroppedRectangles] Adding pattern layer');
         const layerDef = {
           id: PATTERN_LAYER_ID,
           type: 'fill',
@@ -251,8 +288,9 @@ const DroppedRectanglesMapLibre = ({
         try { map.setLayoutProperty(PATTERN_LAYER_ID, 'visibility', 'visible'); } catch (_) {}
       }
 
-      // Add line layer for borders (selection emphasized)
+      // Add line layer
       if (!map.getLayer(LINE_LAYER_ID)) {
+        if (shouldDebug()) console.info('[DroppedRectangles] Adding line layer');
         const layerDef = {
           id: LINE_LAYER_ID,
           type: 'line',
@@ -267,19 +305,13 @@ const DroppedRectanglesMapLibre = ({
             'line-width': [
               'case',
               ['boolean', ['get', 'selected'], false],
-              3,
+              4,
               2
             ],
             'line-opacity': [
               'case',
               ['boolean', ['feature-state', 'hidden'], false], 0,
               1
-            ],
-            'line-dasharray': [
-              'case',
-              ['boolean', ['get', 'selected'], false],
-              ['literal', [4, 2]],
-              ['literal', [1, 0]]
             ]
           }
         };
@@ -287,11 +319,12 @@ const DroppedRectanglesMapLibre = ({
         try { map.setLayoutProperty(LINE_LAYER_ID, 'visibility', 'visible'); } catch (_) {}
       }
 
-      // Add moving overlay source and layers (single feature while dragging/moving)
+      // Add moving overlay
       if (!map.getSource(MOVE_SOURCE_ID)) {
         map.addSource(MOVE_SOURCE_ID, { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, promoteId: 'id' });
       }
       if (!map.getLayer(MOVE_FILL_LAYER_ID)) {
+        if (shouldDebug()) console.info('[DroppedRectangles] Adding move-fill layer');
         const def = {
           id: MOVE_FILL_LAYER_ID,
           type: 'fill',
@@ -305,6 +338,7 @@ const DroppedRectanglesMapLibre = ({
         if (insertBeforeId) map.addLayer(def, insertBeforeId); else map.addLayer(def);
       }
       if (!map.getLayer(MOVE_LINE_LAYER_ID)) {
+        if (shouldDebug()) console.info('[DroppedRectangles] Adding move-line layer');
         const def = {
           id: MOVE_LINE_LAYER_ID,
           type: 'line',
@@ -318,8 +352,9 @@ const DroppedRectanglesMapLibre = ({
         if (insertBeforeId) map.addLayer(def, insertBeforeId); else map.addLayer(def);
       }
 
-      // Add resize handles layer (circles at corners)
+      // Add resize handles
       if (!map.getLayer(HANDLES_LAYER_ID)) {
+        if (shouldDebug()) console.info('[DroppedRectangles] Adding handles layer');
         const layerDef = {
           id: HANDLES_LAYER_ID,
           type: 'circle',
@@ -335,46 +370,107 @@ const DroppedRectanglesMapLibre = ({
         if (insertBeforeId) map.addLayer(layerDef, insertBeforeId); else map.addLayer(layerDef);
       }
 
-      // Add labels layer (dimension text)
+      // Add labels layer
       if (!map.getLayer(LABELS_LAYER_ID)) {
+        if (shouldDebug()) console.info('[DroppedRectangles] Adding labels layer');
         const layerDef = {
           id: LABELS_LAYER_ID,
           type: 'symbol',
           source: LABELS_SOURCE_ID,
           layout: {
-            'text-field': ['get', 'label'],
-            'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
-            'text-size': 12,
+            'text-field': ['coalesce', ['get', 'label'], ''],
+            'text-font': ['Open Sans Regular'],
+            'text-size': [
+              'interpolate', 
+              ['exponential', 2], 
+              ['zoom'],
+              10, 0.5,
+              20, 14
+            ],
+            'text-anchor': 'top',
+            'text-offset': [0, 1.2],
+            'text-allow-overlap': false,
+            'text-ignore-placement': false,
+            'text-max-width': 8
+          },
+          paint: {
+            'text-color': '#4b5563',
+            'text-halo-color': '#ffffff',
+            'text-halo-width': 1.5,
+            'text-opacity': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              16, 0,
+              17, 0.9
+            ]
+          }
+        };
+        // Always add labels at the top
+        map.addLayer(layerDef);
+      }
+
+      // Add labels title layer
+      if (!map.getLayer(LABELS_TITLE_LAYER_ID)) {
+        if (shouldDebug()) console.info('[DroppedRectangles] Adding labels-title layer');
+        const layerDef = {
+          id: LABELS_TITLE_LAYER_ID,
+          type: 'symbol',
+          source: LABELS_SOURCE_ID,
+          layout: {
+            'text-field': ['coalesce', ['get', 'title'], 'AREA'],
+            'text-font': ['Open Sans Bold'], // Most robust bold
+            'text-size': [
+              'interpolate', 
+              ['exponential', 2], 
+              ['zoom'],
+              10, 1,
+              20, 24
+            ],
             'text-anchor': 'center',
-            'text-allow-overlap': true,
-            'text-ignore-placement': true
+            'text-allow-overlap': false,
+            'text-ignore-placement': false,
+            'text-transform': 'uppercase',
+            'text-letter-spacing': 0.1,
+            'text-max-width': 10
           },
           paint: {
             'text-color': '#111827',
             'text-halo-color': '#ffffff',
-            'text-halo-width': 2
+            'text-halo-width': 2,
+            'text-opacity': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              15, 0,
+              16, 0.8
+            ]
           }
         };
-        if (insertBeforeId) map.addLayer(layerDef, insertBeforeId); else map.addLayer(layerDef);
+        // Always add labels at the top
+        map.addLayer(layerDef);
       }
 
       // Mark as initialized if core layers exist
-      if (map.getLayer(FILL_LAYER_ID)) {
+      const allRequiredLayers = [FILL_LAYER_ID, LINE_LAYER_ID, LABELS_LAYER_ID, LABELS_TITLE_LAYER_ID];
+      const allPresent = allRequiredLayers.every(id => !!map.getLayer(id));
+      if (allPresent && !layersInitialized) {
         setLayersInitialized(true);
       }
     } catch (err) {
       console.error('[DroppedRectanglesMapLibre] Failed to initialize layers:', err);
     }
-  }, [map]);
+  }, [map, layersInitialized]);
 
   // Watchdog: if layers disappear (e.g., after style changes), re-initialize
   useEffect(() => {
     if (!map) return;
     const check = () => {
       try {
-        const have = map.getLayer && map.getLayer(FILL_LAYER_ID);
-        if (!have) {
-          if (shouldDebug()) { try { console.warn('[Rects] layers missing → reinitializing'); } catch (_) {} }
+        const required = [FILL_LAYER_ID, LINE_LAYER_ID, LABELS_LAYER_ID, LABELS_TITLE_LAYER_ID];
+        const missing = required.filter(id => !map.getLayer(id));
+        if (missing.length > 0) {
+          if (shouldDebug()) { try { console.warn('[Rects] layers missing → reinitializing', missing); } catch (_) {} }
           if (layersInitialized) { try { setLayersInitialized(false); } catch (_) {} }
           initLayers();
         } else {
@@ -407,6 +503,7 @@ const DroppedRectanglesMapLibre = ({
       try { map.off('style.load', onStyleLoad); } catch (_) {}
       // Cleanup only on unmount/map change
       try {
+        if (map.getLayer(LABELS_TITLE_LAYER_ID)) map.removeLayer(LABELS_TITLE_LAYER_ID);
         if (map.getLayer(LABELS_LAYER_ID)) map.removeLayer(LABELS_LAYER_ID);
         if (map.getLayer(HANDLES_LAYER_ID)) map.removeLayer(HANDLES_LAYER_ID);
         if (map.getLayer(MOVE_LINE_LAYER_ID)) map.removeLayer(MOVE_LINE_LAYER_ID);
@@ -427,7 +524,7 @@ const DroppedRectanglesMapLibre = ({
   useEffect(() => {
     if (!map || !layersInitialized) return;
     const apply = () => {
-      try { ensureLayersBetweenPermitAreasAndDroppedObjects(map, [FILL_LAYER_ID, PATTERN_LAYER_ID, LINE_LAYER_ID, HANDLES_LAYER_ID, LABELS_LAYER_ID]); } catch (_) {}
+      try { ensureLayersBetweenPermitAreasAndDroppedObjects(map, [FILL_LAYER_ID, PATTERN_LAYER_ID, LINE_LAYER_ID, HANDLES_LAYER_ID, LABELS_LAYER_ID, LABELS_TITLE_LAYER_ID]); } catch (_) {}
     };
     apply();
     try { setTimeout(apply, 60); } catch (_) {}
@@ -486,17 +583,19 @@ const DroppedRectanglesMapLibre = ({
       const type = placeableObjects.find(p => p.id === rectObj.type);
       const dims = rectObj?.properties?.dimensions || rectObj?.properties?.user_dimensions_m || {};
       
-      // Generate label text
-      let label = type?.name || 'Rectangle';
+      const title = (type?.name || 'Area').toUpperCase();
+
+      // Generate label text (dimensions)
+      let label = '';
       try {
         const wM = dims?.width || 0;
         const hM = dims?.height || 0;
         if (type?.units === 'ft') {
           const wFt = Math.round(wM * 3.28084);
           const hFt = Math.round(hM * 3.28084);
-          label = `${type.name} ${wFt} ft × ${hFt} ft`;
+          label = `${wFt} ft × ${hFt} ft`;
         } else if (wM > 0 && hM > 0) {
-          label = `${type.name} ${wM.toFixed(1)} m × ${hM.toFixed(1)} m`;
+          label = `${wM.toFixed(1)} m × ${hM.toFixed(1)} m`;
         }
       } catch (_) {}
       
@@ -504,17 +603,26 @@ const DroppedRectanglesMapLibre = ({
       const ring = rectObj.geometry?.coordinates?.[0];
       if (!ring || ring.length < 4) return null;
       
-      const centroid = [
-        (ring[0][0] + ring[2][0]) / 2,
-        (ring[0][1] + ring[2][1]) / 2
-      ];
+      let centroid;
+      try {
+        centroid = turf.centroid(turf.polygon([ring])).geometry.coordinates;
+      } catch (err) {
+        centroid = [
+          (ring[0][0] + ring[2][0]) / 2,
+          (ring[0][1] + ring[2][1]) / 2
+        ];
+      }
       
       return {
         type: 'Feature',
         geometry: { type: 'Point', coordinates: centroid },
-        properties: { label, rectId: rectObj.id }
+        properties: { label, title, rectId: rectObj.id }
       };
     }).filter(Boolean);
+    
+    if (shouldDebug()) {
+      console.info('[DroppedRectangles] Updating labels', labelFeatures.length, labelFeatures);
+    }
     
     source.setData({
       type: 'FeatureCollection',
@@ -585,7 +693,8 @@ const DroppedRectanglesMapLibre = ({
           pattern: map.getLayer(PATTERN_LAYER_ID) && map.getLayoutProperty(PATTERN_LAYER_ID, 'visibility'),
           line: map.getLayer(LINE_LAYER_ID) && map.getLayoutProperty(LINE_LAYER_ID, 'visibility'),
           handles: map.getLayer(HANDLES_LAYER_ID) && map.getLayoutProperty(HANDLES_LAYER_ID, 'visibility'),
-          labels: map.getLayer(LABELS_LAYER_ID) && map.getLayoutProperty(LABELS_LAYER_ID, 'visibility')
+          labels: map.getLayer(LABELS_LAYER_ID) && map.getLayoutProperty(LABELS_LAYER_ID, 'visibility'),
+          labelsTitle: map.getLayer(LABELS_TITLE_LAYER_ID) && map.getLayoutProperty(LABELS_TITLE_LAYER_ID, 'visibility')
         });
       } catch (_) {}
     }

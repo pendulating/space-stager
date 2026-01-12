@@ -74,7 +74,12 @@ const MapContainer = forwardRef(({
   } = clickToPlace;
 
   const { setComplianceStatus } = useZoneCreatorContext();
-  const compliance = useSafetyCompliance(drawTools?.draw?.current, droppedObjects, customShapes);
+  const compliance = useSafetyCompliance(
+    drawTools?.draw?.current, 
+    droppedObjects, 
+    customShapes, 
+    infrastructure?.infrastructureData || {}
+  );
 
   useEffect(() => {
     setComplianceStatus(prev => {
@@ -83,15 +88,14 @@ const MapContainer = forwardRef(({
       
       const hasChanged = prev.isLaneClear !== isLaneClear || 
                          prev.obstructions.length !== obstructions.length ||
-                         prev.obstructions.some((o, idx) => o.id !== obstructions[idx]?.id);
+                         prev.obstructions.some((o, idx) => o.id !== obstructions[idx]?.id || o.violation !== obstructions[idx]?.violation);
       
       if (!hasChanged) return prev;
       
       return {
         ...prev,
         isLaneClear,
-        obstructions,
-        sweptPathValid: true // Placeholder
+        obstructions
       };
     });
   }, [compliance, setComplianceStatus]);
@@ -682,6 +686,7 @@ const MapContainer = forwardRef(({
   useEffect(() => {
     if (!map) return;
     const onCreate = (e) => {
+      console.info('[MapContainer] draw.create triggered', e?.features?.[0]?.properties);
       try {
         const f = e?.features?.[0];
         if (!f || f.geometry?.type !== 'Polygon') return;

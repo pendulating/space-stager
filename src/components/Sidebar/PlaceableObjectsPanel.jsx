@@ -99,7 +99,7 @@ const PlaceableObjectsPanel = ({
                 ) : (
                   <div 
                     className={`w-full h-full flex items-center justify-center text-white font-medium rounded-xl ${
-                      obj?.geometryType === 'rect' ? 'text-4xl' : 'text-sm'
+                      obj?.geometryType === 'rect' ? 'text-4xl' : 'text-2xl'
                     }`}
                     style={{ backgroundColor: obj.color || '#64748b' }}
                   >

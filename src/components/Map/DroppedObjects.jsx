@@ -297,7 +297,32 @@ const DroppedObjects = ({
         byId.set(obj.id, obj);
         const baseSize = Math.max(t.size?.width || 24, t.size?.height || 24, 24);
         const props = { id: obj.id, type: t.id, color: t.color || '#64748b', baseSize, viewType: vt };
-        if (t?.enhancedRendering?.enabled && t.enhancedRendering?.spriteBase) {
+        
+        // Simple mapping for equipment icons
+        const iconMap = {
+          'first-aid': '/data/icons/dropped-objects/sound.svg', // placeholder
+          'grill': '/data/icons/dropped-objects/grill.svg',
+          'sound-system': '/data/icons/dropped-objects/sound.svg'
+        };
+
+        if (iconMap[t.id]) {
+          const imgId = `point-${t.id}`;
+          let ready = false;
+          try { ready = map && typeof map.hasImage === 'function' ? map.hasImage(imgId) : false; } catch (_) { ready = false; }
+          props.icon_ready = ready ? 1 : 0;
+          props.icon_image = imgId;
+          
+          if (!ready && map && typeof Image !== 'undefined') {
+            try {
+              const img = new Image();
+              img.crossOrigin = 'anonymous';
+              img.onload = () => {
+                try { if (map && typeof map.hasImage === 'function' && !map.hasImage(imgId)) { map.addImage(imgId, img); rebuildDroppedData(); } } catch (_) {}
+              };
+              img.src = iconMap[t.id];
+            } catch (_) {}
+          }
+        } else if (t?.enhancedRendering?.enabled && t.enhancedRendering?.spriteBase) {
           const baseAngle = typeof obj?.properties?.rotationDeg === 'number' ? obj.properties.rotationDeg : 0;
           const zeroOffset = (t?.enhancedRendering?.zeroOffsetDegByView?.[vt])
             ?? (t?.enhancedRendering?.zeroOffsetDeg)
@@ -665,6 +690,24 @@ const DroppedObjects = ({
             urlBuilder: buildFlatSpriteUrl,
             replaceExisting: true
           });
+        } else if (id.startsWith('point-')) {
+          // Simple point icons for equipment
+          const typeId = id.replace('point-', '');
+          const iconMap = {
+            'first-aid': '/data/icons/dropped-objects/sound.svg', // placeholder
+            'grill': '/data/icons/dropped-objects/grill.svg',
+            'sound-system': '/data/icons/dropped-objects/sound.svg'
+          };
+          const url = iconMap[typeId];
+          if (url) {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            await new Promise((resolve) => {
+              img.onload = () => { try { map.addImage(id, img); } catch (_) {} resolve(true); };
+              img.onerror = () => resolve(false);
+              img.src = url;
+            });
+          }
         } else {
           // Non-enhanced: id is type id; add its imageUrl
           try {
