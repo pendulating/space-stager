@@ -1,18 +1,23 @@
 // src/contexts/ZoneCreatorContext.jsx
 import React, { createContext, useContext, useMemo, useState, useCallback } from 'react';
 
-export const PRIMARY_TYPES = {
-  SINGLE_BLOCK: 'single-block',
-  MULTI_BLOCK: 'multi-block'
+export const WORKFLOW_STEPS = {
+  IDLE: 'IDLE',
+  PICK_START: 'PICK_START',
+  EXTEND_ZONE: 'EXTEND_ZONE',
+  PREVIEW: 'PREVIEW'
 };
 
 const ZoneCreatorContext = createContext();
 
 export function ZoneCreatorProvider({ children }) {
   const [isActive, setIsActive] = useState(false);
-  const [primaryType, setPrimaryType] = useState(PRIMARY_TYPES.SINGLE_BLOCK);
-  const [curbLaneOnly, setCurbLaneOnly] = useState(false);
-  const [sidewalkOnly, setSidewalkOnly] = useState(false);
+  const [workflowStep, setWorkflowStepState] = useState(WORKFLOW_STEPS.IDLE);
+  
+  const setWorkflowStep = useCallback((step) => {
+    setWorkflowStepState(step);
+  }, []);
+  const [availableExtensions, setAvailableExtensions] = useState([]);
   const [entireZonePdf, setEntireZonePdf] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState([]);
   const [selectedNodes, setSelectedNodes] = useState([]); // { id, coord: [lng, lat] }
@@ -28,7 +33,7 @@ export function ZoneCreatorProvider({ children }) {
     });
   }, []);
 
-  const addNode = useCallback((id, coord) => {
+  const addNode = useCallback((id, coord, properties = {}) => {
     if (id === undefined || id === null || !Array.isArray(coord)) return;
     setSelectedNodeIds((prev) => {
       if (prev.length > 0 && prev[prev.length - 1] === id) return prev;
@@ -36,7 +41,7 @@ export function ZoneCreatorProvider({ children }) {
     });
     setSelectedNodes((prev) => {
       if (prev.length > 0 && prev[prev.length - 1]?.id === id) return prev;
-      return [...prev, { id, coord }];
+      return [...prev, { id, coord, properties }];
     });
   }, []);
 
@@ -60,12 +65,10 @@ export function ZoneCreatorProvider({ children }) {
   const value = useMemo(() => ({
     isActive,
     setIsActive,
-    primaryType,
-    setPrimaryType,
-    curbLaneOnly,
-    setCurbLaneOnly,
-    sidewalkOnly,
-    setSidewalkOnly,
+    workflowStep,
+    setWorkflowStep,
+    availableExtensions,
+    setAvailableExtensions,
     entireZonePdf,
     setEntireZonePdf,
     selectedNodeIds,
@@ -78,7 +81,7 @@ export function ZoneCreatorProvider({ children }) {
     setWidthFeet,
     previewActive,
     setPreviewActive
-  }), [isActive, primaryType, curbLaneOnly, sidewalkOnly, entireZonePdf, selectedNodeIds, selectedNodes, addNodeId, addNode, undoLastNode, clearNodes, widthFeet, previewActive]);
+  }), [isActive, workflowStep, availableExtensions, entireZonePdf, selectedNodeIds, selectedNodes, addNode, undoLastNode, clearNodes, widthFeet, previewActive]);
 
   return (
     <ZoneCreatorContext.Provider value={value}>

@@ -2,15 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { GEOGRAPHIES } from '../../constants/geographies';
 import SapoWalkthroughModal from '../Tutorial/SapoWalkthroughModal';
 
-const Card = ({ id, config, selected, disabled, onSelect }) => {
+const Card = ({ id, config, selected, disabled, onSelect, recommended }) => {
   return (
     <button
       onClick={() => !disabled && onSelect(id)}
-      className={`w-full text-left p-4 rounded-lg border transition-all ${
+      className={`w-full text-left p-4 rounded-lg border transition-all relative ${
         selected ? 'border-blue-500 ring-2 ring-blue-200 bg-blue-50 dark:ring-blue-900/40 dark:bg-blue-900/10' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
       } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
       disabled={disabled}
     >
+      {recommended && (
+        <div className="absolute -top-2 -right-2 bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm z-10">
+          Recommended for Open Streets
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <div className="text-base font-semibold text-gray-900 dark:text-gray-100 capitalize">{config.displayName || id}</div>
@@ -49,10 +54,14 @@ const GeographySelector = ({ isOpen, onContinue }) => {
   const [showWalkthrough, setShowWalkthrough] = useState(false);
 
   const isIntersectionsAvailable = true; // dataset may not exist yet, we still render but mark as disabled if needed later
-  const cards = [
-    { id: 'parks', disabled: false },
-    { id: 'plazas', disabled: false },
-    { id: 'intersections', disabled: !isIntersectionsAvailable }
+  
+  const sapoCards = [
+    { id: 'intersections', disabled: !isIntersectionsAvailable, recommended: true },
+    { id: 'plazas', disabled: false, recommended: true }
+  ];
+
+  const parksCards = [
+    { id: 'parks', disabled: false }
   ];
 
   // Auto-open walkthrough when selecting plazas or intersections
@@ -80,17 +89,46 @@ const GeographySelector = ({ isOpen, onContinue }) => {
             <h2 className="text-lg font-semibold text-blue-900 dark:text-blue-300">Choose your geography</h2>
             <p className="text-sm text-blue-800 dark:text-blue-300/80 mt-1">Select which geographies you want to use to pick your event zone.</p>
           </div>
-          <div className="px-6 py-5 grid grid-cols-1 md:grid-cols-3 gap-4">
-            {cards.map(c => (
-              <Card
-                key={c.id}
-                id={c.id}
-                config={GEOGRAPHIES[c.id] || {}}
-                selected={selected === c.id}
-                disabled={c.disabled}
-                onSelect={setSelected}
-              />
-            ))}
+          <div className="px-6 py-5 space-y-6">
+            {/* SAPO / Open Streets Category */}
+            <div>
+              <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3 px-1">
+                SAPO / Open Streets
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {sapoCards.map(c => (
+                  <Card
+                    key={c.id}
+                    id={c.id}
+                    config={GEOGRAPHIES[c.id] || {}}
+                    selected={selected === c.id}
+                    disabled={c.disabled}
+                    onSelect={setSelected}
+                    recommended={c.recommended}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* NYC Parks Category */}
+            <div>
+              <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3 px-1">
+                NYC Parks
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {parksCards.map(c => (
+                  <Card
+                    key={c.id}
+                    id={c.id}
+                    config={GEOGRAPHIES[c.id] || {}}
+                    selected={selected === c.id}
+                    disabled={c.disabled}
+                    onSelect={setSelected}
+                    recommended={c.recommended}
+                  />
+                ))}
+              </div>
+            </div>
           </div>
           <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-end">
             <button

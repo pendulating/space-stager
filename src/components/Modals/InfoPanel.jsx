@@ -59,7 +59,7 @@ const InfoPanel = ({ onClose, showInfo = true }) => {
 
           <div className="px-6 py-5 space-y-6">
             <p className="text-sm text-gray-700 dark:text-gray-200">
-              Design site plans for NYC public space events. Place equipment, annotate the map, and export a permit-ready plan.
+              SpaceStager is a professional site planning tool optimized for NYC Open Streets, SAPO, and Parks event permits. Place equipment, annotate the map, and export a permit-ready site plan.
             </p>
 
             <div>

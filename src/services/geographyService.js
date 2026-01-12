@@ -44,6 +44,15 @@ export const loadPolygonAreas = async (map, { idPrefix, url, fillColor = '#f9731
       const response = await fetch(`${url}?_ts=${Date.now()}`, { cache: 'no-store', signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
+
+      // Ensure features have stable IDs
+      if (data.features) {
+        data.features = data.features.map((f, idx) => ({
+          ...f,
+          id: (f.id !== undefined && f.id !== null) ? f.id : idx
+        }));
+      }
+
       const src = map.getSource(sourceId);
       if (src && src.setData) src.setData(data);
 
@@ -96,6 +105,15 @@ export const loadPointAreas = async (map, { idPrefix, url, circleColor = '#f9731
       const response = await fetch(`${url}?_ts=${Date.now()}`, { cache: 'no-store', signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
+
+      // Ensure features have stable IDs
+      if (data.features) {
+        data.features = data.features.map((f, idx) => ({
+          ...f,
+          id: (f.id !== undefined && f.id !== null) ? f.id : idx
+        }));
+      }
+
       const src = map.getSource(sourceId);
       if (src && src.setData) src.setData(data);
 
@@ -130,5 +148,3 @@ export const unloadGeographyLayers = (map, idPrefix) => {
   layerIds.forEach(id => { try { if (map.getLayer(id)) map.removeLayer(id); } catch (_) {} });
   try { if (map.getSource(idPrefix)) map.removeSource(idPrefix); } catch (_) {}
 };
-
-

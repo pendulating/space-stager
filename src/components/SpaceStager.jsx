@@ -491,6 +491,11 @@ const SpaceStager = () => {
   const handleClearFocus = () => {
     permitAreas.clearFocus();
     infrastructure.clearFocus();
+    // Also reset zone creator if active
+    try {
+      const evt = new CustomEvent('zonecreator:reset');
+      window.dispatchEvent(evt);
+    } catch (_) {}
   };
 
   const handleToggleLayer = useCallback((layerId) => {

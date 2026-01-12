@@ -32,7 +32,7 @@ const WelcomeOverlay = () => {
 
           {/* Description */}
           <p className="text-gray-600 dark:text-gray-300 mb-6">
-            Design site plans for NYC parks and public spaces. Create professional layouts for permits and planning.
+            Design site plans for NYC Open Streets, plazas, and parks. Create professional layouts for SAPO permits and public space planning.
           </p>
 
           {/* Quick Start Steps */}
@@ -41,22 +41,26 @@ const WelcomeOverlay = () => {
             <ol className="space-y-2 text-sm text-gray-600 dark:text-gray-300">
               <li className="flex items-start">
                 <span className="flex-shrink-0 w-6 h-6 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 rounded-full flex items-center justify-center text-xs font-medium mr-3 mt-0.5">1</span>
-                <span>Search for a permit area</span>
+                <span>Choose a geography (Open Streets recommended)</span>
               </li>
               <li className="flex items-start">
                 <span className="flex-shrink-0 w-6 h-6 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 rounded-full flex items-center justify-center text-xs font-medium mr-3 mt-0.5">2</span>
-                <span>Focus on the area to start designing</span>
+                <span>Search for a permit area or intersection</span>
               </li>
               <li className="flex items-start">
                 <span className="flex-shrink-0 w-6 h-6 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 rounded-full flex items-center justify-center text-xs font-medium mr-3 mt-0.5">3</span>
-                <span>Add infrastructure layers</span>
+                <span>Focus on the area to start designing</span>
               </li>
               <li className="flex items-start">
                 <span className="flex-shrink-0 w-6 h-6 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 rounded-full flex items-center justify-center text-xs font-medium mr-3 mt-0.5">4</span>
-                <span>Draw event fixtures and equipment</span>
+                <span>Add infrastructure layers</span>
               </li>
               <li className="flex items-start">
                 <span className="flex-shrink-0 w-6 h-6 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 rounded-full flex items-center justify-center text-xs font-medium mr-3 mt-0.5">5</span>
+                <span>Draw event fixtures and equipment</span>
+              </li>
+              <li className="flex items-start">
+                <span className="flex-shrink-0 w-6 h-6 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 rounded-full flex items-center justify-center text-xs font-medium mr-3 mt-0.5">6</span>
                 <span>Export your site plan</span>
               </li>
             </ol>

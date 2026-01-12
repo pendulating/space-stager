@@ -422,11 +422,11 @@ const LayersPanel = ({
       {/* Compact Header Section */}
       <div className="bg-white dark:bg-gray-900 p-3 space-y-2">
         {/* Focused Area Info - Concentric Pill Design */}
-        {focusedArea && geographyType !== 'intersections' && (
+        {focusedArea && (
           <div className="relative">
             {/* Outer ring label */}
             <div className="bg-blue-600 dark:bg-blue-700 text-white text-[12px] font-medium px-2 py-0.5 rounded-t-lg">
-              Designing a site plan for:
+              Designing a {geographyType === 'parks' ? 'Parks' : 'SAPO / Open Streets'} site plan for:
             </div>
             {/* Inner content pill */}
             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 p-2 rounded-b-lg border border-t-0 border-blue-600 dark:border-blue-700">

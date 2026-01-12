@@ -15,8 +15,10 @@ import NudgeMarkers from './NudgeMarkers';
 import ActiveToolIndicator from './ActiveToolIndicator';
 import LoadingOverlay from './LoadingOverlay';
 import PlacementPreview from './PlacementPreview';
+import ZoneCreatorPills from './ZoneCreatorPills';
 import EdgeMarkers from './EdgeMarkers';
 import { useMapViewState } from '../../hooks/useMapViewState';
+import { useGeography } from '../../contexts/GeographyContext';
 import { useRotationControls } from '../../hooks/useRotationControls';
 import { useCameraRotation } from '../../hooks/useCameraRotation';
 import { useSelectionController } from '../../hooks/useSelectionController';
@@ -26,6 +28,12 @@ import ViewportInset from './ViewportInset';
 import { useGlobalKeymap } from '../../hooks/useGlobalKeymap';
 
 const DEBUG = false;
+
+const ZoneCreatorEffect = ({ map }) => {
+  const { geographyType } = useGeography();
+  useZoneCreator(map, geographyType);
+  return null;
+};
 
 const MapContainer = forwardRef(({ 
   map,
@@ -122,8 +130,6 @@ const MapContainer = forwardRef(({
 
   const [bearing, setBearing] = useState(0);
   const [pitch, setPitch] = useState(0);
-
-  useZoneCreator(map, 'intersections');
 
   useEffect(() => {
     try {
@@ -890,6 +896,8 @@ const MapContainer = forwardRef(({
       )}
       
       <PlacementPreview placementMode={placementMode} cursorPosition={cursorPosition} placeableObjects={placeableObjects} map={map} />
+      <ZoneCreatorEffect map={map} />
+      <ZoneCreatorPills map={map} />
       <NudgeMarkers nudges={nudges} map={map} objectUpdateTrigger={clickToPlace.objectUpdateTrigger} onDismiss={onDismissNudge} highlightedIds={highlightedIds} />
       <EdgeMarkers map={map} infrastructureData={infrastructure?.infrastructureData} categories={infrastructure?.edgeMarkerCategories} />
       {!mapLoaded && <LoadingOverlay />}

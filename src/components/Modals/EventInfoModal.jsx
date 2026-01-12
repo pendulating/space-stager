@@ -22,7 +22,7 @@ const EventInfoModal = ({ isOpen, onClose, value, onChange }) => {
       <div className="w-full max-w-lg bg-white dark:bg-gray-800 rounded shadow-lg border border-gray-200 dark:border-gray-700">
         <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Event Information</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400">Optional details often requested by Parks or SAPO</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Details often required for SAPO (Open Streets) or Parks permits</p>
         </div>
         <div className="p-4 space-y-3">
           <div>
