@@ -26,6 +26,7 @@ import { exportPlan, exportPermitAreaSiteplanV2 } from '../utils/exportUtils';
 import { importPlan } from '../utils/importUtils';
 import { useNudges } from '../hooks/useNudges';
 import { useGeography } from '../contexts/GeographyContext';
+import { useZoneCreatorContext } from '../contexts/ZoneCreatorContext';
 import { useTutorial } from '../contexts/TutorialContext';
 import GeographySelector from './Modals/GeographySelector';
 import EventInfoModal from './Modals/EventInfoModal';
@@ -756,12 +757,17 @@ const SpaceStager = () => {
       }
     } catch (_) {}
   }, [customShapes]);
+
+  const { complianceStatus } = useZoneCreatorContext();
+
   const { nudges, dismiss: dismissNudge, zoomTo: zoomToNudge, highlight: highlightNudge, highlightedIds } = useNudges({
     map,
     droppedObjects: clickToPlace.droppedObjects,
     customShapes,
     infrastructureData: infrastructure?.infrastructureData || {},
     layers,
+    complianceStatus,
+    focusedArea: permitAreas.focusedArea,
     labelScan: labelScanFlag
   });
 
@@ -954,6 +960,7 @@ const SpaceStager = () => {
             styleLoaded={styleLoaded}
             focusedArea={permitAreas.focusedArea}
             drawTools={drawTools}
+            customShapes={customShapes}
             clickToPlace={clickToPlace}
             permitAreas={permitAreas}
             infrastructure={infrastructure}

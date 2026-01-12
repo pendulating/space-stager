@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useGlobalKeymap } from './useGlobalKeymap';
 import { useZoneCreatorContext, WORKFLOW_STEPS } from '../contexts/ZoneCreatorContext.jsx';
 import * as turf from '@turf/turf';
+import { analyzeTurnRadii, generateSweptPath } from '../utils/safetyUtils';
 
 // This hook wires map interactions for Step 1 (type toggle via context) and Step 2 (node selection)
 // It only operates in intersections mode and when isActive is true.
@@ -18,10 +19,11 @@ export function useZoneCreator(map, geographyType) {
     clearNodes,
     workflowStep,
     setWorkflowStep,
-    setAvailableExtensions
+    setAvailableExtensions,
+    setEmergencyLaneGeometry
   } = useZoneCreatorContext();
   const listenerRef = useRef({ click: null, mouseenter: null, mouseleave: null });
-  const zoneLayerIdsRef = useRef({ line: null, fill: null });
+  const zoneLayerIdsRef = useRef({ line: null, fill: null, emergency: null });
   const pendingExtensionsRef = useRef([]);
   const isSettlingRef = useRef(false);
 
@@ -221,6 +223,7 @@ export function useZoneCreator(map, geographyType) {
         if (map.getSource('zone-creator-live')) {
           map.getSource('zone-creator-live').setData({ type: 'FeatureCollection', features: [] });
         }
+        setEmergencyLaneGeometry(null);
       } catch (_) {}
       return;
     }
@@ -233,6 +236,11 @@ export function useZoneCreator(map, geographyType) {
       const metersPerFoot = 0.3048;
       const halfWidthMeters = Math.max(1, (widthFeet * metersPerFoot) / 2);
       const buffered = turf.buffer(line, halfWidthMeters, { units: 'meters', steps: 16 });
+
+      // Also update emergency lane in context for real-time compliance during creation
+      const emergencyHalfWidthMeters = (15 * metersPerFoot) / 2;
+      const emergencyLane = turf.buffer(line, emergencyHalfWidthMeters, { units: 'meters', steps: 16 });
+      setEmergencyLaneGeometry(emergencyLane);
 
       if (!map.getSource('zone-creator-live')) {
         map.addSource('zone-creator-live', { type: 'geojson', data: buffered });
@@ -303,14 +311,29 @@ export function useZoneCreator(map, geographyType) {
         const buffered = turf.buffer(line, halfWidthMeters, { units: 'meters', steps: 16 });
         if (!buffered) return;
 
+        // Emergency Lane: 15ft width (7.5ft radius)
+        const emergencyHalfWidthMeters = (15 * metersPerFoot) / 2;
+        const emergencyLane = turf.buffer(line, emergencyHalfWidthMeters, { units: 'meters', steps: 16 });
+        setEmergencyLaneGeometry(emergencyLane);
+
+        // Turn radius analysis
+        const turnAnalysis = analyzeTurnRadii(coords);
+        const sweptPath = generateSweptPath(line);
+
         // Add/replace zone layers
         const lineId = 'zone-creator-path';
         const fillId = 'zone-creator-preview';
-        zoneLayerIdsRef.current = { line: lineId, fill: fillId };
+        const emergencyId = 'zone-creator-emergency-lane';
+        const sweptPathId = 'zone-creator-swept-path';
+        zoneLayerIdsRef.current = { line: lineId, fill: fillId, emergency: emergencyId, swept: sweptPathId };
 
         try { if (map.getLayer(fillId)) map.removeLayer(fillId); } catch (_) {}
         try { if (map.getLayer(lineId)) map.removeLayer(lineId); } catch (_) {}
+        try { if (map.getLayer(emergencyId)) map.removeLayer(emergencyId); } catch (_) {}
+        try { if (map.getLayer(sweptPathId)) map.removeLayer(sweptPathId); } catch (_) {}
         try { if (map.getSource('zone-creator')) map.removeSource('zone-creator'); } catch (_) {}
+        try { if (map.getSource('zone-creator-emergency')) map.removeSource('zone-creator-emergency'); } catch (_) {}
+        try { if (map.getSource('zone-creator-swept')) map.removeSource('zone-creator-swept'); } catch (_) {}
         
         // Remove live layers
         try { if (map.getLayer('zone-creator-live-fill')) map.removeLayer('zone-creator-live-fill'); } catch (_) {}
@@ -322,6 +345,32 @@ export function useZoneCreator(map, geographyType) {
         map.addSource('zone-creator', { type: 'geojson', data: buffered });
         map.addLayer({ id: fillId, type: 'fill', source: 'zone-creator', paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.2 } });
         map.addLayer({ id: lineId, type: 'line', source: 'zone-creator', paint: { 'line-color': '#2563eb', 'line-width': 3 } });
+
+        map.addSource('zone-creator-emergency', { type: 'geojson', data: emergencyLane });
+        map.addLayer({ 
+          id: emergencyId, 
+          type: 'line', 
+          source: 'zone-creator-emergency', 
+          paint: { 
+            'line-color': '#f59e0b', 
+            'line-width': 2,
+            'line-dasharray': [2, 2]
+          } 
+        });
+
+        if (sweptPath) {
+          map.addSource('zone-creator-swept', { type: 'geojson', data: sweptPath });
+          map.addLayer({
+            id: sweptPathId,
+            type: 'fill',
+            source: 'zone-creator-swept',
+            paint: {
+              'fill-color': '#ef4444',
+              'fill-opacity': 0.1,
+              'fill-outline-color': '#ef4444'
+            }
+          });
+        }
 
         // Hide intersection nodes while previewing the zone
         try { map.setLayoutProperty(layerId, 'visibility', 'none'); } catch (_) {}
@@ -347,7 +396,12 @@ export function useZoneCreator(map, geographyType) {
         const feature = {
           type: 'Feature',
           id: 'zonecreator-preview',
-          properties: { name: 'Custom Street Zone' },
+          properties: { 
+            name: 'Custom Street Zone',
+            safety: {
+              turnAnalysis
+            }
+          },
           geometry: buffered.geometry
         };
         try {
@@ -362,7 +416,11 @@ export function useZoneCreator(map, geographyType) {
         // Remove preview layers/source
         try { if (map.getLayer('zone-creator-preview')) map.removeLayer('zone-creator-preview'); } catch (_) {}
         try { if (map.getLayer('zone-creator-path')) map.removeLayer('zone-creator-path'); } catch (_) {}
+        try { if (map.getLayer('zone-creator-emergency-lane')) map.removeLayer('zone-creator-emergency-lane'); } catch (_) {}
+        try { if (map.getLayer('zone-creator-swept-path')) map.removeLayer('zone-creator-swept-path'); } catch (_) {}
         try { if (map.getSource('zone-creator')) map.removeSource('zone-creator'); } catch (_) {}
+        try { if (map.getSource('zone-creator-emergency')) map.removeSource('zone-creator-emergency'); } catch (_) {}
+        try { if (map.getSource('zone-creator-swept')) map.removeSource('zone-creator-swept'); } catch (_) {}
         // Remove live layers
         try { if (map.getLayer('zone-creator-live-fill')) map.removeLayer('zone-creator-live-fill'); } catch (_) {}
         try { if (map.getLayer('zone-creator-live-line')) map.removeLayer('zone-creator-live-line'); } catch (_) {}
@@ -398,6 +456,7 @@ export function useZoneCreator(map, geographyType) {
         // Clear node selections in context and reset preview state
         try { clearNodes(); } catch(_) {}
         try { setPreviewActive(false); } catch(_) {}
+        try { setEmergencyLaneGeometry(null); } catch (_) {}
         pendingExtensionsRef.current = [];
       } catch (_) {}
     };

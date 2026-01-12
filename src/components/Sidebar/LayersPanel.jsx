@@ -6,6 +6,8 @@ import { INFRASTRUCTURE_ICONS, svgToDataUrl } from '../../utils/iconUtils';
 import { getCandidateSrcs, preloadChain, firstReadyInChain } from '../../utils/spriteResolver';
 
 import { useMapViewState } from '../../hooks/useMapViewState';
+import { useZoneCreatorContext } from '../../contexts/ZoneCreatorContext';
+import { AlertTriangle, ShieldCheck, ShieldAlert } from 'lucide-react';
 
 const LayersPanel = ({ 
   layers, 
@@ -22,6 +24,8 @@ const LayersPanel = ({
   onClearSubFocus = null,
   onToggleSubwayLines = null
 }) => {
+  const { complianceStatus } = useZoneCreatorContext();
+  const safetyData = focusedArea?.properties?.safety;
   const view = useMapViewState(map);
   // State for tracking which groups are expanded
   const [expandedGroups, setExpandedGroups] = useState(new Set(['public-infrastructure', 'nyc-parks'])); // Start with some groups expanded
@@ -534,6 +538,62 @@ const LayersPanel = ({
                     <span className="text-[11px]">Exit without Saving</span>
                   </button>
                 </div>
+
+                {/* Safety Compliance Section (SAPO specific) */}
+                {geographyType === 'intersections' && (
+                  <div className="mt-2 pt-2 border-t border-blue-200 dark:border-blue-800">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest flex items-center gap-1">
+                        Safety Compliance
+                      </span>
+                      {complianceStatus.isLaneClear ? (
+                        <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-1.5 py-0.5 rounded-full">
+                          <ShieldCheck className="w-3 h-3" />
+                          VALID
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/20 px-1.5 py-0.5 rounded-full animate-pulse">
+                          <ShieldAlert className="w-3 h-3" />
+                          VIOLATION
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="space-y-1.5">
+                      <div className={`flex items-center justify-between p-1.5 rounded text-[11px] ${complianceStatus.isLaneClear ? 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300' : 'bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-300'}`}>
+                        <div className="flex items-center gap-2">
+                          <div className={`w-1.5 h-1.5 rounded-full ${complianceStatus.isLaneClear ? 'bg-emerald-500' : 'bg-rose-500 animate-ping'}`} />
+                          15ft Emergency Lane
+                        </div>
+                        <span className="font-bold">{complianceStatus.isLaneClear ? 'CLEAR' : 'BLOCKED'}</span>
+                      </div>
+                      
+                      {!complianceStatus.isLaneClear && (
+                        <div className="flex items-start gap-1.5 px-1.5 text-[10px] text-rose-600 dark:text-rose-400 leading-tight">
+                          <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                          <span>Emergency access must remain unobstructed. Remove or relocate objects within the highlighted lane.</span>
+                        </div>
+                      )}
+
+                      {safetyData?.turnAnalysis && (
+                        <div className={`flex items-center justify-between p-1.5 rounded text-[11px] ${safetyData.turnAnalysis.isValid ? 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300' : 'bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-300'}`}>
+                          <div className="flex items-center gap-2">
+                            <div className={`w-1.5 h-1.5 rounded-full ${safetyData.turnAnalysis.isValid ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                            Vehicle Turn Radius
+                          </div>
+                          <span className="font-bold">{safetyData.turnAnalysis.isValid ? 'PASS' : 'FAIL'}</span>
+                        </div>
+                      )}
+
+                      {safetyData?.turnAnalysis?.isValid === false && (
+                        <div className="flex items-start gap-1.5 px-1.5 text-[10px] text-rose-600 dark:text-rose-400 leading-tight">
+                          <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                          <span>Swept-path analysis failed. Some turns are too sharp for a standard fire truck.</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

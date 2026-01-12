@@ -26,6 +26,8 @@ import { useDroppedObjects } from '../../contexts/DroppedObjectsContext';
 import { rotateRectanglePolygonMercator, normalizeAngle } from '../../utils/objectGeometry';
 import ViewportInset from './ViewportInset';
 import { useGlobalKeymap } from '../../hooks/useGlobalKeymap';
+import { useSafetyCompliance } from '../../hooks/useSafetyCompliance';
+import { useZoneCreatorContext } from '../../contexts/ZoneCreatorContext';
 
 const DEBUG = false;
 
@@ -40,7 +42,8 @@ const MapContainer = forwardRef(({
   mapLoaded, 
   styleLoaded,
   focusedArea, 
-  drawTools, 
+  drawTools,
+  customShapes = [],
   clickToPlace, 
   permitAreas,
   placeableObjects,
@@ -62,7 +65,6 @@ const MapContainer = forwardRef(({
   isRightSidebarOpen = false,
   exportOptions
 }, ref) => {
-  const safeResponsive = responsive || { sidebarMode: 'expanded' };
   const { 
     handleMapMouseMove, 
     handleMapClick, 
@@ -70,6 +72,31 @@ const MapContainer = forwardRef(({
     placementMode, 
     cursorPosition 
   } = clickToPlace;
+
+  const { setComplianceStatus } = useZoneCreatorContext();
+  const compliance = useSafetyCompliance(drawTools?.draw?.current, droppedObjects, customShapes);
+
+  useEffect(() => {
+    setComplianceStatus(prev => {
+      const isLaneClear = compliance.isComplianceValid;
+      const obstructions = compliance.obstructions;
+      
+      const hasChanged = prev.isLaneClear !== isLaneClear || 
+                         prev.obstructions.length !== obstructions.length ||
+                         prev.obstructions.some((o, idx) => o.id !== obstructions[idx]?.id);
+      
+      if (!hasChanged) return prev;
+      
+      return {
+        ...prev,
+        isLaneClear,
+        obstructions,
+        sweptPathValid: true // Placeholder
+      };
+    });
+  }, [compliance, setComplianceStatus]);
+
+  const safeResponsive = responsive || { sidebarMode: 'expanded' };
   const mapContainerRef = useRef(null);
   const [noteEditingObject, setNoteEditingObject] = useState(null);
   const [dimensionsEditingObject, setDimensionsEditingObject] = useState(null);

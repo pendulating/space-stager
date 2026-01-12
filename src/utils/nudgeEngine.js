@@ -64,10 +64,47 @@ export function evaluateNudges(input) {
     infrastructureData = {},
     layers = {},
     focusedArea,
+    complianceStatus = {},
     options = {}
   } = input || {};
 
   const activeNudges = [];
+
+  // 1. Safety Compliance Nudges (SAPO specific)
+  if (complianceStatus?.obstructions && complianceStatus.obstructions.length > 0) {
+    complianceStatus.obstructions.forEach(obs => {
+      const id = nudgeId('sapo-lane-clearance', obs.id);
+      activeNudges.push({
+        id,
+        ruleId: 'sapo-lane-clearance',
+        severity: 'warning',
+        message: `SAPO 15ft Emergency Lane: ${obs.name} is obstructing the access lane.`,
+        type: 'safety',
+        subject: obs.type === 'object' ? { kind: 'droppedObject', id: obs.id } : { kind: 'customShape', id: obs.id },
+        citation: 'https://www.nyc.gov/site/cecm/permits/street-events.page',
+        actions: ['zoomToSubject', 'highlight']
+      });
+    });
+  }
+
+  if (complianceStatus?.sweptPathValid === false || (focusedArea?.properties?.safety?.turnAnalysis?.isValid === false)) {
+    const turnAnalysis = focusedArea?.properties?.safety?.turnAnalysis;
+    if (turnAnalysis?.issues) {
+      turnAnalysis.issues.forEach((issue, idx) => {
+        const id = nudgeId('sapo-turn-radius', `turn-${idx}`);
+        activeNudges.push({
+          id,
+          ruleId: 'sapo-turn-radius',
+          severity: 'warning',
+          message: `Maneuverability: ${issue.message}`,
+          type: 'safety',
+          subject: { kind: 'mapPoint', position: { lng: issue.coord[0], lat: issue.coord[1] } },
+          citation: 'https://www.nyc.gov/site/cecm/permits/street-events.page',
+          actions: ['zoomToSubject']
+        });
+      });
+    }
+  }
 
   // Quick lookups
   const droppedByType = droppedObjects.reduce((acc, o) => {

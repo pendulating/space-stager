@@ -23,6 +23,12 @@ export function ZoneCreatorProvider({ children }) {
   const [selectedNodes, setSelectedNodes] = useState([]); // { id, coord: [lng, lat] }
   const [widthFeet, setWidthFeet] = useState(40);
   const [previewActive, setPreviewActive] = useState(false);
+  const [emergencyLaneGeometry, setEmergencyLaneGeometry] = useState(null);
+  const [complianceStatus, setComplianceStatus] = useState({
+    isLaneClear: true,
+    obstructions: [],
+    sweptPathValid: true
+  });
 
   const addNodeId = useCallback((id) => {
     if (id === undefined || id === null) return;
@@ -80,8 +86,12 @@ export function ZoneCreatorProvider({ children }) {
     widthFeet,
     setWidthFeet,
     previewActive,
-    setPreviewActive
-  }), [isActive, workflowStep, availableExtensions, entireZonePdf, selectedNodeIds, selectedNodes, addNode, undoLastNode, clearNodes, widthFeet, previewActive]);
+    setPreviewActive,
+    emergencyLaneGeometry,
+    setEmergencyLaneGeometry,
+    complianceStatus,
+    setComplianceStatus
+  }), [isActive, workflowStep, availableExtensions, entireZonePdf, selectedNodeIds, selectedNodes, addNode, undoLastNode, clearNodes, widthFeet, previewActive, emergencyLaneGeometry, complianceStatus]);
 
   return (
     <ZoneCreatorContext.Provider value={value}>

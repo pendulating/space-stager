@@ -15,6 +15,7 @@
 import { useMemo, useRef, useState, useEffect } from 'react';
 import { evaluateNudges } from '../utils/nudgeEngine';
 import { NUDGE_RULES } from '../constants/nudgeRules';
+import * as turf from '@turf/turf';
 
 export function useNudges({
   map,
@@ -22,6 +23,8 @@ export function useNudges({
   customShapes,
   infrastructureData,
   layers,
+  complianceStatus,
+  focusedArea,
   labelScan = false
 }) {
   const [nudges, setNudges] = useState([]);
@@ -51,7 +54,8 @@ export function useNudges({
         return `${id}:${len}:${firstKey}`;
       }).join('|');
       const textSig = labelScan ? `labelScan:${Date.now()}` : 'labelScan:0';
-      const sig = `${droppedSig}||${layersVisSig}||${infraSig}||${textSig}`;
+      const complianceSig = complianceStatus ? `${complianceStatus.isLaneClear}:${(complianceStatus.obstructions || []).map(o => o.id).sort().join(',')}` : 'no-compliance';
+      const sig = `${droppedSig}||${layersVisSig}||${infraSig}||${textSig}||${complianceSig}`;
 
       if (sig === lastSigRef.current) {
         // No significant changes; keep previous
@@ -67,6 +71,8 @@ export function useNudges({
         customShapes,
         infrastructureData,
         layers,
+        complianceStatus,
+        focusedArea,
         options: { labelScan }
       });
       lastOutRef.current = out;
@@ -74,7 +80,7 @@ export function useNudges({
       setNudges(filtered);
     }, 100);
     return () => debounceRef.current && clearTimeout(debounceRef.current);
-  }, [droppedObjects, customShapes, infrastructureData, layers, labelScan]);
+  }, [droppedObjects, customShapes, infrastructureData, layers, labelScan, complianceStatus, focusedArea]);
 
   const dismiss = (id) => {
     ignoreSetRef.current.add(id);
@@ -82,8 +88,21 @@ export function useNudges({
   };
 
   const zoomTo = (n) => {
-    if (!map || !n?.subject?.position) return;
-    map.easeTo({ center: n.subject.position, duration: 600 });
+    if (!map) return;
+    if (n?.subject?.kind === 'droppedObject' || n?.subject?.position) {
+      const pos = n.subject.position || droppedObjects.find(o => o.id === n.subject.id)?.position;
+      if (pos) map.easeTo({ center: pos, duration: 600 });
+    } else if (n?.subject?.kind === 'customShape') {
+      try {
+        const feat = (customShapes || []).find(f => f.id === n.subject.id);
+        if (feat) {
+          const bb = turf.bbox(feat);
+          map.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], { padding: 50, duration: 600 });
+        }
+      } catch (_) {}
+    } else if (n?.subject?.kind === 'mapPoint' && n.subject.position) {
+      map.easeTo({ center: n.subject.position, duration: 600 });
+    }
   };
 
   const highlight = (n) => {
