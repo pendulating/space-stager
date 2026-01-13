@@ -220,6 +220,14 @@ export const INFRASTRUCTURE_ENDPOINTS = {
     geoField: 'the_geom',
     isLocal: false,
     selectFields: ['pmp_id', 'segmentid', 'street', 'category', 'rank']
+  },
+  sidewalks: {
+    // NYC Sidewalks - Planimetric data
+    // Docs: https://dev.socrata.com/foundry/data.cityofnewyork.us/52n9-sdep
+    baseUrl: 'https://data.cityofnewyork.us/resource/52n9-sdep.json',
+    geoField: 'the_geom',
+    isLocal: false,
+    selectFields: ['shape_area', 'shape_leng', 'feat_code', 'status', 'sub_code', 'source_id']
   }
 };
 

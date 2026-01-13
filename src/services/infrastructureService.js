@@ -32,7 +32,7 @@ export const loadInfrastructureData = async (layerId, bounds) => {
     let whereConditions = [];
     
     // Add bounding box (or polygon intersects) filter
-    if ((layerId === 'bikeLanes' || layerId === 'fireLanes' || layerId === 'specialDisasterRoutes' || layerId === 'stationEnvelopes' || layerId === 'subwayLines') && endpoint.geoField) {
+    if ((layerId === 'bikeLanes' || layerId === 'sidewalks' || layerId === 'fireLanes' || layerId === 'specialDisasterRoutes' || layerId === 'stationEnvelopes' || layerId === 'subwayLines') && endpoint.geoField) {
       // Use polygon intersects for line-based layers to better approximate area buffer
       const wktPoly = `POLYGON((
         ${minLng} ${minLat},
@@ -123,6 +123,36 @@ export const loadInfrastructureData = async (layerId, bounds) => {
   
   let data = await response.json();
   
+  // Convert Socrata JSON array to GeoJSON FeatureCollection if needed
+  // Special handlers for specific layers follow this generic conversion if it matches
+  if (Array.isArray(data) && layerId !== 'streetParkingSigns' && layerId !== 'linknycKiosks' && layerId !== 'dcwpParkingGarages') {
+    console.log(`[infrastructureService] Converting generic JSON array for ${layerId}`);
+    data = {
+      type: 'FeatureCollection',
+      features: data.map(item => {
+        const geomField = endpoint.geoField || 'the_geom';
+        const geometry = item[geomField];
+        
+        if (!geometry && item.latitude && item.longitude) {
+          return {
+            type: 'Feature',
+            geometry: {
+              type: 'Point',
+              coordinates: [parseFloat(item.longitude), parseFloat(item.latitude)]
+            },
+            properties: item
+          };
+        }
+
+        return {
+          type: 'Feature',
+          geometry: geometry || null,
+          properties: item
+        };
+      }).filter(f => !!f.geometry)
+    };
+  }
+
   // Define EPSG:2263 (NAD83 / New York Long Island (ftUS)) once for coordinate conversion
   try {
     // Only define if not already present
@@ -524,6 +554,8 @@ export const filterFeaturesByType = (features, layerId) => {
         
       case 'parksSigns':
         return true; // All parks sign features are valid
+      case 'sidewalks':
+        return feature.geometry && (feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon');
       case 'trashBaskets':
         return hasValidPoint(feature);
       case 'streetParkingSigns':
@@ -1142,6 +1174,15 @@ export const getLayerStyle = (layerId, layerConfig, map = null) => {
           'fill-color': '#3b82f6',
           'fill-opacity': 0.25,
           'fill-outline-color': '#1d4ed8'
+        }
+      };
+    case 'sidewalks':
+      return {
+        type: 'fill',
+        paint: {
+          'fill-color': baseColor || '#94a3b8',
+          'fill-opacity': 0.3,
+          'fill-outline-color': baseColor || '#94a3b8'
         }
       };
     case 'iceLadders':

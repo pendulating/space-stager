@@ -9,12 +9,16 @@ import { autoDetectPedestrianDemand } from '../services/pedestrianDemandService'
 // This hook wires map interactions for Step 1 (type toggle via context) and Step 2 (node selection)
 // It only operates in intersections mode and when isActive is true.
 
+import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
+import { expandBounds } from '../utils/geometryUtils';
+
 export function useZoneCreator(map, geographyType) {
   const { 
     addNode, 
     selectedNodeIds, 
     selectedNodes, 
     widthFeet, 
+    setWidthFeet,
     previewActive,
     setPreviewActive, 
     clearNodes,
@@ -25,6 +29,125 @@ export function useZoneCreator(map, geographyType) {
     setSidewalkClearPathFt,
     setPmpClassification
   } = useZoneCreatorContext();
+
+  // Auto-detect road + sidewalk width from CSCL
+  useEffect(() => {
+    if (selectedNodes.length < 1) return;
+
+    const detectWidth = async () => {
+      try {
+        const nodes = selectedNodes;
+        const lastNode = nodes[nodes.length - 1];
+        const prevNode = nodes.length >= 2 ? nodes[nodes.length - 2] : null;
+        const coord = lastNode.coord;
+        
+        const ep = INFRASTRUCTURE_ENDPOINTS.csclCenterlines;
+        if (!ep?.baseUrl) return;
+
+        let queryUrl;
+        // Use physicalid for exact match if available (from extension pills)
+        const physicalid = lastNode.properties?.physicalid;
+        
+        if (physicalid) {
+          queryUrl = `${ep.baseUrl}?physicalid=${physicalid}&$select=the_geom,streetwidth,full_street_name,stname_label`;
+        } else if (prevNode) {
+          // Use the segment connecting last two nodes for more precise detection
+          const p1 = prevNode.coord, p2 = lastNode.coord;
+          const wktLine = `LINESTRING(${p1[0]} ${p1[1]}, ${p2[0]} ${p2[1]})`;
+          const select = encodeURIComponent('the_geom,streetwidth,full_street_name,stname_label');
+          const where = encodeURIComponent(`intersects(${ep.geoField}, '${wktLine}')`);
+          queryUrl = `${ep.baseUrl}?$where=${where}&$select=${select}&$limit=5`;
+        } else {
+          // Fallback to radius search around start point
+          const expanded = expandBounds([coord, coord], 0.0005);
+          const minLng = expanded[0][0], minLat = expanded[0][1];
+          const maxLng = expanded[1][0], maxLat = expanded[1][1];
+          const wktPoly = `POLYGON((${minLng} ${minLat}, ${minLng} ${maxLat}, ${maxLng} ${maxLat}, ${maxLng} ${minLat}, ${minLng} ${minLat}))`;
+          const select = encodeURIComponent('the_geom,streetwidth,full_street_name,stname_label');
+          const where = encodeURIComponent(`intersects(${ep.geoField}, '${wktPoly}')`);
+          queryUrl = `${ep.baseUrl}?$where=${where}&$select=${select}&$limit=10`;
+        }
+
+        console.log(`[ZoneCreator] Width detection query: ${queryUrl}`);
+        const resp = await fetch(queryUrl);
+        if (!resp.ok) return;
+        const results = await resp.json();
+        
+        // Handle both FeatureCollection (geojson) and Array (json)
+        const features = Array.isArray(results) ? results : (results.features || []);
+        
+        if (features.length > 0) {
+          // Find the feature closest to our node(s)
+          let nearest = features[0];
+          const getGeom = (f) => f.geometry || f.the_geom;
+          const getProps = (f) => f.properties || f;
+
+          if (features.length > 1) {
+            let minDist = turf.pointToLineDistance(turf.point(coord), getGeom(nearest));
+            for (let i = 1; i < features.length; i++) {
+              const dist = turf.pointToLineDistance(turf.point(coord), getGeom(features[i]));
+              if (dist < minDist) {
+                minDist = dist;
+                nearest = features[i];
+              }
+            }
+          }
+
+          const props = getProps(nearest);
+          const roadwayWidth = parseFloat(props.streetwidth);
+          
+          if (!isNaN(roadwayWidth) && roadwayWidth > 0) {
+            // Heuristic for total width: roadway + 30ft (15ft sidewalks each side)
+            // unless we find sidewalk polygons. 
+            let totalWidth = roadwayWidth + 30; 
+            
+            try {
+              const swEp = INFRASTRUCTURE_ENDPOINTS.sidewalks;
+              if (swEp?.baseUrl) {
+                const bufferMeters = 30; 
+                const buffered = turf.buffer({ type: 'Feature', geometry: getGeom(nearest) }, bufferMeters, { units: 'meters' });
+                const swWhere = encodeURIComponent(`intersects(${swEp.geoField}, '${JSON.stringify(buffered.geometry)}')`);
+                const swUrl = `${swEp.baseUrl}?$where=${swWhere}&$limit=20`;
+                
+                const swResp = await fetch(swUrl);
+                if (swResp.ok) {
+                  const swResults = await swResp.json();
+                  const swFeatures = Array.isArray(swResults) ? swResults : (swResults.features || []);
+                  
+                  if (swFeatures.length >= 2) {
+                    const swWidths = swFeatures.map(f => {
+                      const p = getProps(f);
+                      const area = parseFloat(p.shape_area);
+                      const len = parseFloat(p.shape_leng);
+                      return (area && len && len > 0) ? (area / len) : 15;
+                    });
+                    const validWidths = swWidths.filter(w => w > 5 && w < 40);
+                    if (validWidths.length > 0) {
+                      const avgSw = validWidths.reduce((a, b) => a + b, 0) / validWidths.length;
+                      totalWidth = roadwayWidth + (avgSw * 2);
+                    }
+                  }
+                }
+              }
+            } catch (swErr) {
+              console.warn('[ZoneCreator] Sidewalk width detection failed, using fallback:', swErr);
+            }
+
+            totalWidth = Math.round(totalWidth);
+
+            if (Math.abs(totalWidth - widthFeet) >= 1) {
+              console.log(`[ZoneCreator] AUTO-SETTING WIDTH: ${totalWidth}ft (roadway: ${roadwayWidth}) for ${props.full_street_name || props.stname_label || 'unknown'}`);
+              setWidthFeet(totalWidth);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[ZoneCreator] Failed to auto-detect width:', err);
+      }
+    };
+
+    detectWidth();
+  }, [selectedNodes.length, setWidthFeet]); // Only re-run when a new node is added
   const listenerRef = useRef({ click: null, mouseenter: null, mouseleave: null });
   const zoneLayerIdsRef = useRef({ line: null, fill: null, emergency: null });
   const pendingExtensionsRef = useRef([]);
@@ -74,58 +197,126 @@ export function useZoneCreator(map, geographyType) {
     return () => map.off('moveend', onMoveEnd);
   }, [map, setAvailableExtensions]);
 
-  // Connectivity helper: Find valid next intersections
-  const findAvailableExtensions = useCallback((lastNode) => {
-    if (!map || !lastNode) return [];
+  // Connectivity helper: Find valid next intersections using CSCL API
+  const findAvailableExtensions = useCallback(async (lastNode) => {
+    if (!map || !lastNode || !lastNode.coord) return [];
     try {
-      const src = map.getSource('intersections');
-      const data = src?._data || src?._options?.data;
-      if (!data?.features) return [];
-
-      const lastProps = lastNode.properties || {};
       const lastCoord = lastNode.coord;
-      const lastStreets = [lastProps.FSN_1, lastProps.FSN_2].filter(Boolean);
+      const ep = INFRASTRUCTURE_ENDPOINTS.csclCenterlines;
+      if (!ep?.baseUrl) return [];
 
-      const allPossible = data.features
-        .filter(f => {
-          if (selectedNodeIds.includes(f.id)) return false;
-          const fProps = f.properties || {};
-          const fStreets = [fProps.FSN_1, fProps.FSN_2].filter(Boolean);
+      // Use a slightly larger bounding box to handle precision and intersection gaps
+      const buffer = 0.0002; // ~20m
+      const minLng = lastCoord[0] - buffer, maxLng = lastCoord[0] + buffer;
+      const minLat = lastCoord[1] - buffer, maxLat = lastCoord[1] + buffer;
+      const wktPoly = `POLYGON((${minLng} ${minLat}, ${minLng} ${maxLat}, ${maxLng} ${maxLat}, ${maxLng} ${minLat}, ${minLng} ${minLat}))`;
+      
+      const where = encodeURIComponent(`intersects(${ep.geoField}, '${wktPoly}')`);
+      const select = encodeURIComponent('the_geom,streetwidth,full_street_name,physicalid');
+      const url = `${ep.baseUrl}?$where=${where}&$select=${select}&$limit=40`;
+
+      console.log(`[ZoneCreator] Extension query: ${url}`);
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        console.error(`[ZoneCreator] Extension fetch failed: ${resp.status}`);
+        return [];
+      }
+      const gj = await resp.json();
+      
+      // Handle both FeatureCollection and JSON array
+      const features = gj.features || (Array.isArray(gj) ? gj : []);
+      console.log(`[ZoneCreator] API returned ${features.length} features`);
+      
+      const allPossible = [];
+      const seenCoords = new Set();
+      // Filter out the current point and very close points
+      const lastCoordKey = lastCoord.map(c => c.toFixed(5)).join(',');
+      seenCoords.add(lastCoordKey);
+
+      features.forEach(f => {
+        const geom = f.geometry || f.the_geom;
+        const props = f.properties || f;
+        
+        if (!geom || !geom.coordinates) return;
+        
+        const coords = geom.coordinates;
+        // MultiLineString or LineString?
+        const segments = geom.type === 'MultiLineString' ? coords : [coords];
+        
+        segments.forEach(seg => {
+          if (!seg || seg.length < 2) return;
+          const start = seg[0];
+          const end = seg[seg.length - 1];
           
-          // Must share at least one street
-          const sharesStreet = lastStreets.some(s => fStreets.includes(s));
-          if (!sharesStreet) return false;
+          // Check proximity to current node
+          const dStart = turf.distance(lastCoord, start, { units: 'meters' });
+          const dEnd = turf.distance(lastCoord, end, { units: 'meters' });
+          
+          let extCoord = null;
+          // Intersection tolerance ~15m for connectivity
+          if (dStart < 15) extCoord = end;
+          else if (dEnd < 15) extCoord = start;
+          
+          if (extCoord) {
+            const key = extCoord.map(c => c.toFixed(5)).join(',');
+            if (!seenCoords.has(key)) {
+              seenCoords.add(key);
+              allPossible.push({
+                id: `${props.physicalid || Math.random()}-${allPossible.length}`,
+                coord: extCoord,
+                properties: {
+                  ...props,
+                  FSN_1: props.full_street_name || props.stname_label
+                },
+                dist: turf.distance(lastCoord, extCoord, { units: 'meters' }),
+                streetName: props.full_street_name || props.stname_label || 'Unnamed Street',
+                bearing: turf.bearing(lastCoord, extCoord)
+              });
+            }
+          }
+        });
+      });
 
-          // Must be within reasonable distance (e.g. 500m for city blocks)
-          const fCoord = f.geometry.coordinates;
-          const dist = turf.distance(lastCoord, fCoord, { units: 'meters' });
-          return dist < 500;
-        })
-        .map(f => {
-          const fCoord = f.geometry.coordinates;
-          const dist = turf.distance(lastCoord, fCoord, { units: 'meters' });
-          return {
-            id: f.id,
-            coord: fCoord,
-            properties: f.properties,
-            dist,
-            streetName: [f.properties.FSN_1, f.properties.FSN_2].find(s => lastStreets.includes(s))
-          };
+      if (allPossible.length === 0) {
+        console.warn('[ZoneCreator] No extensions found for coordinate:', lastCoord);
+        return [];
+      }
+
+      // Filter to only the NEAREST point for each shared street in each direction
+      const streetGroups = {};
+      allPossible.forEach(p => {
+        const name = p.streetName;
+        if (!streetGroups[name]) streetGroups[name] = [];
+        streetGroups[name].push(p);
+      });
+
+      const finalExtensions = [];
+      Object.entries(streetGroups).forEach(([name, points]) => {
+        points.sort((a, b) => a.dist - b.dist);
+        
+        const nearest = points[0];
+        finalExtensions.push(nearest);
+
+        // Find the nearest point in the "opposite" direction (bearing diff > 90)
+        const bearing0 = nearest.bearing;
+        const opposite = points.find(p => {
+          let diff = Math.abs(p.bearing - bearing0);
+          if (diff > 180) diff = 360 - diff;
+          return diff > 90;
         });
 
-      // Filter to only the NEAREST point for each shared street
-      const nearestByStreet = {};
-      allPossible.forEach(p => {
-        if (!nearestByStreet[p.streetName] || p.dist < nearestByStreet[p.streetName].dist) {
-          nearestByStreet[p.streetName] = p;
+        if (opposite) {
+          finalExtensions.push(opposite);
         }
       });
 
-      return Object.values(nearestByStreet).sort((a, b) => a.dist - b.dist);
-    } catch (_) {
+      console.log(`[ZoneCreator] Success! Generated ${finalExtensions.length} final extensions.`);
+      return finalExtensions.sort((a, b) => a.dist - b.dist);
+    } catch (err) {
+      console.error('[ZoneCreator] findAvailableExtensions error:', err);
       return [];
     }
-  }, [map, selectedNodeIds]);
+  }, [map]);
 
   // Update workflow step and available extensions based on state
   useEffect(() => {
@@ -142,19 +333,21 @@ export function useZoneCreator(map, geographyType) {
       if (workflowStep !== WORKFLOW_STEPS.EXTEND_ZONE) setWorkflowStep(WORKFLOW_STEPS.EXTEND_ZONE);
       
       const lastNode = selectedNodes[selectedNodes.length - 1];
-      const extensions = findAvailableExtensions(lastNode);
       
-      // Clear current extensions immediately to avoid "ghost" pills during pan
-      setAvailableExtensions(prev => prev.length === 0 ? prev : []);
-      
-      // If we are settling (panning), always defer.
-      // Otherwise, check if map is already moving.
-      if (isSettlingRef.current || (map && map.isMoving())) {
-        pendingExtensionsRef.current = extensions;
-      } else {
-        setAvailableExtensions(extensions);
-        pendingExtensionsRef.current = [];
-      }
+      // Async fetch extensions
+      (async () => {
+        const extensions = await findAvailableExtensions(lastNode);
+        
+        // Clear current extensions immediately to avoid "ghost" pills during pan
+        setAvailableExtensions(prev => prev.length === 0 ? prev : []);
+        
+        if (isSettlingRef.current || (map && map.isMoving())) {
+          pendingExtensionsRef.current = extensions;
+        } else {
+          setAvailableExtensions(extensions);
+          pendingExtensionsRef.current = [];
+        }
+      })();
     } else if (previewActive) {
       if (workflowStep !== WORKFLOW_STEPS.PREVIEW) setWorkflowStep(WORKFLOW_STEPS.PREVIEW);
       setAvailableExtensions(prev => prev.length === 0 ? prev : []);
