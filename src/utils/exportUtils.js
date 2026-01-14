@@ -16,19 +16,21 @@ const drawObjectDimensionsOnPdf = (pdf, droppedObjects, project, toMm, units = '
       try {
         const wMeters = turfDistance(obj.geometry.coordinates[0][0], obj.geometry.coordinates[0][1], { units: 'meters' });
       } catch (_) {}
-      let label = obj.name || 'Object';
       // Prefer user-provided dimensions in meters if present
       const dims = obj?.properties?.dimensions || obj?.properties?.user_dimensions_m || null;
+      let label = '';
       if (dims) {
         if (units === 'ft') {
           const wFt = Math.round((dims.width || 0) * 3.28084);
           const hFt = Math.round((dims.height || 0) * 3.28084);
-          label = `${label} ${wFt} ft × ${hFt} ft`;
+          label = `${wFt} ft × ${hFt} ft`;
         } else {
-          label = `${label} ${(dims.width || 0).toFixed(1)} m × ${(dims.height || 0).toFixed(1)} m`;
+          label = `${(dims.width || 0).toFixed(1)} m × ${(dims.height || 0).toFixed(1)} m`;
         }
       }
-      drawTextWithWipe(pdf, label, cx, cy, { paddingMm: 0.8 });
+      if (label) {
+        drawTextWithWipe(pdf, label, cx, cy, { paddingMm: 0.8 });
+      }
     });
   } catch (_) {}
 };
@@ -595,7 +597,7 @@ export const exportPermitAreaSiteplanV2 = async (
     // Skip manual orange permit overlay; rely on underlying focused permit styling in raster
     // Dimension annotations around the focused area (CAD-style)
     const {
-      includeObjectDimensions = true,
+      includeObjectDimensions = false,
       includeZoneDimensions = false,
       includeStreetSidewalkDimensions = false,
       dimensionUnits = 'ft'
@@ -965,16 +967,29 @@ const drawLegendOnCanvas = async (ctx, rectPx, layers, numberedShapes, droppedOb
   const counts = (droppedObjects || []).reduce((acc, o) => { acc[o.type] = (acc[o.type] || 0) + 1; return acc; }, {});
   for (const [type, count] of Object.entries(counts)) {
     const objType = PLACEABLE_OBJECTS.find(p => p.id === type);
-    if (objType?.imageUrl) {
+    const imgData = droppedObjectImages?.[type];
+    
+    if (imgData) {
+      try {
+        const img = await loadImage(imgData);
+        ctx.drawImage(img, leftX, cursorY - 10, 14, 14);
+      } catch {
+        const c = hexToRgb(objType?.color || '#666666');
+        ctx.fillStyle = `rgb(${c.r}, ${c.g}, ${c.b})`;
+        ctx.fillRect(leftX, cursorY - 8, 10, 10);
+      }
+    } else if (objType?.imageUrl) {
       try {
         const img = await loadImage(objType.imageUrl);
         ctx.drawImage(img, leftX, cursorY - 10, 14, 14);
       } catch {
-        ctx.fillStyle = '#666666';
+        const c = hexToRgb(objType?.color || '#666666');
+        ctx.fillStyle = `rgb(${c.r}, ${c.g}, ${c.b})`;
         ctx.fillRect(leftX, cursorY - 8, 10, 10);
       }
     } else {
-      ctx.fillStyle = '#666666';
+      const c = hexToRgb(objType?.color || '#666666');
+      ctx.fillStyle = `rgb(${c.r}, ${c.g}, ${c.b})`;
       ctx.fillRect(leftX, cursorY - 8, 10, 10);
     }
     // Wrapped equipment entry
@@ -1628,28 +1643,6 @@ const drawDroppedObjectsOnPdf = (pdf, droppedObjects, project, toMm, droppedObje
               pdf.line(mx - nx * s, my - ny * s, mx + nx * s, my + ny * s);
             }
           } catch (_) {}
-          // Label
-          try {
-            const a = pts[0], c = pts[2];
-            const cx = (a.x + c.x) / 2; const cy = (a.y + c.y) / 2;
-            const dims = obj?.properties?.dimensions || obj?.properties?.user_dimensions_m;
-            let label = objType.name;
-            if (dims) {
-              if (objType.units === 'ft') {
-                const wFt = Math.round((dims.width || 0) * 3.28084);
-                const hFt = Math.round((dims.height || 0) * 3.28084);
-                label = `${objType.name} ${wFt} ft × ${hFt} ft`;
-              } else {
-                label = `${objType.name} ${(dims.width || 0).toFixed(1)} m × ${(dims.height || 0).toFixed(1)} m`;
-              }
-            }
-            const pad = 1;
-            const w = pdf.getTextWidth(label) + pad * 2;
-            pdf.setFillColor(255, 255, 255);
-            pdf.rect(cx - w / 2, cy - 2.6, w, 5.2, 'F');
-            pdf.setTextColor(17, 24, 39);
-            pdf.text(label, cx, cy, { align: 'center', baseline: 'middle' });
-          } catch (_) {}
 
           // Tiling icons in PDF
           if (objType.tileIcon && objType.tileSpacingFt) {
@@ -2115,7 +2108,9 @@ const drawLayersAndEquipmentSummaryPage = (pdf, layers, droppedObjects, pngIcons
               if (iconPng) {
                 pdf.addImage(iconPng, 'PNG', drawX, drawY, drawW, drawH);
               } else {
-                pdf.setFillColor(100, 100, 100);
+                const objType = PLACEABLE_OBJECTS.find(p => p.id === type);
+                const c = hexToRgb(objType?.color || '#646464');
+                pdf.setFillColor(c.r, c.g, c.b);
                 pdf.rect(drawX, drawY, drawW, drawH, 'F');
               }
             } catch (_) {}
@@ -2264,6 +2259,29 @@ export const loadDroppedObjectIconPngs = async (droppedObjects, snappedBearingEx
       if (!uniqueKeys.has(key)) {
         uniqueKeys.add(key);
         try { map[key] = await rasterizeToPngDataUrl(objType.imageUrl, 192); } catch {}
+      }
+    } else if (objType?.tileIcon) {
+      const key = `${obj.type}`;
+      if (!uniqueKeys.has(key)) {
+        uniqueKeys.add(key);
+        const iconId = objType.tileIcon;
+        // Try multiple paths to find the SVG icon, matching DroppedRectanglesMapLibre logic
+        const paths = [
+          `/data/icons/dropped-objects/${iconId}.svg`,
+          `/data/icons/layers/${iconId}.svg`,
+          `/data/icons/dropped-objects/SVG/${iconId}.svg`
+        ];
+        for (const path of paths) {
+          try {
+            const dataUrl = await rasterizeToPngDataUrl(path, 192);
+            if (dataUrl) {
+              map[key] = dataUrl;
+              break;
+            }
+          } catch (_) {
+            // continue to next path
+          }
+        }
       }
     }
   }
@@ -2750,33 +2768,7 @@ const drawDroppedObjectsOnCanvas = async (ctx, mapArea, map, droppedObjects, sna
           ctx.strokeStyle = '#111827';
           ctx.lineWidth = 2;
           ctx.stroke();
-          // Dimension label at center
-          try {
-            const a = map.project([ring[0][0], ring[0][1]]);
-            const c = map.project([ring[2][0], ring[2][1]]);
-            const cx = mapArea.x + (a.x + c.x) / 2;
-            const cy = mapArea.y + (a.y + c.y) / 2;
-            const dims = obj?.properties?.dimensions || obj?.properties?.user_dimensions_m;
-            let label = objectType.name;
-            if (dims) {
-              if (objectType.units === 'ft') {
-                const wFt = Math.round((dims.width || 0) * 3.28084);
-                const hFt = Math.round((dims.height || 0) * 3.28084);
-                label = `${objectType.name} ${wFt} ft × ${hFt} ft`;
-              } else {
-                label = `${objectType.name} ${(dims.width || 0).toFixed(1)} m × ${(dims.height || 0).toFixed(1)} m`;
-              }
-            }
-            ctx.font = 'bold 14px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            // white halo
-            const w = ctx.measureText(label).width + 8;
-            ctx.fillStyle = 'rgba(255,255,255,0.9)';
-            ctx.fillRect(cx - w / 2, cy - 10, w, 20);
-            ctx.fillStyle = '#111827';
-            ctx.fillText(label, cx, cy);
-          } catch (_) {}
+
           ctx.restore();
           continue;
         }

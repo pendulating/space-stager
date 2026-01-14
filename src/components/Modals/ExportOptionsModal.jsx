@@ -4,7 +4,7 @@ const ExportOptionsModal = ({ isOpen, onClose, value, onChange }) => {
   const [form, setForm] = useState(value || {
     // Defaults per request
     dimensionUnits: 'ft',
-    includeObjectDimensions: true,
+    includeObjectDimensions: false,
     includeZoneDimensions: false,
     includeStreetSidewalkDimensions: false,
     noLegend: false,
@@ -13,7 +13,7 @@ const ExportOptionsModal = ({ isOpen, onClose, value, onChange }) => {
 
   useEffect(() => { setForm(value || {
     dimensionUnits: 'ft',
-    includeObjectDimensions: true,
+    includeObjectDimensions: false,
     includeZoneDimensions: false,
     includeStreetSidewalkDimensions: false,
     noLegend: false,
