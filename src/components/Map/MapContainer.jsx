@@ -26,10 +26,9 @@ import { useDroppedObjects } from '../../contexts/DroppedObjectsContext';
 import { rotateRectanglePolygonMercator, normalizeAngle } from '../../utils/objectGeometry';
 import ViewportInset from './ViewportInset';
 import { useGlobalKeymap } from '../../hooks/useGlobalKeymap';
-import { useSafetyCompliance } from '../../hooks/useSafetyCompliance';
 import { useZoneCreatorContext } from '../../contexts/ZoneCreatorContext';
 
-const DEBUG = false;
+const DEBUG = true;
 
 const ZoneCreatorEffect = ({ map }) => {
   const { geographyType } = useGeography();
@@ -48,6 +47,7 @@ const MapContainer = forwardRef(({
   permitAreas,
   placeableObjects,
   infrastructure,
+  openStreets,
   nudges,
   highlightedIds,
   onDismissNudge,
@@ -72,33 +72,6 @@ const MapContainer = forwardRef(({
     placementMode, 
     cursorPosition 
   } = clickToPlace;
-
-  const { setComplianceStatus } = useZoneCreatorContext();
-  const compliance = useSafetyCompliance(
-    drawTools?.draw?.current, 
-    droppedObjects, 
-    customShapes, 
-    infrastructure?.infrastructureData || {}
-  );
-
-  useEffect(() => {
-    setComplianceStatus(prev => {
-      const isLaneClear = compliance.isComplianceValid;
-      const obstructions = compliance.obstructions;
-      
-      const hasChanged = prev.isLaneClear !== isLaneClear || 
-                         prev.obstructions.length !== obstructions.length ||
-                         prev.obstructions.some((o, idx) => o.id !== obstructions[idx]?.id || o.violation !== obstructions[idx]?.violation);
-      
-      if (!hasChanged) return prev;
-      
-      return {
-        ...prev,
-        isLaneClear,
-        obstructions
-      };
-    });
-  }, [compliance, setComplianceStatus]);
 
   const safeResponsive = responsive || { sidebarMode: 'expanded' };
   const mapContainerRef = useRef(null);
@@ -842,6 +815,45 @@ const MapContainer = forwardRef(({
     }
   });
 
+  const handleSelectRect = useCallback((id) => select(id, 'rect'), [select]);
+
+  const handleResizeRect = useCallback((id, newGeom) => {
+    try {
+      clickToPlace.updateDroppedObject(id, (prev) => {
+        if (!prev) return prev;
+        let dims = prev?.properties?.dimensions || prev?.properties?.user_dimensions_m || {};
+        try {
+          const ring = Array.isArray(newGeom?.coordinates?.[0]) ? newGeom.coordinates[0] : [];
+          if (ring.length >= 4) {
+            const dist = (p, q) => {
+              const R = 6378137;
+              const toRad = (d) => d * Math.PI / 180;
+              const dLat = toRad(q[1] - p[1]);
+              const dLon = toRad(q[0] - p[0]);
+              const lat1 = toRad(p[1]);
+              const lat2 = toRad(q[1]);
+              const s = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+              return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+            };
+            dims = { width: dist(ring[0], ring[1]), height: dist(ring[1], ring[2]) };
+          }
+        } catch (_) {}
+        return { ...prev, geometry: newGeom, properties: { ...prev.properties, dimensions: dims } };
+      }, true);
+    } catch (_) {}
+  }, [clickToPlace]);
+
+  const handleMoveRect = useCallback((id, newGeom) => {
+    try {
+      clickToPlace.updateDroppedObject(id, (prev) => {
+        if (!prev) return prev;
+        const ring = Array.isArray(newGeom?.coordinates?.[0]) ? newGeom.coordinates[0] : [];
+        const centroid = ring.length >= 4 ? { lng: (ring[0][0] + ring[2][0]) / 2, lat: (ring[0][1] + ring[2][1]) / 2 } : prev.position;
+        return { ...prev, geometry: newGeom, position: centroid };
+      }, true);
+    } catch (_) {}
+  }, [clickToPlace]);
+
   return (
     <div className="flex-1 relative transition-all duration-300 ease-in-out">
       <div className="absolute bottom-4 left-4 z-50 flex flex-row items-end gap-2" style={{ pointerEvents: 'none' }}>
@@ -863,9 +875,10 @@ const MapContainer = forwardRef(({
       {isLoading && <LoadingOverlay />}
       <ViewportInset map={map} focusedArea={focusedArea} isRightSidebarOpen={isRightSidebarOpen} />
       <div ref={ref} className="absolute inset-0" style={{ width: '100%', height: '100%' }} />
-      <div className={`absolute inset-0 ${placementMode ? 'cursor-crosshair' : ''}`} style={{ width: '100%', height: '100%', pointerEvents: placementMode ? 'auto' : 'none' }} onMouseMove={handleMapMouseMove} onClick={(e) => {
-          try { if (e && (e.defaultPrevented || (e.nativeEvent && e.nativeEvent.defaultPrevented))) return; if (e && e.cancelBubble) return; } catch (_) {}
-          try { handleMapClick(e); } catch (_) {}
+              <div className={`absolute inset-0 ${placementMode ? 'cursor-crosshair' : ''}`} style={{ width: '100%', height: '100%', pointerEvents: placementMode ? 'auto' : 'none' }} onMouseMove={handleMapMouseMove} onClick={(e) => {
+                  if (DEBUG) console.info('[MapContainer] Click on placement overlay', e.clientX, e.clientY);
+                  try { if (e && (e.defaultPrevented || (e.nativeEvent && e.nativeEvent.defaultPrevented))) return; if (e && e.cancelBubble) return; } catch (_) {}
+                  try { handleMapClick(e); } catch (_) {}
           try { if (e && (e.defaultPrevented || (e.nativeEvent && e.nativeEvent.defaultPrevented))) return; if (e && e.cancelBubble) return; } catch (_) {}
           if (!placementMode) { handleSelectionClick(e); }
         }}
@@ -955,31 +968,16 @@ const MapContainer = forwardRef(({
       })()}
       
       {map && (
-        <DroppedRectanglesMapLibre objects={droppedObjects} placeableObjects={placeableObjects} map={map} objectUpdateTrigger={clickToPlace.objectUpdateTrigger} selectedId={selectedKind === 'rect' ? selectedObjectId : null} isPlacementActive={!!placementMode} onSelectRect={(id) => select(id, 'rect')} onResizeRect={(id, newGeom) => {
-          try {
-            clickToPlace.updateDroppedObject(id, (prev) => {
-              if (!prev) return prev;
-              let dims = prev?.properties?.dimensions || prev?.properties?.user_dimensions_m || {};
-              try {
-                const ring = Array.isArray(newGeom?.coordinates?.[0]) ? newGeom.coordinates[0] : [];
-                if (ring.length >= 4) {
-                  const dist = (p, q) => { const R = 6378137; const toRad = (d) => d * Math.PI / 180; const dLat = toRad(q[1] - p[1]); const dLon = toRad(q[0] - p[0]); const lat1 = toRad(p[1]); const lat2 = toRad(q[1]); const s = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2; return 2 * R * Math.asin(Math.min(1, Math.sqrt(s))); };
-                  dims = { width: dist(ring[0], ring[1]), height: dist(ring[1], ring[2]) };
-                }
-              } catch (_) {}
-              return { ...prev, geometry: newGeom, properties: { ...prev.properties, dimensions: dims } };
-            }, true);
-          } catch (_) {}
-          }} onMoveRect={(id, newGeom) => {
-          try {
-            clickToPlace.updateDroppedObject(id, (prev) => {
-              if (!prev) return prev;
-              const ring = Array.isArray(newGeom?.coordinates?.[0]) ? newGeom.coordinates[0] : [];
-              const centroid = ring.length >= 4 ? { lng: (ring[0][0] + ring[2][0]) / 2, lat: (ring[0][1] + ring[2][1]) / 2 } : prev.position;
-              return { ...prev, geometry: newGeom, position: centroid };
-            }, true);
-          } catch (_) {}
-          }}
+        <DroppedRectanglesMapLibre 
+          objects={droppedObjects} 
+          placeableObjects={placeableObjects} 
+          map={map} 
+          objectUpdateTrigger={clickToPlace.objectUpdateTrigger} 
+          selectedId={selectedKind === 'rect' ? selectedObjectId : null} 
+          isPlacementActive={!!placementMode} 
+          onSelectRect={handleSelectRect} 
+          onResizeRect={handleResizeRect} 
+          onMoveRect={handleMoveRect}
         />
       )}
       <ViewportInset map={map} mapLoaded={mapLoaded} permitAreas={permitAreas} responsive={safeResponsive} isSitePlanMode={isSitePlanMode} isRightSidebarOpen={isRightSidebarOpen} />

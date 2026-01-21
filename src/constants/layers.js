@@ -90,6 +90,7 @@ export const INITIAL_LAYERS = {
       spriteBase: 'bike-rack',
       publicDir: '/static/bike-rack',
       facingMode: 'awayFromStreet',
+      desiredParallelTo: 'cscl',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
   },
@@ -171,6 +172,7 @@ export const INITIAL_LAYERS = {
       spriteBase: 'parking-meter',
       publicDir: '/static/parking-meter',
       facingMode: 'towardStreet',
+      desiredParallelTo: 'cscl',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
   },
@@ -316,6 +318,7 @@ export const INITIAL_LAYERS = {
       spriteBase: 'bench',
       publicDir: '/static/bench',
       facingMode: 'awayFromStreet',
+      desiredParallelTo: 'cscl',
       angles: [0, 45, 90, 135, 180, 225, 270, 315]
     }
   },
@@ -369,5 +372,14 @@ export const INITIAL_LAYERS = {
     loading: false,
     loaded: false,
     endpoint: '/api/dcwp-parking-garages'
+  },
+  openStreets: {
+    visible: false,
+    requested: false,
+    name: 'Open Streets',
+    color: '#a855f7', // Purple
+    loading: false,
+    loaded: false,
+    endpoint: 'https://data.cityofnewyork.us/resource/uiay-nctu.geojson'
   }
 };

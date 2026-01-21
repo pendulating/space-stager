@@ -1,5 +1,5 @@
 // hooks/useDrawTools.js
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import RectObjectMode from '../draw-modes/rectObjectMode';
 import { DRAW_STYLES } from '../constants/drawStyles';
 
@@ -16,6 +16,22 @@ export const useDrawTools = (map, focusedArea = null) => {
   const [showLabels, setShowLabelsState] = useState(true);
   const [activeRectObjectTypeId, setActiveRectObjectTypeId] = useState(null);
   const [renderTrigger, setRenderTrigger] = useState(0);
+  const [features, setFeatures] = useState([]);
+
+  useEffect(() => {
+    if (draw.current && drawInitialized) {
+      const nextFeatures = draw.current.getAll().features;
+      setFeatures(prev => {
+        if (prev.length === 0 && nextFeatures.length === 0) return prev;
+        // Simple length + ID check for efficiency
+        if (prev.length === nextFeatures.length) {
+          const isSame = prev.every((f, i) => f.id === nextFeatures[i].id && f.properties?.label === nextFeatures[i].properties?.label);
+          if (isSame) return prev;
+        }
+        return nextFeatures;
+      });
+    }
+  }, [drawInitialized, renderTrigger]);
   
   const setShowLabels = useCallback((value) => {
     setShowLabelsState(value);
@@ -528,8 +544,9 @@ export const useDrawTools = (map, focusedArea = null) => {
     reinitializeDrawControls();
   }, [reinitializeDrawControls]);
 
-  return {
+  return useMemo(() => ({
     draw,
+    features,
     activeTool,
     selectedShape,
     shapeLabel,
@@ -548,5 +565,25 @@ export const useDrawTools = (map, focusedArea = null) => {
     startRectObjectPlacement,
     activeRectObjectTypeId,
     cancelRectObjectPlacement
-  };
+  }), [
+    features,
+    activeTool,
+    selectedShape,
+    shapeLabel,
+    setShapeLabel,
+    activateDrawingTool,
+    updateShapeLabel,
+    updateShape,
+    deleteSelectedShape,
+    selectShape,
+    clearCustomShapes,
+    manualInitialize,
+    reinitializeDrawControls,
+    drawInitialized,
+    showLabels,
+    setShowLabels,
+    startRectObjectPlacement,
+    activeRectObjectTypeId,
+    cancelRectObjectPlacement
+  ]);
 };

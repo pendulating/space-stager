@@ -53,7 +53,7 @@ export function useNudges({
         const firstKey = first?.id || (first?.geometry?.coordinates ? String(first.geometry.coordinates.slice(0,2)) : '');
         return `${id}:${len}:${firstKey}`;
       }).join('|');
-      const textSig = labelScan ? `labelScan:${Date.now()}` : 'labelScan:0';
+      const textSig = labelScan ? 'labelScan:active' : 'labelScan:0';
       const complianceSig = complianceStatus ? `${complianceStatus.isLaneClear}:${(complianceStatus.obstructions || []).map(o => o.id).sort().join(',')}` : 'no-compliance';
       const sig = `${droppedSig}||${layersVisSig}||${infraSig}||${textSig}||${complianceSig}`;
 

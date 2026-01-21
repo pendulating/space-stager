@@ -1,17 +1,18 @@
 // hooks/useInfrastructure.js
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { 
   loadInfrastructureData, 
   filterFeaturesByType,
   getLayerStyle 
 } from '../services/infrastructureService';
 import { calculateGeometryBounds, expandBounds } from '../utils/geometryUtils';
-import { createInfrastructureTooltipContent } from '../utils/tooltipUtils';
+import { createInfrastructureTooltipContent, buildInfrastructureHoverContent, buildInfrastructureClickContent } from '../utils/tooltipUtils';
+import maplibregl from 'maplibre-gl';
 import { addIconsToMap, retryLoadIcons, INFRASTRUCTURE_ICONS } from '../utils/iconUtils';
 import { INFRASTRUCTURE_ENDPOINTS } from '../constants/endpoints';
 import { addEnhancedSpritesToMap, computeNearestLineBearing, quantizeAngleTo45, quantizeAngleTo90, buildSpriteImageId, getMapViewType, buildSpriteUrl, buildFlatSpriteUrl, computeNearestSegmentClosestPointBearing, computeFeatureSpriteAngle, computeSpriteTransform, extractCameraState, computeCameraBucket, VIEW_TYPES } from '../utils/enhancedRenderingUtils.js';
-import { snapBearingRelativeToArea, computeAreaOrientation, quantizeBearingForView, normalizeAngle } from '../utils/bearingUtils';
-import { ensureViewportAlignedSymbols } from '../utils/mapLayerUtils';
+import { snapBearingRelativeToArea, quantizeBearingForView, normalizeAngle } from '../utils/bearingUtils';
+// ensureViewportAlignedSymbols not used - infrastructure icons use 'map' alignment (fixed in world space)
 import { parseTrainLines } from '../utils/mtaUtils';
 import { addTrainLineIconToMap, preloadCommonTrainLineIcons } from '../utils/mtaIconGenerator';
 import { useMapViewState } from './useMapViewState';
@@ -117,6 +118,10 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
   useEffect(() => { layersRef.current = layers; }, [layers]);
   // Track previous layer visibility states to avoid unnecessary updates
   const prevLayerVisibilityRef = useRef(new Map());
+  
+  // Popup refs for infrastructure hover/click tooltips
+  const infraHoverPopupRef = useRef(null);
+  const infraClickPopupRef = useRef(null);
 
   // (queue functions declared after loader)
 
@@ -152,6 +157,7 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
           const hs = H.get(id);
           try { if (hs?.enter) map.off('mouseenter', id, hs.enter); } catch (_) {}
           try { if (hs?.leave) map.off('mouseleave', id, hs.leave); } catch (_) {}
+          try { if (hs?.move) map.off('mousemove', id, hs.move); } catch (_) {}
           try { if (hs?.click) map.off('click', id, hs.click); } catch (_) {}
           try { H.delete(id); } catch (_) {}
         };
@@ -203,28 +209,36 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       // Clear everything when focus is removed
       if (map) {
         try {
-          Object.keys(layers || {}).forEach((layerId) => {
+          Object.keys(layersRef.current || {}).forEach((layerId) => {
             if (layerId !== 'permitAreas') removeInfrastructureLayer(layerId);
           });
         } catch (_) {}
       }
       
-      // Reset infrastructure data map
-      setInfrastructureData({});
+      // Reset infrastructure data map - only if not already empty
+      setInfrastructureData(prev => {
+        if (!prev || Object.keys(prev).length === 0) return prev;
+        return {};
+      });
       
       // Reset all layer states dynamically (also clear requested intent)
       setLayers(prev => {
+        let changed = false;
         const next = { ...prev };
         Object.keys(prev || {}).forEach((layerId) => {
           if (layerId === 'permitAreas') return;
-          next[layerId] = { ...prev[layerId], visible: false, loading: false, loaded: false, error: null, requested: false };
+          const cfg = prev[layerId];
+          if (cfg.visible || cfg.loading || cfg.loaded || cfg.requested || cfg.error) {
+            next[layerId] = { ...cfg, visible: false, loading: false, loaded: false, error: null, requested: false };
+            changed = true;
+          }
         });
-        return next;
+        return changed ? next : prev;
       });
       
       loadingLayersRef.current.clear();
     }
-  }, [focusedAreaId, layers, map, removeInfrastructureLayer, setLayers]);
+  }, [focusedAreaId, map, removeInfrastructureLayer, setLayers]); // Removed layers from dependency array
 
   // Clear existing layers when focused area changes (guarded during import rehydration)
   useEffect(() => {
@@ -255,7 +269,10 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     });
 
     // Clear infrastructure data cache so old area data doesn't flash under new area
-    setInfrastructureData({});
+    setInfrastructureData(prev => {
+      if (!prev || Object.keys(prev).length === 0) return prev;
+      return {};
+    });
 
     // Clear loading states
     loadingLayersRef.current.clear();
@@ -398,25 +415,89 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     infraDataRef.current = infrastructureData;
   }, [infrastructureData]);
 
-  // Continuous rotation update for infrastructure in 2D mode: listen to 'rotate' event
+  // NOTE: Infrastructure icons use icon-rotation-alignment: 'map' so they are FIXED in world space,
+  // like basemap features. When the camera rotates, icons rotate WITH the map - no JavaScript
+  // rotation updates needed. This is the most performant approach.
+
+  // Ref for debouncing sprite updates in isometric mode
+  const spriteUpdateTimeoutRef = useRef(null);
+  const pendingSpriteUpdateRef = useRef(null);
+
+  // Recompute per-feature icon_image for enhanced infra when bearing/view changes
+  // PERFORMANCE: Only runs in isometric mode (top-down uses native MapLibre viewport alignment)
+  // Uses coarse camera buckets (45° slices) and debouncing to minimize updates during rotation
   useEffect(() => {
-    if (!map || view?.viewType !== 'top-down') return;
+    if (!map) return;
     
-    const onRotate = () => {
+    const state = extractCameraState({ map, view });
+    const currentViewType = state?.viewType;
+    
+    // In top-down/2D mode, icons use map-aligned rotation (fixed in world space)
+    // No JavaScript updates needed - MapLibre handles rotation natively on the GPU
+    if (currentViewType === 'top-down') {
+      // Only update if we just switched FROM isometric mode (need to reset sprites)
+      const anyPrevIsometric = Object.values(lastViewTypeRef.current || {}).some(v => v === 'isometric');
+      if (!anyPrevIsometric) return;
+    }
+    
+    // Function to perform the actual sprite update
+    const performSpriteUpdate = () => {
       try {
-        const bearingRaw = typeof map.getBearing === 'function' ? map.getBearing() : 0;
-        Object.entries(layers).forEach(([layerId, cfg]) => {
+        Object.entries(layersRef.current || {}).forEach(([layerId, cfg]) => {
           if (!cfg?.requested || !cfg?.enhancedRendering?.enabled) return;
+          
+          // Use infraDataRef.current instead of infrastructureData to avoid loop
           const data = infraDataRef.current?.[layerId];
           if (!data || !Array.isArray(data.features) || data.features.length === 0) return;
 
+          // Use coarser bucket precision (45° = 8 slices) for fewer updates
+          const snappedBucket = computeCameraBucket({ cameraState: state, bucketPrecisionDeg: 45, slices: 8 });
+          const prevBucket = lastCameraBucketRef.current[layerId];
+          const prevViewType = lastViewTypeRef.current?.[layerId];
+          
+          // Force update if viewType changed (top-down <-> isometric), even if bucket is same
+          const viewTypeChanged = prevViewType !== currentViewType;
+          if (!viewTypeChanged && typeof prevBucket === 'number' && prevBucket === snappedBucket) {
+            return;
+          }
+          lastCameraBucketRef.current[layerId] = snappedBucket;
+          if (!lastViewTypeRef.current) lastViewTypeRef.current = {};
+          lastViewTypeRef.current[layerId] = currentViewType;
+
+          const areaGeom = (() => { try {
+            return (focusedArea?.properties?.__subFocus ? focusedArea : null)?.geometry || (focusedArea?.geometry);
+          } catch (_) { return null; } })();
+
           let changed = false;
           const newFeatures = data.features.map((f) => {
-            if (!f || f.geometry?.type !== 'Point' || !f.properties || typeof f.properties.icon_base_rotation !== 'number') return f;
-            const iconRotate = ((f.properties.icon_base_rotation - bearingRaw) % 360 + 360) % 360;
-            if (Math.abs((f.properties.icon_rotate || 0) - iconRotate) < 0.1) return f;
-            changed = true;
-            return { ...f, properties: { ...f.properties, icon_rotate: iconRotate } };
+            if (!f || f.geometry?.type !== 'Point') return f;
+            const p = f.properties || {};
+            const spriteBase = cfg?.enhancedRendering?.spriteBase;
+            const baseAngle = (typeof p.icon_base_bearing === 'number') ? p.icon_base_bearing : 0;
+            const zeroOffset = (cfg?.enhancedRendering?.zeroOffsetDegByView?.[state.viewType])
+              ?? (cfg?.enhancedRendering?.zeroOffsetDeg)
+              ?? 0;
+            const displayAngle = (typeof p.icon_display_bearing === 'number') ? p.icon_display_bearing : undefined;
+            const transform = computeSpriteTransform({
+              map,
+              view,
+              cameraState: state,
+              spriteBase,
+              baseAngleDeg: baseAngle,
+              displayAngleDeg: displayAngle,
+              zeroOffsetDeg: zeroOffset,
+              areaGeom,
+              facingMode: cfg?.enhancedRendering?.facingMode,
+              side: p.icon_side || null
+            });
+            const nextImage = transform.imageId || (spriteBase ? `${spriteBase}_000` : p.icon_image);
+            const nextRotate = transform.iconRotate || 0;
+            const baseRotation = displayAngle !== undefined ? ((displayAngle % 360) + 360) % 360 : nextRotate;
+            if (p.icon_image !== nextImage || (p.icon_rotate || 0) !== nextRotate || (p.icon_base_rotation !== baseRotation)) {
+              changed = true;
+              return { ...f, properties: { ...p, icon_image: nextImage, icon_rotate: nextRotate, icon_base_rotation: baseRotation } };
+            }
+            return f;
           });
 
           if (changed) {
@@ -424,95 +505,44 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
             try {
               const srcId = `source-${layerId}`;
               const src = map && typeof map.getSource === 'function' ? map.getSource(srcId) : null;
-              if (src && typeof src.setData === 'function') {
-                src.setData(updated);
-                infraDataRef.current = { ...infraDataRef.current, [layerId]: updated };
-              }
+              if (src && typeof src.setData === 'function') src.setData(updated);
             } catch (_) {}
+            
+            // Update ref immediately
+            infraDataRef.current = { ...infraDataRef.current, [layerId]: updated };
+            
+            setInfrastructureData((prev) => ({ ...prev, [layerId]: updated }));
           }
         });
       } catch (_) {}
     };
     
-    try { map.on('rotate', onRotate); } catch (_) {}
-    return () => { try { map.off('rotate', onRotate); } catch (_) {} };
-  }, [map, view?.viewType, view?.bearing]); // Removed 'layers' dependency - use layersRef instead
-
-  // Recompute per-feature icon_image for enhanced infra when bearing/view changes
-  // Uses same logic as dropped objects: compensate for map bearing in isometric view
-  useEffect(() => {
-    if (!map) return;
-    try {
-      const state = extractCameraState({ map, view });
-      Object.entries(layersRef.current || {}).forEach(([layerId, cfg]) => {
-        if (!cfg?.requested || !cfg?.enhancedRendering?.enabled) return;
-        const data = infrastructureData?.[layerId];
-        if (!data || !Array.isArray(data.features) || data.features.length === 0) return;
-
-        const snappedBucket = computeCameraBucket({ cameraState: state, bucketPrecisionDeg: 1, slices: 8 });
-        const prevBucket = lastCameraBucketRef.current[layerId];
-        const prevViewType = lastViewTypeRef.current?.[layerId];
-        const currentViewType = state.viewType;
-        
-        // Force update if viewType changed (top-down <-> isometric), even if bucket is same
-        const viewTypeChanged = prevViewType !== currentViewType;
-        if (!viewTypeChanged && typeof prevBucket === 'number' && prevBucket === snappedBucket) {
-          return;
+    // In isometric mode, debounce updates to avoid lag during continuous rotation
+    // Use 100ms delay to batch rapid bearing changes
+    if (currentViewType === 'isometric') {
+      if (spriteUpdateTimeoutRef.current) {
+        clearTimeout(spriteUpdateTimeoutRef.current);
+      }
+      pendingSpriteUpdateRef.current = performSpriteUpdate;
+      spriteUpdateTimeoutRef.current = setTimeout(() => {
+        if (pendingSpriteUpdateRef.current) {
+          pendingSpriteUpdateRef.current();
+          pendingSpriteUpdateRef.current = null;
         }
-        lastCameraBucketRef.current[layerId] = snappedBucket;
-        if (!lastViewTypeRef.current) lastViewTypeRef.current = {};
-        lastViewTypeRef.current[layerId] = currentViewType;
-
-        const areaGeom = (() => { try {
-          return (focusedArea?.properties?.__subFocus ? focusedArea : null)?.geometry || (focusedArea?.geometry);
-        } catch (_) { return null; } })();
-
-        let changed = false;
-        const newFeatures = data.features.map((f) => {
-          if (!f || f.geometry?.type !== 'Point') return f;
-          const p = f.properties || {};
-          const spriteBase = cfg?.enhancedRendering?.spriteBase;
-          const baseAngle = (typeof p.icon_base_bearing === 'number') ? p.icon_base_bearing : 0;
-          const zeroOffset = (cfg?.enhancedRendering?.zeroOffsetDegByView?.[state.viewType])
-            ?? (cfg?.enhancedRendering?.zeroOffsetDeg)
-            ?? 0;
-          const displayAngle = (typeof p.icon_display_bearing === 'number') ? p.icon_display_bearing : undefined;
-          const transform = computeSpriteTransform({
-            map,
-            view,
-            cameraState: state,
-            spriteBase,
-            baseAngleDeg: baseAngle,
-            displayAngleDeg: displayAngle,
-            zeroOffsetDeg: zeroOffset,
-            areaGeom,
-            facingMode: cfg?.enhancedRendering?.facingMode,
-            side: p.icon_side || null
-          });
-          const nextImage = transform.imageId || (spriteBase ? `${spriteBase}_000` : p.icon_image);
-          const nextRotate = transform.iconRotate || 0;
-          const baseRotation = displayAngle !== undefined ? ((displayAngle % 360) + 360) % 360 : nextRotate;
-          if (p.icon_image !== nextImage || (p.icon_rotate || 0) !== nextRotate || (p.icon_base_rotation !== baseRotation)) {
-            changed = true;
-            return { ...f, properties: { ...p, icon_image: nextImage, icon_rotate: nextRotate, icon_base_rotation: baseRotation } };
-          }
-          return f;
-        });
-
-        if (changed) {
-          const updated = { ...data, features: newFeatures };
-          try {
-            const srcId = `source-${layerId}`;
-            const src = map && typeof map.getSource === 'function' ? map.getSource(srcId) : null;
-            if (src && typeof src.setData === 'function') src.setData(updated);
-          } catch (_) {}
-          setInfrastructureData((prev) => ({ ...prev, [layerId]: updated }));
-        }
-      });
-    } catch (_) {}
-    // In 2D mode, bearing changes don't require data rebuild (icon-rotate with 'map' alignment handles it)
-    // In isometric mode, bearing changes DO require different sprites (perspective changes)
-  }, [map, infrastructureData, view?.bearing, view?.viewType, view?.pitch, focusedArea]); // Removed 'layers' dependency - use layersRef.current instead
+        spriteUpdateTimeoutRef.current = null;
+      }, 100);
+    } else {
+      // View type change (e.g., switching from isometric to top-down) - update immediately
+      performSpriteUpdate();
+    }
+    
+    return () => {
+      if (spriteUpdateTimeoutRef.current) {
+        clearTimeout(spriteUpdateTimeoutRef.current);
+        spriteUpdateTimeoutRef.current = null;
+      }
+    };
+  }, [map, view?.bearing, view?.viewType, view?.pitch, focusedArea]);
 
   // Add infrastructure layer to map - move this before loadInfrastructureLayer
   const addInfrastructureLayerToMap = useCallback((layerId, data) => {
@@ -618,20 +648,70 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       // Add hover and click events for polygons with tracked handlers
       try {
         const H = map.__infraHandlers || (map.__infraHandlers = new Map());
+        
+        // Initialize popups if not already created
+        if (!infraHoverPopupRef.current) {
+          infraHoverPopupRef.current = new maplibregl.Popup({
+            closeButton: false,
+            closeOnClick: false,
+            offset: 15,
+            className: 'infra-hover-popup'
+          });
+        }
+        if (!infraClickPopupRef.current) {
+          infraClickPopupRef.current = new maplibregl.Popup({
+            closeButton: true,
+            closeOnClick: true,
+            offset: 15,
+            maxWidth: '300px',
+            className: 'infra-click-popup'
+          });
+        }
+        
         const onEnter = () => { try { map.getCanvas().style.cursor = 'pointer'; } catch (_) {} };
-        const onLeave = () => { try { map.getCanvas().style.cursor = ''; } catch (_) {} };
+        const onLeave = () => { 
+          try { 
+            map.getCanvas().style.cursor = ''; 
+            if (infraHoverPopupRef.current) infraHoverPopupRef.current.remove();
+          } catch (_) {} 
+        };
+        const onMove = (e) => {
+          try {
+            if (!e || !e.features || e.features.length === 0) return;
+            // Don't show hover popup if click popup is open
+            if (infraClickPopupRef.current?.isOpen()) return;
+            const feature = e.features[0];
+            const content = buildInfrastructureHoverContent(feature.properties, layerId);
+            if (content) {
+              infraHoverPopupRef.current
+                .setLngLat(e.lngLat)
+                .setHTML(content)
+                .addTo(map);
+            }
+          } catch (_) {}
+        };
         const onClick = (e) => {
           try {
             if (!e || !e.features || e.features.length === 0) return;
             const feature = e.features[0];
-            const content = createInfrastructureTooltipContent(feature.properties, layerId);
-            if (DEBUG_INFRA) console.log('Infrastructure feature clicked:', content);
+            // Close hover popup
+            if (infraHoverPopupRef.current) infraHoverPopupRef.current.remove();
+            // Show detailed click popup
+            const content = buildInfrastructureClickContent(feature.properties, layerId);
+            if (content) {
+              infraClickPopupRef.current
+                .setLngLat(e.lngLat)
+                .setHTML(content)
+                .addTo(map);
+            }
+            if (DEBUG_INFRA) console.log('Infrastructure feature clicked:', layerId);
           } catch (_) {}
         };
         map.on('mouseenter', polygonLayerId, onEnter);
         map.on('mouseleave', polygonLayerId, onLeave);
+        map.on('mousemove', polygonLayerId, onMove);
         map.on('click', polygonLayerId, onClick);
-        H.set(polygonLayerId, { enter: onEnter, leave: onLeave, click: onClick });
+        H.set(polygonLayerId, { enter: onEnter, leave: onLeave, move: onMove, click: onClick });
       } catch (_) {}
     }
     
@@ -654,9 +734,11 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
           layerConfig.layout = {
             ...(layerConfig.layout || {}),
             'symbol-placement': 'point',
-            'icon-rotation-alignment': 'viewport',
-            'icon-pitch-alignment': 'viewport',
-            'icon-rotate': ['coalesce', ['get', 'icon_rotate'], 0],
+            // 'map' alignment = icons are FIXED in world space, rotate WITH the map (like basemap features)
+            // No JavaScript rotation updates needed - MapLibre handles it natively on the GPU
+            'icon-rotation-alignment': 'map',
+            'icon-pitch-alignment': 'map',
+            'icon-rotate': ['coalesce', ['get', 'icon_base_rotation'], ['coalesce', ['get', 'icon_rotate'], 0]],
             'icon-anchor': 'center',
             'icon-offset': [0, 0]
           };
@@ -669,24 +751,76 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       
       try {
         const H = map.__infraHandlers || (map.__infraHandlers = new Map());
+        
+        // Initialize popups if not already created
+        if (!infraHoverPopupRef.current) {
+          infraHoverPopupRef.current = new maplibregl.Popup({
+            closeButton: false,
+            closeOnClick: false,
+            offset: 15,
+            className: 'infra-hover-popup'
+          });
+        }
+        if (!infraClickPopupRef.current) {
+          infraClickPopupRef.current = new maplibregl.Popup({
+            closeButton: true,
+            closeOnClick: true,
+            offset: 15,
+            maxWidth: '300px',
+            className: 'infra-click-popup'
+          });
+        }
+        
         const onEnter = () => { try { map.getCanvas().style.cursor = 'pointer'; } catch (_) {} };
-        const onLeave = () => { try { map.getCanvas().style.cursor = ''; } catch (_) {} };
+        const onLeave = () => { 
+          try { 
+            map.getCanvas().style.cursor = ''; 
+            if (infraHoverPopupRef.current) infraHoverPopupRef.current.remove();
+          } catch (_) {} 
+        };
+        const onMove = (e) => {
+          try {
+            if (!e || !e.features || e.features.length === 0) return;
+            // Don't show hover popup if click popup is open
+            if (infraClickPopupRef.current?.isOpen()) return;
+            const feature = e.features[0];
+            const content = buildInfrastructureHoverContent(feature.properties, layerId);
+            if (content) {
+              infraHoverPopupRef.current
+                .setLngLat(e.lngLat)
+                .setHTML(content)
+                .addTo(map);
+            }
+          } catch (_) {}
+        };
         const onClick = (e) => {
           try {
             if (!e || !e.features || e.features.length === 0) return;
             const feature = e.features[0];
-            const content = createInfrastructureTooltipContent(feature.properties, layerId);
-            if (DEBUG_INFRA) console.log('Infrastructure feature clicked:', content);
+            // Close hover popup
+            if (infraHoverPopupRef.current) infraHoverPopupRef.current.remove();
+            // Show detailed click popup
+            const content = buildInfrastructureClickContent(feature.properties, layerId);
+            if (content) {
+              infraClickPopupRef.current
+                .setLngLat(e.lngLat)
+                .setHTML(content)
+                .addTo(map);
+            }
+            if (DEBUG_INFRA) console.log('Infrastructure feature clicked:', layerId);
           } catch (_) {}
         };
         map.on('mouseenter', pointLayerId, onEnter);
         map.on('mouseleave', pointLayerId, onLeave);
+        map.on('mousemove', pointLayerId, onMove);
         map.on('click', pointLayerId, onClick);
-        H.set(pointLayerId, { enter: onEnter, leave: onLeave, click: onClick });
+        H.set(pointLayerId, { enter: onEnter, leave: onLeave, move: onMove, click: onClick });
       } catch (_) {}
       
       if (DEBUG_INFRA) console.log(`[DEBUG] Successfully added point layer: ${pointLayerId}`);
-      try { ensureViewportAlignedSymbols(map, [pointLayerId]); } catch (_) {}
+      // NOTE: We intentionally do NOT call ensureViewportAlignedSymbols here.
+      // Infrastructure icons use 'map' alignment so they are FIXED in world space,
+      // rotating WITH the map like basemap features. This is handled in the layer config above.
     }
   }, [map, layers, view?.viewType]);
 
@@ -694,11 +828,19 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
 
   // Load infrastructure layer - now addInfrastructureLayerToMap is defined
   const loadInfrastructureLayer = useCallback(async (layerId) => {
-    if (!map || !focusedArea || loadingLayersRef.current.has(layerId)) return;
-    const cfg = layersRef.current?.[layerId];
-    if (cfg?.disabled || DISABLED_INFRASTRUCTURE_LAYERS.has(layerId)) return;
+    if (DEBUG_INFRA) console.log(`[infra] loadInfrastructureLayer called for ${layerId}, map:`, !!map, 'focusedArea:', !!focusedArea, 'alreadyLoading:', loadingLayersRef.current.has(layerId));
     
-    if (DEBUG_INFRA) console.log(`Loading ${layerId} for area:`, focusedArea.properties?.name || focusedArea.id);
+    if (!map || !focusedArea || loadingLayersRef.current.has(layerId)) {
+      if (DEBUG_INFRA) console.log(`[infra] loadInfrastructureLayer skipping ${layerId}: no map/focusedArea or already loading`);
+      return;
+    }
+    const cfg = layersRef.current?.[layerId];
+    if (cfg?.disabled || DISABLED_INFRASTRUCTURE_LAYERS.has(layerId)) {
+      if (DEBUG_INFRA) console.log(`[infra] loadInfrastructureLayer skipping ${layerId}: disabled`);
+      return;
+    }
+    
+    if (DEBUG_INFRA) console.log(`[infra] Loading ${layerId} for area:`, focusedArea.properties?.name || focusedArea.id);
     
     // Mark as loading
     loadingLayersRef.current.add(layerId);
@@ -809,44 +951,62 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
 
           // For point features, compute a bearing from nearest CSCL centerline when desired
           let lineFeatures = [];
+          console.log(`[CSCL] ${layerId}: desiredParallelTo = ${cfg.enhancedRendering?.desiredParallelTo || 'undefined'}`);
           try {
-            if (cfg.enhancedRendering.desiredParallelTo === 'cscl') {
-              const expandFactor = 0.0015;
+            if (cfg.enhancedRendering?.desiredParallelTo === 'cscl') {
+              // Expand bounds to find nearby streets (0.003° ≈ 330m at NYC latitude)
+              const expandFactor = 0.003;
               const expanded = expandBounds(bounds, expandFactor);
-              const minLng = expanded[0][0];
-              const minLat = expanded[0][1];
-              const maxLng = expanded[1][0];
-              const maxLat = expanded[1][1];
-              const ep = INFRASTRUCTURE_ENDPOINTS.csclCenterlines;
-              let csclUrl = '';
-              if (ep && ep.baseUrl && ep.geoField) {
-                const wktPoly = `POLYGON((
-                  ${minLng} ${minLat},
-                  ${minLng} ${maxLat},
-                  ${maxLng} ${maxLat},
-                  ${maxLng} ${minLat},
-                  ${minLng} ${minLat}
-                ))`.replace(/\s+/g, ' ').trim();
-                const where = `intersects(${ep.geoField}, '${wktPoly}')`;
-                csclUrl = `${ep.baseUrl}?$where=${encodeURIComponent(where)}&$limit=5000`;
-              }
-              if (csclUrl) {
-                try {
-                  const resp = await fetch(csclUrl);
-                  if (resp.ok) {
-                    const gj = await resp.json();
-                    lineFeatures = Array.isArray(gj?.features) ? gj.features : [];
+              const [minLng, minLat] = expanded[0];
+              const [maxLng, maxLat] = expanded[1];
+              
+              // Build Socrata SoQL spatial query using WKT POLYGON
+              // Docs: https://dev.socrata.com/docs/functions/intersects.html
+              const wktPoly = `POLYGON((${minLng} ${minLat}, ${minLng} ${maxLat}, ${maxLng} ${maxLat}, ${maxLng} ${minLat}, ${minLng} ${minLat}))`;
+              const where = `intersects(the_geom, '${wktPoly}')`;
+              const csclUrl = `https://data.cityofnewyork.us/resource/inkn-q76z.geojson?$where=${encodeURIComponent(where)}&$limit=5000`;
+              
+              console.log(`[CSCL] ${layerId}: Fetching from NYC Open Data...`);
+              console.log(`[CSCL] ${layerId}: Bounds: [${minLng.toFixed(4)}, ${minLat.toFixed(4)}] to [${maxLng.toFixed(4)}, ${maxLat.toFixed(4)}]`);
+              
+              try {
+                const resp = await fetch(csclUrl);
+                console.log(`[CSCL] ${layerId}: Response status = ${resp.status}`);
+                
+                if (resp.ok) {
+                  const gj = await resp.json();
+                  // Handle both array (Socrata sometimes returns raw array) and FeatureCollection formats
+                  if (Array.isArray(gj)) {
+                    lineFeatures = gj;
+                  } else if (gj?.features && Array.isArray(gj.features)) {
+                    lineFeatures = gj.features;
                   }
-                } catch (_) {}
+                  console.log(`[CSCL] ${layerId}: ✅ Loaded ${lineFeatures.length} centerline features`);
+                  if (lineFeatures.length > 0 && lineFeatures[0]?.geometry) {
+                    console.log(`[CSCL] ${layerId}: First feature type = ${lineFeatures[0].geometry.type}`);
+                  }
+                } else {
+                  const errorText = await resp.text().catch(() => 'Unable to read error');
+                  console.warn(`[CSCL] ${layerId}: ❌ Failed (${resp.status}): ${errorText.substring(0, 200)}`);
+                }
+              } catch (fetchErr) {
+                console.warn(`[CSCL] ${layerId}: ❌ Fetch error:`, fetchErr.message || fetchErr);
               }
             }
-          } catch (_) {}
+          } catch (err) {
+            console.error(`[CSCL] ${layerId}: Error in CSCL block:`, err);
+          }
 
           // Annotate each Point feature with base bearing and initial icon_image property
+          // Track alignment statistics
+          const alignmentStats = { cscl: 0, area: 0, fallback: 0, total: 0 };
+          let sampleBearings = []; // For debugging - collect first few bearings
+          
           filteredData = {
             ...filteredData,
-            features: filteredData.features.map((f) => {
+            features: filteredData.features.map((f, featureIdx) => {
               if (!f || f.geometry?.type !== 'Point') return f;
+              alignmentStats.total++;
               const p = f.properties || {};
               let baseBearing = null;
               let side = null;
@@ -857,54 +1017,30 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
                   baseBearing = local.axisBearing;
                   side = local.side || null;
                   baseSource = 'cscl';
+                  alignmentStats.cscl++;
+                  if (sampleBearings.length < 3) {
+                    sampleBearings.push({ idx: featureIdx, bearing: baseBearing, source: 'cscl-segment', coords: f.geometry.coordinates });
+                  }
                 } else {
                   const br = computeNearestLineBearing(f, lineFeatures);
-                  if (br != null) { baseBearing = br; baseSource = 'cscl'; }
+                  if (br != null) { 
+                    baseBearing = br; 
+                    baseSource = 'cscl'; 
+                    alignmentStats.cscl++;
+                    if (sampleBearings.length < 3) {
+                      sampleBearings.push({ idx: featureIdx, bearing: baseBearing, source: 'cscl-line', coords: f.geometry.coordinates });
+                    }
+                  }
                 }
               }
               if (baseBearing == null) {
-                // Fallback: use area orientation (viewport when pitched) and approximate side via centroid heuristic
-                try {
-                  const areaGeom = focusedArea?.geometry;
-                  const pitch = (typeof view?.pitch === 'number') ? view.pitch : (map && typeof map.getPitch === 'function' ? map.getPitch() : 0);
-                  const areaAxis = computeAreaOrientation({ map, geometry: areaGeom, pitch });
-                  baseBearing = (typeof areaAxis === 'number') ? areaAxis : 0;
-                  // centroid heuristic for side
-                  const centroid = (() => {
-                    try {
-                      if (!areaGeom || !areaGeom.type) return null;
-                      let ring = null;
-                      if (areaGeom.type === 'Polygon') {
-                        ring = Array.isArray(areaGeom.coordinates?.[0]) ? areaGeom.coordinates[0] : null;
-                      } else if (areaGeom.type === 'MultiPolygon') {
-                        ring = Array.isArray(areaGeom.coordinates?.[0]?.[0]) ? areaGeom.coordinates[0][0] : null;
-                      }
-                      if (!ring || ring.length === 0) return null;
-                      let sx = 0, sy = 0;
-                      ring.forEach(([x, y]) => { sx += x; sy += y; });
-                      const n = ring.length;
-                      return [sx / n, sy / n];
-                    } catch (_) { return null; }
-                  })();
-                  if (centroid && Array.isArray(f.geometry?.coordinates)) {
-                    const [cx, cy] = centroid;
-                    const [px, py] = f.geometry.coordinates;
-                    const rad = (Number(baseBearing) * Math.PI) / 180;
-                    const dx = Math.sin(rad) * 1e-4; // small step in lon
-                    const dy = Math.cos(rad) * 1e-4; // small step in lat
-                    const ax = cx, ay = cy;
-                    const bx = cx + dx, by = cy + dy;
-                    const abx = bx - ax, aby = by - ay;
-                    const apx = px - ax, apy = py - ay;
-                    const crossZ = abx * apy - aby * apx;
-                    side = crossZ > 0 ? 'left' : 'right';
-                  }
-                  baseSource = 'area';
-                } catch (_) {
-                  // final fallback
-                  baseBearing = 0;
-                  baseSource = 'fallback';
-                }
+                // Fallback: When CSCL alignment fails, use 0° (North-facing) as default
+                // This is more predictable than area orientation which can give diagonal angles
+                // for zones with curved/rounded edges
+                baseBearing = 0;
+                side = 'right'; // Default side when we can't determine from street
+                baseSource = 'fallback';
+                alignmentStats.fallback++;
               }
               const facingMode = cfg?.enhancedRendering?.facingMode;
               const { imageId: img } = computeFeatureSpriteAngle({
@@ -916,20 +1052,43 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
                 side,
                 spriteBase: cfg.enhancedRendering.spriteBase
               }) || {};
-              // Precompute a world-facing display bearing for 2D use so alignment is geometry-based
+              
+              // Calculate the display bearing based on facingMode
+              // baseBearing = street axis direction (from CSCL)
+              // For items that should face TOWARD or AWAY from the street, we add ±90°
+              // to make them PERPENDICULAR to the street axis
               let displayBase = (baseBearing != null ? baseBearing : 0);
               if (facingMode === 'towardStreet' || facingMode === 'awayFromStreet') {
                 const axis = ((Number(displayBase) % 360) + 360) % 360;
-                const left = ((axis - 90) % 360 + 360) % 360;
-                const right = ((axis + 90) % 360 + 360) % 360;
+                const left = ((axis - 90) % 360 + 360) % 360;  // perpendicular left
+                const right = ((axis + 90) % 360 + 360) % 360; // perpendicular right
+                // Determine which perpendicular direction based on which side of street the item is on
                 const isLeft = side === 'left';
-                const toStreet = isLeft ? right : left;
-                const awayStreet = isLeft ? left : right;
+                const toStreet = isLeft ? right : left;   // facing toward street center
+                const awayStreet = isLeft ? left : right; // facing away from street center
                 displayBase = (facingMode === 'towardStreet') ? toStreet : awayStreet;
               }
-              return { ...f, properties: { ...p, icon_image: img, icon_sprite_base: cfg.enhancedRendering.spriteBase, icon_base_bearing: baseBearing, icon_side: side, icon_base_bearing_source: baseSource, icon_display_bearing: ((Number(displayBase) % 360) + 360) % 360 } };
+              const normalizedDisplayBearing = ((Number(displayBase) % 360) + 360) % 360;
+              
+              if (sampleBearings.length < 5) {
+                sampleBearings.push({ 
+                  idx: featureIdx, 
+                  baseBearing, 
+                  normalizedDisplayBearing,
+                  side,
+                  facingMode,
+                  source: baseSource,
+                  coords: f.geometry?.coordinates 
+                });
+              }
+              
+              return { ...f, properties: { ...p, icon_image: img, icon_sprite_base: cfg.enhancedRendering.spriteBase, icon_base_bearing: baseBearing, icon_side: side, icon_base_bearing_source: baseSource, icon_display_bearing: normalizedDisplayBearing, icon_base_rotation: normalizedDisplayBearing } };
             })
           };
+          
+          // Log alignment statistics
+          console.log(`[Alignment] ${layerId}: ${alignmentStats.cscl}/${alignmentStats.total} aligned to CSCL (${alignmentStats.area} area, ${alignmentStats.fallback} fallback)`);
+          console.log(`[Alignment] ${layerId}: Sample bearings:`, JSON.stringify(sampleBearings.slice(0, 3), null, 0));
         }
       } catch (e) {
         console.warn('[enhancedRendering] failed to annotate features:', e);
@@ -1574,8 +1733,17 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
 
   // Bulk toggle helper for All Recommended with queue + progress
   const bulkToggleAllRecommended = useCallback((targetOn = true) => {
+    if (DEBUG_INFRA) console.log('[infra] bulkToggleAllRecommended called, targetOn:', targetOn, 'focusedArea:', !!focusedArea, 'map:', !!map);
+    
+    if (!map || !focusedArea) {
+      if (DEBUG_INFRA) console.log('[infra] bulkToggleAllRecommended: No map or focusedArea, cannot toggle layers');
+      return;
+    }
+    
     const cur = layersRef.current || {};
     const candidates = Object.keys(cur).filter((id) => id !== 'permitAreas' && !cur[id]?.disabled && !DISABLED_INFRASTRUCTURE_LAYERS.has(id) && !NON_RECOMMENDED_INFRASTRUCTURE_LAYERS.has(id));
+    
+    if (DEBUG_INFRA) console.log('[infra] bulkToggleAllRecommended: candidates:', candidates.length, candidates);
 
     if (targetOn) {
       // Determine which to show immediately and which to load
@@ -1584,6 +1752,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
         const cfg = cur[id];
         return cfg && !cfg.loaded && !cfg.loading && !loadingLayersRef.current.has(id);
       });
+      
+      if (DEBUG_INFRA) console.log('[infra] bulkToggleAllRecommended: loadedToShow:', loadedToShow.length, 'toLoad:', toLoad.length, toLoad);
 
       // Update state: mark requested and set visible=true for already-loaded non-empty layers
       setLayers(prev => {
@@ -1605,9 +1775,12 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
 
       // Queue the rest
       if (toLoad.length > 0) {
+        if (DEBUG_INFRA) console.log('[infra] bulkToggleAllRecommended: Queueing', toLoad.length, 'layers for loading');
         setBulkProgress({ total: toLoad.length, completed: 0 });
         setBulkLoading(true);
         toLoad.forEach((id) => enqueueLoad(id));
+      } else {
+        if (DEBUG_INFRA) console.log('[infra] bulkToggleAllRecommended: No layers to load (all already loaded or loading)');
       }
     } else {
       // Turning everything off: hide on map and in state; cancel outstanding loads
@@ -1621,9 +1794,9 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       candidates.forEach((id) => { try { toggleInfrastructureLayerVisibility(id, false).catch(() => {}); } catch (_) {} });
       bulkCancelLoading();
     }
-  }, [setLayers, enqueueLoad, toggleInfrastructureLayerVisibility, bulkCancelLoading]);
+  }, [map, focusedArea, setLayers, enqueueLoad, toggleInfrastructureLayerVisibility, bulkCancelLoading]);
 
-  return {
+  return useMemo(() => ({
     infrastructureData,
     toggleLayer,
     clearFocus,
@@ -1632,5 +1805,14 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     bulkProgress,
     bulkToggleAllRecommended,
     bulkCancelLoading
-  };
+  }), [
+    infrastructureData,
+    toggleLayer,
+    clearFocus,
+    reloadVisibleLayers,
+    bulkLoading,
+    bulkProgress,
+    bulkToggleAllRecommended,
+    bulkCancelLoading
+  ]);
 };

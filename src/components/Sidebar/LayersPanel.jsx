@@ -27,8 +27,18 @@ const LayersPanel = ({
   const { complianceStatus } = useZoneCreatorContext();
   const safetyData = focusedArea?.properties?.safety;
   const view = useMapViewState(map);
-  // State for tracking which groups are expanded
-  const [expandedGroups, setExpandedGroups] = useState(new Set(['public-infrastructure', 'nyc-parks'])); // Start with some groups expanded
+  // State for tracking which groups are expanded - start collapsed to reduce clutter
+  const [expandedGroups, setExpandedGroups] = useState(new Set());
+  
+  // State for infrastructure section collapse - expanded only when focused
+  const [infrastructureExpanded, setInfrastructureExpanded] = useState(false);
+  
+  // Auto-expand infrastructure when a focused area is selected
+  useEffect(() => {
+    if (focusedArea && !infrastructureExpanded) {
+      setInfrastructureExpanded(true);
+    }
+  }, [focusedArea]);
 
   // Check if all recommended layers are currently requested
   const allLayersActive = useMemo(() => {
@@ -620,54 +630,95 @@ const LayersPanel = ({
       {/* Scrollable Layers Section */}
       <div className="flex-1 overflow-y-auto min-h-0">
         <div className="p-3 pb-8">
-          {/* Infrastructure Layers Header */}
-          <div className="mb-3">
-            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">
-              Infrastructure Layers
-            </h3>
+          {/* Infrastructure Layers Header - Collapsible */}
+          <div 
+            className="mb-3 flex items-center justify-between cursor-pointer group"
+            onClick={() => setInfrastructureExpanded(!infrastructureExpanded)}
+          >
+            <div className="flex items-center gap-2">
+              {infrastructureExpanded ? (
+                <ChevronDown className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+              ) : (
+                <ChevronRight className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+              )}
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">
+                Infrastructure Layers
+              </h3>
+            </div>
+            {!infrastructureExpanded && (
+              <span className="text-[10px] text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300">
+                Click to expand
+              </span>
+            )}
           </div>
           
+          {/* Collapsible Infrastructure Content */}
+          <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
+            infrastructureExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'
+          }`}>
           <div className="space-y-2.5">
-            {/* All Recommended Toggle */}
-            <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
-              isSitePlanMode
-                ? 'max-h-96 opacity-100 transform translate-y-0'
-                : 'max-h-0 opacity-0 transform -translate-y-2'
-            }`}>
-              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800/50 dark:to-gray-900/50 p-2.5 rounded-lg border border-blue-200 dark:border-gray-700">
+            {/* All Recommended Toggle - Always visible, but shows different states */}
+            <div className={`mb-3 transition-all duration-300 ${!focusedArea ? 'opacity-60' : 'opacity-100'}`}>
+              <div className={`p-3 rounded-lg border ${
+                focusedArea 
+                  ? 'bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800/50 dark:to-gray-900/50 border-blue-200 dark:border-gray-700'
+                  : 'bg-gray-50 dark:bg-gray-800/30 border-gray-200 dark:border-gray-700'
+              }`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
-                    <Layers className="w-4 h-4 text-blue-600" />
-                    <span className="text-sm font-medium text-blue-900 dark:text-blue-300">All Recommended</span>
+                    <Layers className={`w-4 h-4 ${focusedArea ? 'text-blue-600' : 'text-gray-400'}`} />
+                    <span className={`text-sm font-medium ${focusedArea ? 'text-blue-900 dark:text-blue-300' : 'text-gray-500 dark:text-gray-400'}`}>
+                      All Recommended
+                    </span>
                   </div>
                   <button
                     onClick={handleRecommendedToggle}
-                    className="flex items-center space-x-1 transition-colors"
+                    className={`flex items-center space-x-1 transition-colors ${!focusedArea ? 'cursor-not-allowed' : 'cursor-pointer hover:opacity-80'}`}
                     disabled={!focusedArea}
-                    title={!focusedArea ? "Select a permit area first" : `${allLayersActive ? 'Hide' : 'Show'} all layers`}
+                    title={!focusedArea ? "Select a permit area first to enable layer loading" : `${allLayersActive ? 'Hide' : 'Show'} all recommended layers`}
                   >
                     {allLayersActive ? (
-                      <ToggleRight className="w-5 h-5 text-blue-600" />
+                      <ToggleRight className="w-6 h-6 text-blue-600" />
                     ) : (
-                      <ToggleLeft className="w-5 h-5 text-gray-400 dark:text-gray-500" />
+                      <ToggleLeft className={`w-6 h-6 ${focusedArea ? 'text-gray-400 dark:text-gray-500' : 'text-gray-300 dark:text-gray-600'}`} />
                     )}
                   </button>
                 </div>
+                
+                {/* Helpful message when no focused area */}
+                {!focusedArea && (
+                  <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-2">
+                    Select a zone to enable infrastructure layers
+                  </p>
+                )}
+                
+                {/* Loading progress */}
                 {infrastructure && infrastructure.bulkLoading && (
-                  <div className="mt-2 space-y-1">
+                  <div className="mt-3 space-y-1.5">
                     <div className="text-[11px] text-blue-700 dark:text-blue-300 flex items-center justify-between">
-                      <span>Loading ({infrastructure.bulkProgress.completed}/{infrastructure.bulkProgress.total})</span>
+                      <span className="font-medium">Loading layers ({infrastructure.bulkProgress.completed}/{infrastructure.bulkProgress.total})</span>
                       <button
                         type="button"
                         onClick={infrastructure.bulkCancelLoading}
-                        className="text-[11px] px-2 py-0.5 rounded border border-blue-300 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-gray-800"
+                        className="text-[11px] px-2 py-0.5 rounded border border-blue-300 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-gray-800 transition-colors"
                       >
                         Cancel
                       </button>
                     </div>
-                    <div className="w-full h-1.5 bg-blue-100 dark:bg-gray-800 rounded overflow-hidden">
-                      <div className="h-1.5 bg-blue-600 transition-all" style={{ width: `${infrastructure.bulkProgress.total > 0 ? Math.round((infrastructure.bulkProgress.completed / infrastructure.bulkProgress.total) * 100) : 0}%` }} />
+                    <div className="w-full h-2 bg-blue-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                      <div 
+                        className="h-2 bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-300 rounded-full" 
+                        style={{ width: `${infrastructure.bulkProgress.total > 0 ? Math.round((infrastructure.bulkProgress.completed / infrastructure.bulkProgress.total) * 100) : 0}%` }} 
+                      />
                     </div>
+                  </div>
+                )}
+                
+                {/* Success state when all layers are active */}
+                {focusedArea && allLayersActive && !infrastructure?.bulkLoading && (
+                  <div className="mt-2 flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    <span>All recommended layers loaded</span>
                   </div>
                 )}
               </div>
@@ -689,7 +740,21 @@ const LayersPanel = ({
                 </div>
               </div>
             )}
+
           </div>
+          </div>
+          
+          {/* Collapsed state hint */}
+          {!infrastructureExpanded && focusedArea && (
+            <div className="text-center py-4">
+              <button
+                onClick={() => setInfrastructureExpanded(true)}
+                className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                Show {Object.keys(LAYER_GROUPS).length} layer groups
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

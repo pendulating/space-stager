@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { loadMapLibraries, initializeMap } from '../utils/mapUtils.js';
 
 function isHarnessEnabled() {
@@ -39,17 +39,26 @@ function initHarness(mapInstance) {
 
 export const useMap = (mapContainer) => {
   const mapRef = useRef(null);
+  const initializingRef = useRef(false);
   const [map, setMap] = useState(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [styleLoaded, setStyleLoaded] = useState(false);
 
   useEffect(() => {
     if (!mapContainer.current) return;
+    let mounted = true;
 
     const setupMap = async () => {
+      if (mapRef.current || initializingRef.current) return;
+      initializingRef.current = true;
       try {
         await loadMapLibraries();
+        if (!mounted) return;
         const mapInstance = await initializeMap(mapContainer.current);
+        if (!mounted) {
+          mapInstance.remove();
+          return;
+        }
         mapRef.current = mapInstance;
         setMap(mapInstance);
         
@@ -96,6 +105,7 @@ export const useMap = (mapContainer) => {
     setupMap();
 
     return () => {
+      mounted = false;
       try {
         const m = mapRef.current;
         if (m && m.__onStyleLoad) {
@@ -105,11 +115,12 @@ export const useMap = (mapContainer) => {
         if (m) { m.remove(); }
       } catch (_) {}
       mapRef.current = null;
+      initializingRef.current = false;
       setMap(null);
       setMapLoaded(false);
       setStyleLoaded(false);
     };
   }, [mapContainer]);
 
-  return { map, mapLoaded, styleLoaded };
+  return useMemo(() => ({ map, mapLoaded, styleLoaded }), [map, mapLoaded, styleLoaded]);
 };

@@ -4,9 +4,11 @@ import { getMapViewType } from '../utils/enhancedRenderingUtils';
 /**
  * useMapViewState
  * Exposes { zoom, bearing, pitch, viewType, renderTick } for a MapLibre/Mapbox map.
- * - Subscribes primarily to 'render' and coalesces updates via requestAnimationFrame
- * - Also listens to basic camera events to ensure state updates if render is throttled
- * - Cleans up listeners and pending RAF on unmount or map/style changes
+ * 
+ * PERFORMANCE OPTIMIZATION:
+ * - Uses coarse bearing thresholds (1°) to reduce state updates during rotation
+ * - Schedules updates via requestAnimationFrame to batch with browser paint
+ * - Avoids triggering React re-renders on every frame during continuous rotation
  */
 export const useMapViewState = (map) => {
   const [state, setState] = useState(() => {
@@ -56,14 +58,25 @@ export const useMapViewState = (map) => {
       const nextCore = sample();
       if (!nextCore) return;
       const prev = latestRef.current;
-      if (
-        prev.zoom !== nextCore.zoom ||
-        prev.bearing !== nextCore.bearing ||
-        prev.pitch !== nextCore.pitch ||
+      
+      // PERFORMANCE: Use coarser thresholds for bearing to reduce updates during rotation
+      // Bearing: 1° threshold (prevents state updates on every sub-degree change)
+      // Zoom/pitch: finer threshold for responsiveness
+      // Center: coarse threshold (0.0001° ≈ ~11m at equator)
+      const zoomEps = 0.01;
+      const bearingEps = 1.0; // 1 degree threshold for bearing changes
+      const pitchEps = 0.5;
+      const centerEps = 0.0001;
+      
+      const changed = 
+        Math.abs(prev.zoom - nextCore.zoom) > zoomEps ||
+        Math.abs(prev.bearing - nextCore.bearing) > bearingEps ||
+        Math.abs(prev.pitch - nextCore.pitch) > pitchEps ||
         prev.viewType !== nextCore.viewType ||
-        prev.centerLng !== nextCore.centerLng ||
-        prev.centerLat !== nextCore.centerLat
-      ) {
+        Math.abs(prev.centerLng - nextCore.centerLng) > centerEps ||
+        Math.abs(prev.centerLat - nextCore.centerLat) > centerEps;
+
+      if (changed) {
         const next = { ...nextCore, renderTick: prev.renderTick + 1 };
         latestRef.current = next;
         setState(next);
@@ -75,8 +88,9 @@ export const useMapViewState = (map) => {
       rafRef.current = requestAnimationFrame(flush);
     };
 
-    // For tight camera-following, flush immediately on 'render'
-    const onRender = () => flush();
+    // PERFORMANCE: Don't flush immediately on every render frame
+    // Instead, schedule via RAF to batch updates
+    const onRender = () => schedule();
     const onStyleLoad = () => schedule();
     const onBasic = () => schedule();
     const basics = ['move', 'zoom', 'rotate', 'pitch', 'resize'];

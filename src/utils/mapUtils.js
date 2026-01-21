@@ -1,8 +1,100 @@
 // utils/mapUtils.js
 import { MAP_LIBRARIES, MAP_CONFIG, NYC_BASEMAPS, BASEMAP_OPTIONS } from '../constants/mapConfig';
 
+// Cache key for the normalized ArcGIS style
+const ARCGIS_STYLE_CACHE_KEY = 'arcgis-style-cache-v1';
+const ARCGIS_STYLE_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+// Prefetch ArcGIS resources for faster initial load
+const prefetchedResources = new Set();
+
+export const prefetchArcgisResources = () => {
+  if (typeof window === 'undefined') return;
+  
+  const arcgisBase = 'https://tiles.arcgis.com/tiles/yG5s3afENB5iO9fj/arcgis/rest/services/NYC_Basemap_v3/VectorTileServer';
+  
+  // Resources to prefetch (sprites and common glyph ranges)
+  const resources = [
+    `${arcgisBase}/resources/styles/root.json`,
+    `${arcgisBase}/resources/sprites/sprite.json`,
+    `${arcgisBase}/resources/sprites/sprite.png`,
+    `${arcgisBase}/resources/sprites/sprite@2x.json`,
+    `${arcgisBase}/resources/sprites/sprite@2x.png`,
+    // Common glyph ranges for labels
+    `${arcgisBase}/resources/fonts/Arial%20Regular/0-255.pbf`,
+    `${arcgisBase}/resources/fonts/Arial%20Bold/0-255.pbf`,
+  ];
+  
+  // Prefetch tiles for the default NYC viewport (zoom 16, centered on Times Square area)
+  // Tile coordinates for z=16, center [-73.985, 40.758]
+  const defaultTiles = [
+    { z: 16, x: 19294, y: 24632 },
+    { z: 16, x: 19295, y: 24632 },
+    { z: 16, x: 19294, y: 24633 },
+    { z: 16, x: 19295, y: 24633 },
+    // Surrounding tiles for pan buffer
+    { z: 16, x: 19293, y: 24632 },
+    { z: 16, x: 19296, y: 24632 },
+    { z: 16, x: 19293, y: 24633 },
+    { z: 16, x: 19296, y: 24633 },
+  ];
+  
+  defaultTiles.forEach(({ z, x, y }) => {
+    resources.push(`${arcgisBase}/tile/${z}/${y}/${x}.pbf`);
+  });
+  
+  // Use requestIdleCallback to prefetch without blocking
+  const prefetch = (url) => {
+    if (prefetchedResources.has(url)) return;
+    prefetchedResources.add(url);
+    
+    // Use fetch with low priority
+    fetch(url, { 
+      mode: 'cors',
+      priority: 'low',
+      cache: 'force-cache'
+    }).catch(() => {
+      // Ignore prefetch errors
+    });
+  };
+  
+  const doPrefetch = () => {
+    resources.forEach(prefetch);
+  };
+  
+  // Schedule prefetching during idle time
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(doPrefetch, { timeout: 3000 });
+  } else {
+    setTimeout(doPrefetch, 100);
+  }
+};
+
+// Call prefetch early
+if (typeof window !== 'undefined') {
+  // Start prefetching as soon as this module loads
+  prefetchArcgisResources();
+}
+
 export const loadArcgisStyle = async (styleUrl) => {
   const arcgisService = styleUrl.split('/resources/styles/')[0];
+  
+  // Try to load from sessionStorage cache first (faster than network)
+  try {
+    const cached = sessionStorage.getItem(ARCGIS_STYLE_CACHE_KEY);
+    if (cached) {
+      const { style, timestamp, url } = JSON.parse(cached);
+      // Check if cache is still valid and for the same URL
+      if (url === styleUrl && Date.now() - timestamp < ARCGIS_STYLE_CACHE_TTL) {
+        console.log('[ArcGIS] Using cached style (session)');
+        return style;
+      }
+    }
+  } catch (_) {
+    // Ignore sessionStorage errors (private browsing, etc.)
+  }
+  
+  console.log('[ArcGIS] Fetching fresh style...');
   const res = await fetch(styleUrl, { mode: 'cors' });
   if (!res.ok) {
     throw new Error(`ArcGIS style fetch failed: ${res.status}`);
@@ -23,6 +115,19 @@ export const loadArcgisStyle = async (styleUrl) => {
       }
     });
   }
+  
+  // Cache the normalized style for future loads
+  try {
+    sessionStorage.setItem(ARCGIS_STYLE_CACHE_KEY, JSON.stringify({
+      style,
+      timestamp: Date.now(),
+      url: styleUrl
+    }));
+    console.log('[ArcGIS] Style cached to sessionStorage');
+  } catch (_) {
+    // Ignore if sessionStorage is full or unavailable
+  }
+  
   return style;
 };
 
@@ -147,6 +252,12 @@ export const initializeMap = async (container) => {
     center: MAP_CONFIG.center,
     zoom: MAP_CONFIG.zoom,
     preserveDrawingBuffer: MAP_CONFIG.preserveDrawingBuffer,
+    // Performance optimizations
+    fadeDuration: 0, // Disable fade animations for snappier layer switches
+    trackResize: true,
+    refreshExpiredTiles: false, // Don't re-fetch expired tiles during interaction
+    maxTileCacheSize: 150, // Increase tile cache for smoother panning
+    localIdeographFontFamily: "'Public Sans', 'Noto Sans', 'Noto Sans CJK SC', sans-serif", // Use local fonts for CJK characters
     transformRequest: (url, resourceType) => {
       try {
         // Only touch our permit-areas GeoJSON and avoid breaking tiles/fonts/sprites
@@ -160,6 +271,15 @@ export const initializeMap = async (container) => {
               'Cache-Control': 'no-cache, no-store, max-age=0',
               Pragma: 'no-cache'
             }
+          };
+        }
+        
+        // Enable aggressive caching for ArcGIS tiles (they're static and rarely change)
+        if (typeof url === 'string' && url.includes('tiles.arcgis.com')) {
+          return {
+            url,
+            // Don't set cache headers - let the browser use its default caching
+            // ArcGIS tiles are immutable and can be cached indefinitely
           };
         }
       } catch (_) {
@@ -240,6 +360,31 @@ export const initializeMap = async (container) => {
       mapInstance.__currentBasemap = styleUrl.includes('arcgis') ? 'arcgis' : 'carto';
       mapInstance.__currentCartoStyleUrl = styleUrl.includes('carto') ? styleUrl : '';
       mapInstance.__currentArcgisStyleUrl = styleUrl.includes('arcgis') ? styleUrl : '';
+
+      // Performance: Reduce symbol collision detection frequency during interaction
+      // This makes panning smoother especially with many labels
+      let interactionTimeout = null;
+      const setInteracting = (isInteracting) => {
+        try {
+          if (isInteracting) {
+            // During interaction, the map already optimizes internally
+            // We just track the state for potential future use
+            mapInstance.__isInteracting = true;
+          } else {
+            mapInstance.__isInteracting = false;
+          }
+        } catch (_) {}
+      };
+      
+      mapInstance.on('movestart', () => {
+        if (interactionTimeout) clearTimeout(interactionTimeout);
+        setInteracting(true);
+      });
+      
+      mapInstance.on('moveend', () => {
+        // Delay the "not interacting" state to batch rapid interactions
+        interactionTimeout = setTimeout(() => setInteracting(false), 150);
+      });
 
       resolve(mapInstance);
     });

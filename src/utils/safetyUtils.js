@@ -164,3 +164,19 @@ export function generateSweptPath(centerline, analysisWidthFt = SAFETY_CONSTANTS
   }
 }
 
+/**
+ * Check if a feature obstructs an Open Street segment.
+ * 
+ * @param {Feature} openStreetFeature - The Open Street line segment
+ * @param {Feature} objectFeature - The user-placed object
+ * @returns {boolean}
+ */
+export function isObstructingOpenStreet(openStreetFeature, objectFeature) {
+  if (!openStreetFeature || !objectFeature || !objectFeature.geometry) return false;
+  try {
+    return turf.booleanIntersects(openStreetFeature, objectFeature);
+  } catch (_) {
+    return false;
+  }
+}
+

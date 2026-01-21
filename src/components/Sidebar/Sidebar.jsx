@@ -3,6 +3,7 @@ import React from 'react';
 import { ChevronLeft } from 'lucide-react';
 import PermitAreaSearch from './PermitAreaSearch';
 import ZoneCreatorPanel from './ZoneCreatorPanel.jsx';
+import OpenStreetsPanel from './OpenStreetsPanel.jsx';
 import { useZoneCreatorContext } from '../../contexts/ZoneCreatorContext.jsx';
 import LayersPanel from './LayersPanel';
 import BasemapToggle from './BasemapToggle';
@@ -24,7 +25,11 @@ const Sidebar = ({
   onCollapse = () => {},
   drawTools
 }) => {
-  const { isActive, setIsActive } = useZoneCreatorContext();
+  const { isActive, setIsActive, previewActive } = useZoneCreatorContext();
+  
+  // In intersections (Open Streets) mode, hide infrastructure layers until zone is created
+  const isZoneCreatorMode = geographyType === 'intersections';
+  const showInfrastructureLayers = !isZoneCreatorMode || previewActive || isSitePlanMode;
   const { key: geoclientKey } = useGeoclientAuth();
   const geoSearch = useGeoclientSearch(permitAreas.searchQuery, {
     debounceMs: 300,
@@ -117,33 +122,45 @@ const Sidebar = ({
         />
       </div>
 
-      {geographyType === 'intersections' && (
-        <div className="transition-all duration-300 ease-in-out overflow-hidden max-h-96 opacity-100 transform translate-y-0">
-          <ZoneCreatorPanel geographyType={geographyType} />
+      {/* Open Streets Events Panel - Only in SAPO modes, above Zone Creator */}
+      {['openStreets', 'plazas', 'intersections'].includes(geographyType) && (
+        <div className="px-3 py-2">
+          <OpenStreetsPanel focusedArea={focusedArea} />
         </div>
       )}
 
-      <div className="flex-1 min-h-0">
-        <LayersPanel
-          layers={layers}
-          focusedArea={focusedArea}
-          onToggleLayer={onToggleLayer}
-          onToggleSubwayLines={onToggleLayer}
-          onClearFocus={onClearFocus}
-          isSitePlanMode={isSitePlanMode}
-          geographyType={geographyType}
-          map={map}
-          infrastructure={infrastructure}
-          permitAreas={permitAreas}
-          hasSubFocus={permitAreas?.hasSubFocus}
-          onBeginSubFocus={() => {
-            try { drawTools?.activateDrawingTool?.('subfocus'); } catch (_) {}
-          }}
-          onClearSubFocus={() => {
-            try { permitAreas?.clearSubFocusPolygon?.(); } catch (_) {}
-          }}
-        />
-      </div>
+      {geographyType === 'intersections' && (
+        <div className={`transition-all duration-300 ease-in-out overflow-hidden opacity-100 transform translate-y-0 ${
+          showInfrastructureLayers ? 'max-h-96' : 'flex-1 min-h-0'
+        }`}>
+          <ZoneCreatorPanel geographyType={geographyType} showExpanded={!showInfrastructureLayers} />
+        </div>
+      )}
+
+      {/* Infrastructure Layers - Hidden in Zone Creator mode until design mode */}
+      {showInfrastructureLayers && (
+        <div className="flex-1 min-h-0">
+          <LayersPanel
+            layers={layers}
+            focusedArea={focusedArea}
+            onToggleLayer={onToggleLayer}
+            onToggleSubwayLines={onToggleLayer}
+            onClearFocus={onClearFocus}
+            isSitePlanMode={isSitePlanMode}
+            geographyType={geographyType}
+            map={map}
+            infrastructure={infrastructure}
+            permitAreas={permitAreas}
+            hasSubFocus={permitAreas?.hasSubFocus}
+            onBeginSubFocus={() => {
+              try { drawTools?.activateDrawingTool?.('subfocus'); } catch (_) {}
+            }}
+            onClearSubFocus={() => {
+              try { permitAreas?.clearSubFocusPolygon?.(); } catch (_) {}
+            }}
+          />
+        </div>
+      )}
 
       {/* Progress modal removed (replaced by inline panel indicator) */}
     </div>

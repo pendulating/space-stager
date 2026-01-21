@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useZoneCreatorContext, WORKFLOW_STEPS } from '../../contexts/ZoneCreatorContext.jsx';
-import { ChevronRight, RotateCcw, Check, X, MousePointer2 } from 'lucide-react';
+import { ChevronRight, RotateCcw, Check, X, MousePointer2, Settings2, ChevronDown, Info } from 'lucide-react';
 
-const ZoneCreatorPanel = ({ geographyType }) => {
+const ZoneCreatorPanel = ({ geographyType, showExpanded = false }) => {
   const { 
     selectedNodeIds, 
     undoLastNode, 
@@ -17,10 +18,56 @@ const ZoneCreatorPanel = ({ geographyType }) => {
   } = useZoneCreatorContext();
 
   const CORRIDOR_OPTIONS = [
-    { label: 'Global', value: 12, desc: '12-15ft clear path' },
-    { label: 'Regional', value: 10, desc: '10-12ft clear path' },
-    { label: 'Neighborhood', value: 5, desc: '5-8ft clear path' }
+    { label: 'Global', value: 12, desc: '12-15ft pedestrian clear path', shortDesc: '12-15ft' },
+    { label: 'Regional', value: 10, desc: '10-12ft pedestrian clear path', shortDesc: '10-12ft' },
+    { label: 'Neighborhood', value: 5, desc: '5-8ft pedestrian clear path', shortDesc: '5-8ft' }
   ];
+  
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
+  const [dimensionsExpanded, setDimensionsExpanded] = useState(false); // Hidden by default
+  const buttonRef = useRef(null);
+  const dropdownRef = useRef(null);
+  
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target) &&
+          buttonRef.current && !buttonRef.current.contains(e.target)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+  
+  // Update dropdown position on scroll/resize when open
+  useEffect(() => {
+    if (!dropdownOpen || !buttonRef.current) return;
+    
+    const updatePosition = () => {
+      if (buttonRef.current) {
+        const rect = buttonRef.current.getBoundingClientRect();
+        setDropdownPos({
+          top: rect.bottom + 4,
+          left: rect.left,
+          width: rect.width
+        });
+      }
+    };
+    
+    updatePosition();
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
+    
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [dropdownOpen]);
+  
+  const selectedCorridor = CORRIDOR_OPTIONS.find(opt => opt.value === sidewalkClearPathFt) || CORRIDOR_OPTIONS[0];
+  const isAutoDetected = pmpClassification && pmpClassification.clearPathFt === sidewalkClearPathFt;
   
   const [showReadyTimer, setShowReadyTimer] = React.useState(false);
   const [isExiting, setIsExiting] = React.useState(false);
@@ -56,7 +103,13 @@ const ZoneCreatorPanel = ({ geographyType }) => {
   if (previewActive && !showReadyTimer) return null;
 
   return (
-    <div className={`flex flex-col h-full bg-white dark:bg-gray-900 overflow-hidden transition-all duration-500 ease-in-out ${isExiting ? 'opacity-0 transform -translate-y-4 max-h-0' : 'opacity-100 transform translate-y-0 max-h-[1000px]'}`}>
+    <div className={`flex flex-col bg-white dark:bg-gray-900 overflow-hidden transition-all duration-500 ease-in-out ${
+      isExiting 
+        ? 'opacity-0 transform -translate-y-4 max-h-0' 
+        : showExpanded 
+          ? 'opacity-100 transform translate-y-0 h-full' 
+          : 'opacity-100 transform translate-y-0 max-h-[1000px]'
+    }`}>
       {/* Header */}
       <div className="p-4 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 sticky top-0 z-10">
         <div className="flex items-center justify-between mb-1">
@@ -70,7 +123,7 @@ const ZoneCreatorPanel = ({ geographyType }) => {
         </p>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+      <div className={`flex-1 overflow-y-auto p-4 space-y-6 ${showExpanded ? 'min-h-0' : ''}`}>
         {/* Interactive Creation */}
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest">
@@ -147,63 +200,130 @@ const ZoneCreatorPanel = ({ geographyType }) => {
           </div>
         </div>
 
-        {/* Zone Width & Actions */}
+        {/* Zone Dimensions Card - Combined Width & PAR */}
         {(workflowStep === WORKFLOW_STEPS.EXTEND_ZONE || workflowStep === WORKFLOW_STEPS.PICK_START) && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Zone Width</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  className="w-16 px-2 py-1 text-sm font-mono border rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-700 focus:ring-2 focus:ring-blue-500 outline-none"
-                  min={6}
-                  max={200}
-                  step={2}
-                  value={widthFeet}
-                  onChange={(e) => setWidthFeet(Math.max(6, Math.min(200, Number(e.target.value) || 0)))}
-                />
-                <span className="text-xs font-medium text-gray-500">ft</span>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Pedestrian Mobility (PAR)</label>
-                {pmpClassification && (
-                  <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/20 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800 animate-in fade-in slide-in-from-right-2">
+            <div className="bg-gradient-to-br from-slate-50 to-gray-100 dark:from-gray-800 dark:to-gray-850 rounded-xl border border-gray-200 dark:border-gray-700">
+              {/* Card Header - Clickable to toggle */}
+              <button
+                onClick={() => setDimensionsExpanded(!dimensionsExpanded)}
+                className="w-full flex items-center gap-2 px-3 py-2 bg-white/50 dark:bg-gray-900/30 rounded-t-xl hover:bg-white/80 dark:hover:bg-gray-900/50 transition-colors"
+              >
+                <ChevronRight className={`w-3.5 h-3.5 text-gray-400 transition-transform duration-200 ${dimensionsExpanded ? 'rotate-90' : ''}`} />
+                <Settings2 className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+                <span className="text-[11px] font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wide">Zone Dimensions</span>
+                {/* Collapsed summary */}
+                {!dimensionsExpanded && (
+                  <span className="ml-auto text-[10px] font-mono text-gray-500 dark:text-gray-400">
+                    {widthFeet}ft • {selectedCorridor.label}
+                  </span>
+                )}
+                {dimensionsExpanded && isAutoDetected && (
+                  <div className="ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-[9px] font-bold text-emerald-600 dark:text-emerald-400">
                     <Check className="w-2.5 h-2.5" />
-                    Auto-detected
+                    Auto
                   </div>
                 )}
-              </div>
-              <div className="grid grid-cols-1 gap-2">
-                {CORRIDOR_OPTIONS.map(opt => {
-                  const isAutoSelected = pmpClassification && pmpClassification.clearPathFt === opt.value;
-                  return (
+              </button>
+              
+              {/* Collapsible Controls */}
+              <div className={`transition-all duration-200 ease-in-out overflow-hidden ${dimensionsExpanded ? 'max-h-48 opacity-100' : 'max-h-0 opacity-0'}`}>
+              <div className="p-3 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-3">
+                  {/* Width Control */}
+                  <div className="flex-1 min-w-0">
+                    <label className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1 block">Width</label>
+                    <div className="flex items-center gap-1.5 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-2.5 py-1.5">
+                      <input
+                        type="number"
+                        className="w-12 text-sm font-mono font-semibold bg-transparent text-gray-900 dark:text-gray-100 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        min={6}
+                        max={200}
+                        step={2}
+                        value={widthFeet}
+                        onChange={(e) => setWidthFeet(Math.max(6, Math.min(200, Number(e.target.value) || 0)))}
+                      />
+                      <span className="text-[11px] font-medium text-gray-400">ft</span>
+                    </div>
+                  </div>
+                  
+                  {/* Divider */}
+                  <div className="w-px h-10 bg-gray-200 dark:bg-gray-700" />
+                  
+                  {/* Clearance Dropdown */}
+                  <div className="flex-1 min-w-0">
+                    <label className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1 block">Clearance</label>
                     <button
-                      key={opt.label}
-                      onClick={() => setSidewalkClearPathFt(opt.value)}
-                      className={`flex flex-col items-start p-2 rounded-lg border transition-all ${
-                        sidewalkClearPathFt === opt.value
-                          ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-500 ring-1 ring-blue-500'
-                          : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-blue-300'
+                      ref={buttonRef}
+                      onClick={() => setDropdownOpen(!dropdownOpen)}
+                      className={`w-full flex items-center justify-between gap-2 bg-white dark:bg-gray-800 rounded-lg border px-2.5 py-1.5 transition-all ${
+                        dropdownOpen 
+                          ? 'border-blue-500 ring-1 ring-blue-500' 
+                          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
                       }`}
                     >
-                      <div className="flex items-center justify-between w-full">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[11px] font-bold ${sidewalkClearPathFt === opt.value ? 'text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'}`}>
-                            {opt.label} Corridor
-                          </span>
-                          {isAutoSelected && (
-                            <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold uppercase tracking-tighter bg-emerald-100 dark:bg-emerald-900/40 px-1 rounded">MATCH</span>
-                          )}
-                        </div>
-                        <span className="text-[10px] font-mono font-bold">{opt.value}ft+</span>
-                      </div>
-                      <span className="text-[10px] text-gray-500 dark:text-gray-400">{opt.desc}</span>
+                      <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+                        {selectedCorridor.label}
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
                     </button>
-                  );
-                })}
+                    
+                    {/* Dropdown Menu - Portal to escape overflow clipping */}
+                    {dropdownOpen && createPortal(
+                      <div 
+                        ref={dropdownRef}
+                        className="fixed z-[9999] bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150"
+                        style={{
+                          top: dropdownPos.top,
+                          left: dropdownPos.left,
+                          width: dropdownPos.width
+                        }}
+                      >
+                        {CORRIDOR_OPTIONS.map(opt => {
+                          const isMatch = pmpClassification && pmpClassification.clearPathFt === opt.value;
+                          const isSelected = sidewalkClearPathFt === opt.value;
+                          return (
+                            <button
+                              key={opt.label}
+                              onClick={() => {
+                                setSidewalkClearPathFt(opt.value);
+                                setDropdownOpen(false);
+                              }}
+                              className={`w-full flex items-center justify-between px-3 py-2 transition-colors ${
+                                isSelected 
+                                  ? 'bg-blue-50 dark:bg-blue-900/20' 
+                                  : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className={`text-sm font-medium ${isSelected ? 'text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'}`}>
+                                  {opt.label}
+                                </span>
+                                {isMatch && (
+                                  <span className="text-[9px] font-bold uppercase tracking-tight px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400">
+                                    Match
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-xs font-mono text-gray-500 dark:text-gray-400">{opt.shortDesc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>,
+                      document.body
+                    )}
+                  </div>
+                </div>
+                
+                {/* Info Line */}
+                <div className="flex items-center gap-1.5 mt-2.5 pt-2.5 border-t border-gray-200/60 dark:border-gray-700/60">
+                  <Info className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                  <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                    <span className="font-semibold text-gray-600 dark:text-gray-300">{selectedCorridor.label}:</span>{' '}
+                    {selectedCorridor.desc}
+                  </p>
+                </div>
+              </div>
               </div>
             </div>
 

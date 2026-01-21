@@ -8,6 +8,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+    <!-- Preconnect to ArcGIS tile servers for faster basemap loading -->
+    <link rel="preconnect" href="https://tiles.arcgis.com" crossorigin>
+    <link rel="dns-prefetch" href="https://tiles.arcgis.com">
+    <!-- Preload critical ArcGIS resources -->
+    <link rel="preload" href="https://tiles.arcgis.com/tiles/yG5s3afENB5iO9fj/arcgis/rest/services/NYC_Basemap_v3/VectorTileServer/resources/styles/root.json" as="fetch" crossorigin>
+    <link rel="preload" href="https://tiles.arcgis.com/tiles/yG5s3afENB5iO9fj/arcgis/rest/services/NYC_Basemap_v3/VectorTileServer/resources/sprites/sprite.json" as="fetch" crossorigin>
+    <link rel="preload" href="https://tiles.arcgis.com/tiles/yG5s3afENB5iO9fj/arcgis/rest/services/NYC_Basemap_v3/VectorTileServer/resources/sprites/sprite.png" as="image" crossorigin>
   </head>
   <body>
     <div id="root"></div>

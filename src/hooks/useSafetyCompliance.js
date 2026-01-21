@@ -1,10 +1,10 @@
 // src/hooks/useSafetyCompliance.js
 import { useState, useEffect, useMemo } from 'react';
 import { useZoneCreatorContext } from '../contexts/ZoneCreatorContext';
-import { isObstructingLane, isObstructingPointClearance, analyzeSidewalkClearPath, SAFETY_CONSTANTS } from '../utils/safetyUtils';
+import { isObstructingLane, isObstructingPointClearance, analyzeSidewalkClearPath, isObstructingOpenStreet, SAFETY_CONSTANTS } from '../utils/safetyUtils';
 import * as turf from '@turf/turf';
 
-export function useSafetyCompliance(drawInstance, droppedObjects = [], customShapes = [], infrastructureData = {}) {
+export function useSafetyCompliance(drawInstance, droppedObjects = [], customShapes = [], infrastructureData = {}, openStreetsData = null) {
   const { emergencyLaneGeometry, sidewalkClearPathFt } = useZoneCreatorContext();
   const [obstructions, setObstructions] = useState([]);
   
@@ -62,6 +62,21 @@ export function useSafetyCompliance(drawInstance, droppedObjects = [], customSha
           });
         }
       });
+
+      // 6. Open Streets Activation (Non-bookable overlap)
+      const openStreets = openStreetsData?.features || [];
+      openStreets.forEach(os => {
+        if (isObstructingOpenStreet(os, feature)) {
+          currentObstructions.push({ 
+            id, 
+            type, 
+            name, 
+            violation: 'open-streets-overlap', 
+            infraId: os.id,
+            message: `Overlaps with Open Street: ${os.properties.appronstre}. Segment may be non-bookable.`
+          });
+        }
+      });
     };
 
     // Evaluate Dropped Objects
@@ -91,7 +106,7 @@ export function useSafetyCompliance(drawInstance, droppedObjects = [], customSha
       );
       return isSame ? prev : currentObstructions;
     });
-  }, [emergencyLaneGeometry, droppedObjects, customShapes, infrastructureData, drawInstance]);
+  }, [emergencyLaneGeometry, droppedObjects, customShapes, infrastructureData, openStreetsData, drawInstance]);
 
   const isComplianceValid = obstructions.length === 0;
 

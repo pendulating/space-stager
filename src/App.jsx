@@ -5,6 +5,7 @@ import { TutorialProvider } from './contexts/TutorialContext';
 import { SitePlanProvider } from './contexts/SitePlanContext';
 import { GeographyProvider } from './contexts/GeographyContext';
 import { ZoneCreatorProvider } from './contexts/ZoneCreatorContext.jsx';
+import { OpenStreetsProvider } from './contexts/OpenStreetsContext.jsx';
 import SpaceStager from './components/SpaceStager';
 import MobileLanding from './components/MobileLanding';
 import { GeoclientAuthProvider } from './contexts/GeoclientAuthContext.jsx';
@@ -26,9 +27,11 @@ function App() {
       <SitePlanProvider>
         <GeographyProvider>
           <ZoneCreatorProvider>
-            <GeoclientAuthProvider>
-              <SpaceStager />
-            </GeoclientAuthProvider>
+            <OpenStreetsProvider>
+              <GeoclientAuthProvider>
+                <SpaceStager />
+              </GeoclientAuthProvider>
+            </OpenStreetsProvider>
           </ZoneCreatorProvider>
         </GeographyProvider>
       </SitePlanProvider>

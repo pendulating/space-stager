@@ -228,6 +228,13 @@ export const INFRASTRUCTURE_ENDPOINTS = {
     geoField: 'the_geom',
     isLocal: false,
     selectFields: ['shape_area', 'shape_leng', 'feat_code', 'status', 'sub_code', 'source_id']
+  },
+  openStreets: {
+    // NYC Open Streets - Open Streets program data
+    // Docs: https://dev.socrata.com/foundry/data.cityofnewyork.us/uiay-nctu
+    baseUrl: 'https://data.cityofnewyork.us/resource/uiay-nctu.geojson',
+    geoField: 'the_geom',
+    isLocal: false
   }
 };
 

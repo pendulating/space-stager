@@ -16,6 +16,7 @@ import { useMap } from '../hooks/useMap';
 import { useDrawTools } from '../hooks/useDrawTools';
 import { usePermitAreas } from '../hooks/usePermitAreas';
 import { useInfrastructure } from '../hooks/useInfrastructure';
+import { useOpenStreets } from '../hooks/useOpenStreets';
 import { useClickToPlace } from '../hooks/useClickToPlace';
 import { useSitePlan } from '../contexts/SitePlanContext';
 import { INITIAL_LAYERS } from '../constants/layers';
@@ -25,6 +26,7 @@ import { setBaseVisibility as setGeoBaseVisibility, ensureBaseLayers as ensureGe
 import { exportPlan, exportPermitAreaSiteplanV2 } from '../utils/exportUtils';
 import { importPlan } from '../utils/importUtils';
 import { useNudges } from '../hooks/useNudges';
+import { useSafetyCompliance } from '../hooks/useSafetyCompliance';
 import { useGeography } from '../contexts/GeographyContext';
 import { useZoneCreatorContext } from '../contexts/ZoneCreatorContext';
 import { useTutorial } from '../contexts/TutorialContext';
@@ -44,6 +46,7 @@ const SpaceStager = () => {
   const mapContainerRef = useRef(null);
   const responsive = useResponsiveLayout();
   const { map, mapLoaded, styleLoaded } = useMap(mapContainerRef);
+
   const [layers, setLayers] = useState(INITIAL_LAYERS);
   const [showInfo, setShowInfo] = useState(false);
   const [isShaking, setIsShaking] = useState(false);
@@ -82,7 +85,6 @@ const SpaceStager = () => {
   
   // (moved below handleStyleChange to avoid TDZ)
   
-  // Use custom hooks for different functionalities
   const { geographyType, isGeographyChosen, selectGeography } = useGeography();
   const { isTutorialActive, showWelcome } = useTutorial();
   // Allow forcing the geography selector modal open via a UI event
@@ -120,9 +122,19 @@ const SpaceStager = () => {
       window.removeEventListener('ui:show-export-options', showOpts);
     };
   }, []);
-  // Favor UI-aware padding so fitBounds/cameraForBounds doesn't tuck the focus under the left sidebar
-  const focusPadding = { top: 20, right: responsive.isCompact ? 80 : 20, bottom: 20, left: isLeftSidebarOpen ? 360 : 20 };
-  const permitAreas = usePermitAreas(map, mapLoaded, { mode: geographyType, focusPadding });
+  const focusPadding = useMemo(() => ({
+    top: 20,
+    right: responsive.isCompact ? 80 : 20,
+    bottom: 20,
+    left: isLeftSidebarOpen ? 360 : 20
+  }), [responsive.isCompact, isLeftSidebarOpen]);
+
+  const permitAreaOptions = useMemo(() => ({
+    mode: geographyType,
+    focusPadding
+  }), [geographyType, focusPadding]);
+
+  const permitAreas = usePermitAreas(map, mapLoaded, permitAreaOptions);
   const drawTools = useDrawTools(map, permitAreas.focusedArea);
 
   // Force draw initialization once the platform is ready
@@ -145,7 +157,13 @@ const SpaceStager = () => {
   const permitAreasListRef = useRef([]);
   useEffect(() => { permitAreasListRef.current = Array.isArray(permitAreas.permitAreas) ? permitAreas.permitAreas : []; }, [permitAreas.permitAreas]);
   const infrastructure = useInfrastructure(map, permitAreas.focusedArea, layers, setLayers, { rehydratingImport: isImportingPlan });
+  const openStreets = useOpenStreets(map, permitAreas.focusedArea);
   const clickToPlace = useClickToPlace(map);
+
+  const infrastructureMemo = useMemo(() => infrastructure, [infrastructure.infrastructureData, infrastructure.bulkLoading, infrastructure.bulkProgress, infrastructure.bulkToggleAllRecommended]);
+  const openStreetsMemo = useMemo(() => openStreets, [openStreets.openStreetsData, openStreets.isVisible]);
+  const clickToPlaceMemo = useMemo(() => clickToPlace, [clickToPlace.droppedObjects, clickToPlace.placementMode, clickToPlace.cursorPosition, clickToPlace.objectUpdateTrigger]);
+
   const { isSitePlanMode, updateSitePlanMode } = useSitePlan();
   // Future: const dprMode = useDprMode(map, permitAreas.mode, drawTools);
 
@@ -184,6 +202,8 @@ const SpaceStager = () => {
 
   const prevFocusedAreaRef = useRef(null);
   const clearObjectsOnFocusChange = useCallback(() => {
+    // Skip clearing during import rehydration to preserve restored objects
+    if (rehydratingImportRef.current) return;
     const currentFocusedArea = permitAreas.focusedArea;
     if (prevFocusedAreaRef.current !== currentFocusedArea) {
       prevFocusedAreaRef.current = currentFocusedArea;
@@ -571,8 +591,14 @@ const SpaceStager = () => {
   }, [map, mapLoaded, isGeographyChosen, geographyType, permitAreas.loadPermitAreas]);
 
   // When geography changes via compact selector, clear current work
+  // Skip during import rehydration to preserve restored state
   const prevGeoRef = useRef(geographyType);
   useEffect(() => {
+    if (rehydratingImportRef.current) {
+      // Still update the ref so we don't trigger clearing after import ends
+      prevGeoRef.current = geographyType;
+      return;
+    }
     if (prevGeoRef.current !== geographyType && isGeographyChosen) {
       permitAreas.clearFocus();
       clickToPlace.clearDroppedObjects();
@@ -741,7 +767,7 @@ const SpaceStager = () => {
   // Map rotation handling centralized in MapContainer via useCameraRotation
 
   // Contextual nudges (evaluated only when prerequisites are visible)
-  const customShapes = drawTools.draw?.current ? drawTools.draw.current.getAll().features : [];
+  const customShapes = drawTools.features || [];
   // Detect label changes to trigger text-rule scans only when needed
   useEffect(() => {
     try {
@@ -758,7 +784,34 @@ const SpaceStager = () => {
     } catch (_) {}
   }, [customShapes]);
 
-  const { complianceStatus } = useZoneCreatorContext();
+  const { complianceStatus, setComplianceStatus } = useZoneCreatorContext();
+
+  const compliance = useSafetyCompliance(
+    drawTools?.draw?.current,
+    clickToPlace.droppedObjects,
+    customShapes,
+    infrastructure?.infrastructureData || {},
+    openStreets?.openStreetsData || null
+  );
+
+  useEffect(() => {
+    setComplianceStatus(prev => {
+      const isLaneClear = compliance.isComplianceValid;
+      const obstructions = compliance.obstructions;
+      
+      const hasChanged = prev.isLaneClear !== isLaneClear || 
+                         prev.obstructions.length !== obstructions.length ||
+                         prev.obstructions.some((o, idx) => o.id !== obstructions[idx]?.id || o.violation !== obstructions[idx]?.violation);
+      
+      if (!hasChanged) return prev;
+      
+      return {
+        ...prev,
+        isLaneClear,
+        obstructions
+      };
+    });
+  }, [compliance, setComplianceStatus]);
 
   const { nudges, dismiss: dismissNudge, zoomTo: zoomToNudge, highlight: highlightNudge, highlightedIds } = useNudges({
     map,
@@ -931,7 +984,7 @@ const SpaceStager = () => {
             onClearFocus={handleClearFocus}
             onToggleLayer={handleToggleLayer}
             permitAreas={permitAreas}
-            infrastructure={infrastructure}
+            infrastructure={infrastructureMemo}
             map={map}
             onStyleChange={handleStyleChange}
             isSitePlanMode={isSitePlanMode}
@@ -963,7 +1016,8 @@ const SpaceStager = () => {
             customShapes={customShapes}
             clickToPlace={clickToPlace}
             permitAreas={permitAreas}
-            infrastructure={infrastructure}
+            infrastructure={infrastructureMemo}
+            openStreets={openStreetsMemo}
             placeableObjects={PLACEABLE_OBJECTS}
             nudges={nudges}
             highlightedIds={highlightedIds}
@@ -990,7 +1044,7 @@ const SpaceStager = () => {
               onClose={() => setIsRightDrawerOpen(false)}
               onToggle={() => setIsRightDrawerOpen((v) => !v)}
               drawTools={drawTools}
-              clickToPlace={clickToPlace}
+              clickToPlace={clickToPlaceMemo}
               placeableObjects={PLACEABLE_OBJECTS}
               onExport={handleExport}
               onImport={handleImport}

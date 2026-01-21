@@ -294,3 +294,272 @@
   background-color: #0b1220 !important; /* darker */
   color: #9ca3af !important;
 }
+
+/* Open Streets Popup Styles */
+.open-streets-hover-popup .maplibregl-popup-content,
+.open-streets-click-popup .maplibregl-popup-content {
+  padding: 12px;
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+}
+
+.open-streets-hover-popup .maplibregl-popup-tip,
+.open-streets-click-popup .maplibregl-popup-tip {
+  border-top-color: #ffffff;
+}
+
+.open-streets-click-popup .maplibregl-popup-close-button {
+  font-size: 18px;
+  color: #6b7280;
+  padding: 4px 8px;
+  right: 2px;
+  top: 2px;
+}
+
+.open-streets-click-popup .maplibregl-popup-close-button:hover {
+  background-color: #f3f4f6;
+  color: #111827;
+  border-radius: 4px;
+}
+
+/* Dark mode for Open Streets popups */
+.dark .open-streets-hover-popup .maplibregl-popup-content,
+.dark .open-streets-click-popup .maplibregl-popup-content {
+  background: #1f2937;
+  border-color: #374151;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.dark .open-streets-hover-popup .maplibregl-popup-tip,
+.dark .open-streets-click-popup .maplibregl-popup-tip {
+  border-top-color: #1f2937;
+}
+
+.dark .open-streets-click-popup .maplibregl-popup-close-button {
+  color: #9ca3af;
+}
+
+.dark .open-streets-click-popup .maplibregl-popup-close-button:hover {
+  background-color: #374151;
+  color: #f9fafb;
+}
+
+/* Override inline styles for dark mode popup content */
+.dark .open-streets-hover-popup .maplibregl-popup-content div,
+.dark .open-streets-click-popup .maplibregl-popup-content div {
+  color: #e5e7eb;
+}
+
+.dark .open-streets-hover-popup .maplibregl-popup-content [style*="color: #111"],
+.dark .open-streets-click-popup .maplibregl-popup-content [style*="color: #111"] {
+  color: #f9fafb !important;
+}
+
+.dark .open-streets-hover-popup .maplibregl-popup-content [style*="color: #666"],
+.dark .open-streets-hover-popup .maplibregl-popup-content [style*="color: #888"],
+.dark .open-streets-click-popup .maplibregl-popup-content [style*="color: #666"],
+.dark .open-streets-click-popup .maplibregl-popup-content [style*="color: #888"] {
+  color: #9ca3af !important;
+}
+
+.dark .open-streets-click-popup .maplibregl-popup-content table {
+  background: #111827 !important;
+}
+
+.dark .open-streets-click-popup .maplibregl-popup-content tr {
+  border-bottom-color: #374151 !important;
+}
+
+.dark .open-streets-click-popup .maplibregl-popup-content [style*="border-bottom: 1px solid #e5e7eb"],
+.dark .open-streets-click-popup .maplibregl-popup-content [style*="border-top: 1px solid #e5e7eb"] {
+  border-color: #374151 !important;
+}
+
+/* ========================================
+   Infrastructure Layer Popup Styles
+   ======================================== */
+
+/* Hover Popup - Brief tooltip on mouse hover */
+.infra-hover-popup .maplibregl-popup-content {
+  padding: 8px 12px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  min-width: 120px;
+  max-width: 200px;
+}
+
+.infra-hover-popup .maplibregl-popup-tip {
+  border-top-color: #ffffff;
+}
+
+.infra-hover-content {
+  font-family: "Public Sans", sans-serif;
+}
+
+.infra-hover-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #111827;
+  line-height: 1.3;
+}
+
+.infra-hover-detail {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 2px;
+  line-height: 1.3;
+}
+
+/* Click Popup - Detailed info on click */
+.infra-click-popup .maplibregl-popup-content {
+  padding: 0;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  overflow: hidden;
+  min-width: 220px;
+}
+
+.infra-click-popup .maplibregl-popup-tip {
+  border-top-color: #ffffff;
+}
+
+.infra-click-popup .maplibregl-popup-close-button {
+  font-size: 18px;
+  color: #6b7280;
+  padding: 8px 12px;
+  right: 0;
+  top: 0;
+  z-index: 10;
+}
+
+.infra-click-popup .maplibregl-popup-close-button:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+  color: #111827;
+}
+
+.infra-click-content {
+  font-family: "Public Sans", sans-serif;
+}
+
+.infra-click-header {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  padding: 12px 16px;
+  padding-right: 36px;
+}
+
+.infra-click-icon {
+  font-size: 20px;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.infra-click-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.3;
+}
+
+.infra-click-subtitle {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.8);
+  margin-top: 2px;
+}
+
+.infra-click-body {
+  padding: 12px 16px;
+}
+
+.infra-click-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.infra-click-row:last-child {
+  border-bottom: none;
+}
+
+.infra-click-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #6b7280;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.infra-click-value {
+  font-size: 12px;
+  font-weight: 500;
+  color: #111827;
+  text-align: right;
+  word-break: break-word;
+}
+
+/* Dark mode - Infrastructure popups */
+.dark .infra-hover-popup .maplibregl-popup-content {
+  background: #1f2937;
+  border-color: #374151;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.dark .infra-hover-popup .maplibregl-popup-tip {
+  border-top-color: #1f2937;
+}
+
+.dark .infra-hover-title {
+  color: #f9fafb;
+}
+
+.dark .infra-hover-detail {
+  color: #9ca3af;
+}
+
+.dark .infra-click-popup .maplibregl-popup-content {
+  background: #1f2937;
+  border-color: #374151;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.dark .infra-click-popup .maplibregl-popup-tip {
+  border-top-color: #1f2937;
+}
+
+.dark .infra-click-popup .maplibregl-popup-close-button {
+  color: #9ca3af;
+}
+
+.dark .infra-click-popup .maplibregl-popup-close-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #f9fafb;
+}
+
+.dark .infra-click-header {
+  background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+}
+
+.dark .infra-click-body {
+  background: #1f2937;
+}
+
+.dark .infra-click-row {
+  border-bottom-color: #374151;
+}
+
+.dark .infra-click-label {
+  color: #9ca3af;
+}
+
+.dark .infra-click-value {
+  color: #f9fafb;
+}

@@ -1,5 +1,5 @@
 // hooks/usePermitAreas.js
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useMapEvents } from './useMapEvents';
 import { useGlobalKeymap } from './useGlobalKeymap';
 import { searchPermitAreas, highlightOverlappingAreas, clearOverlapHighlights } from '../services/permitAreaService';
@@ -268,14 +268,17 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       clearGeoFeatureState(map, prevIdPrefix);
     } catch (_) {}
     // Dismiss any open click popover when mode changes
-    setClickedTooltip({ visible: false, x: 0, y: 0, lngLat: null, content: null, featureId: null, geometry: null });
+    setClickedTooltip(prev => {
+      if (!prev.visible) return prev;
+      return { visible: false, x: 0, y: 0, lngLat: null, content: null, featureId: null, geometry: null };
+    });
     try {
       // Abort any in-flight fetches
       if (abortControllerRef.current) { try { abortControllerRef.current.abort(); } catch (_) {} }
       // Unload previous geography layers using manager
       unloadGeo(map, mode === 'parks' ? 'permit-areas' : (mode === 'plazas' ? 'plaza-areas' : 'intersections'));
     } catch (_) {}
-    setPermitAreas([]);
+    setPermitAreas(prev => prev.length === 0 ? prev : []);
     setMode(options.mode);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options.mode]);
@@ -823,7 +826,10 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     
     const checkDrawingMode = () => {
       if (isDrawingActive()) {
-        setTooltip(prev => ({ ...prev, visible: false }));
+        setTooltip(prev => {
+          if (prev.visible === false) return prev;
+          return { ...prev, visible: false };
+        });
       }
     };
 
@@ -888,7 +894,10 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   const handleMouseLeave = useCallback(() => {
     if (!map) return;
     try { map.getCanvas().style.cursor = ''; } catch (_) {}
-    setTooltip(prev => ({ ...prev, visible: false }));
+    setTooltip(prev => {
+      if (prev.visible === false) return prev;
+      return { ...prev, visible: false };
+    });
     try {
       if (activeModeForEvents !== 'intersections') {
         const idPrefix = activeModeForEvents === 'parks' ? 'permit-areas' : (activeModeForEvents === 'plazas' ? 'plaza-areas' : '');
@@ -914,8 +923,20 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     if (!map) return;
     if (e.features.length === 0) return;
     try { lastPointerRef.current = { x: e.point.x, y: e.point.y }; } catch (_) {}
-    if (isDrawingActive()) { setTooltip(prev => ({ ...prev, visible: false })); return; }
-    if (clickedTooltipVisibleRef.current) { setTooltip(prev => ({ ...prev, visible: false })); return; }
+    if (isDrawingActive()) {
+      setTooltip(prev => {
+        if (prev.visible === false) return prev;
+        return { ...prev, visible: false };
+      });
+      return;
+    }
+    if (clickedTooltipVisibleRef.current) {
+      setTooltip(prev => {
+        if (prev.visible === false) return prev;
+        return { ...prev, visible: false };
+      });
+      return;
+    }
     if (activeModeForEvents === 'intersections') {
       if (!zoneCreator) { setTooltip({ visible: true, x: e.point.x, y: e.point.y, content: [{ label: 'Tip', value: 'Use Zone Creator to select nodes' }] }); return; }
       try {
@@ -960,7 +981,10 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       try { lastPointerRef.current = { x: e.point.x, y: e.point.y }; } catch (_) {}
       // Never show hover tooltip while drawing or a clicked popover is visible
       if (isDrawingActive() || clickedTooltipVisibleRef.current) {
-        setTooltip(prev => ({ ...prev, visible: false }));
+        setTooltip(prev => {
+          if (prev.visible === false) return prev;
+          return { ...prev, visible: false };
+        });
         return;
       }
       // Robust: check across all potential geography layers (base and focused)
@@ -971,7 +995,10 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         : [];
       if (!feats.length) {
         // Hide tooltip and clear any hover visuals when moving off geometry
-        setTooltip(prev => ({ ...prev, visible: false }));
+        setTooltip(prev => {
+          if (prev.visible === false) return prev;
+          return { ...prev, visible: false };
+        });
         if (activeModeForEvents === 'intersections') {
           try {
             const prevId = hoveredIntersectionIdRef.current;
@@ -1000,7 +1027,10 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     try {
       const pt = lastPointerRef.current;
       if (!pt || typeof pt.x !== 'number' || typeof pt.y !== 'number') {
-        setTooltip(prev => ({ ...prev, visible: false }));
+        setTooltip(prev => {
+          if (prev.visible === false) return prev;
+          return { ...prev, visible: false };
+        });
         if (activeModeForEvents === 'intersections') {
           try {
             const prevId = hoveredIntersectionIdRef.current;
@@ -1021,7 +1051,10 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       }
       const feats = map.queryRenderedFeatures([pt.x, pt.y], { layers: [hoverLayerIdForEvents] }) || [];
       if (!feats.length) {
-        setTooltip(prev => ({ ...prev, visible: false }));
+        setTooltip(prev => {
+          if (prev.visible === false) return prev;
+          return { ...prev, visible: false };
+        });
         if (activeModeForEvents === 'intersections') {
           try {
             const prevId = hoveredIntersectionIdRef.current;
@@ -1070,7 +1103,10 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
       if (isDrawingActive() || clickedTooltipVisibleRef.current) return;
       const pt = lastPointerRef.current;
       if (!pt || typeof pt.x !== 'number' || typeof pt.y !== 'number') {
-        setTooltip(prev => ({ ...prev, visible: false }));
+        setTooltip(prev => {
+          if (prev.visible === false) return prev;
+          return { ...prev, visible: false };
+        });
         return;
       }
       const candidateLayers = ['permit-areas-fill','plaza-areas-fill','intersections-points','permit-areas-focused-fill','plaza-areas-focused-fill','intersections-focused-points']
@@ -1079,7 +1115,10 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         ? (map.queryRenderedFeatures([pt.x, pt.y], { layers: candidateLayers }) || [])
         : [];
       if (!feats.length) {
-        setTooltip(prev => ({ ...prev, visible: false }));
+        setTooltip(prev => {
+          if (prev.visible === false) return prev;
+          return { ...prev, visible: false };
+        });
       }
     } catch (_) {}
   }, [map, tooltip, isDrawingActive]);
@@ -1136,7 +1175,10 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
         }
         // If pointer is outside the map container OR not on the canvas (i.e., over an overlay), hide the hover tooltip
         if (!container.contains(target) || (canvas && target !== canvas)) {
-          setTooltip(prev => ({ ...prev, visible: false }));
+          setTooltip(prev => {
+          if (prev.visible === false) return prev;
+          return { ...prev, visible: false };
+        });
           return;
         }
         // Inside the container but overlays may block map mousemove; proactively hide when no features under pointer
@@ -1148,7 +1190,10 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
             ? (map.queryRenderedFeatures([x, y], { layers: candidateLayers }) || [])
             : [];
           if (!feats.length) {
-            setTooltip(prev => ({ ...prev, visible: false }));
+            setTooltip(prev => {
+          if (prev.visible === false) return prev;
+          return { ...prev, visible: false };
+        });
             if (activeModeForEvents === 'intersections') {
               try {
                 const prevId = hoveredIntersectionIdRef.current;
@@ -1230,7 +1275,10 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
           const lngLat = e.lngLat || map.unproject([e.point.x, e.point.y]);
           const content = buildTooltipContent(top.properties, { includeStats: false });
           setClickedTooltip({ visible: !!content, x: e.point.x, y: e.point.y, lngLat: lngLat ? { lng: lngLat.lng, lat: lngLat.lat } : null, content, featureId: (top.properties?.system ?? null), geometry: top.geometry || null, stats: (() => { const id = (top.properties?.CEMSID || top.properties?.cemsid || top.properties?.CEMS_ID || top.properties?.cems_id || '').toString(); const dict = eventsByCemsidRef.current || {}; return id && dict[id] ? dict[id] : null; })(), distributions: eventsDistributionsRef.current });
-          setTooltip(prev => ({ ...prev, visible: false }));
+          setTooltip(prev => {
+          if (prev.visible === false) return prev;
+          return { ...prev, visible: false };
+        });
         } catch (_) {}
         setShowOverlapSelector(false);
       } else {
@@ -1463,32 +1511,39 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   // Watchdog: verify permit area layers shortly after mount/style changes and retry if missing
   useEffect(() => {
     if (!map) return;
-    let canceled = false;
-    let requiredLayers = [];
-    const activeMode = options.mode || mode;
-    if (activeMode === 'parks') {
-      requiredLayers = ['permit-areas-fill','permit-areas-outline','permit-areas-focused-fill','permit-areas-focused-outline'];
-    } else if (activeMode === 'plazas') {
-      requiredLayers = ['plaza-areas-fill','plaza-areas-outline','plaza-areas-focused-fill','plaza-areas-focused-outline'];
-    } else {
-      requiredLayers = ['intersections-points','intersections-focused-points'];
-    }
-    let attempts = 0;
-    const maxAttempts = 4;
+    
+    const checkLayers = () => {
+      if (!map.isStyleLoaded()) return;
+      
+      const activeMode = options.mode || mode;
+      let requiredLayers = [];
+      if (activeMode === 'parks') {
+        requiredLayers = ['permit-areas-fill','permit-areas-outline','permit-areas-focused-fill','permit-areas-focused-outline'];
+      } else if (activeMode === 'plazas') {
+        requiredLayers = ['plaza-areas-fill','plaza-areas-outline','plaza-areas-focused-fill','plaza-areas-focused-outline'];
+      } else {
+        requiredLayers = ['intersections-points','intersections-focused-points'];
+      }
 
-    const verifyAndRepair = async () => {
-      if (canceled) return;
       const hasSource = !!(map.getSource && map.getSource(activeMode === 'parks' ? 'permit-areas' : (activeMode === 'plazas' ? 'plaza-areas' : 'intersections')));
-      const allLayers = requiredLayers.every(id => map.getLayer && map.getLayer(id));
-      if (hasSource && allLayers) return; // all good
-      if (attempts >= maxAttempts) return; // give up silently
-      attempts += 1;
-      try { await loadPermitAreas(); } catch (_) {}
-      setTimeout(() => { if (!canceled) verifyAndRepair(); }, 300);
+      const allLayers = requiredLayers.every(id => {
+        try { return map.getLayer && map.getLayer(id); } catch (_) { return false; }
+      });
+
+      if (!hasSource || !allLayers) {
+        console.warn('[PermitAreas] Layers missing -> reloading');
+        loadPermitAreas();
+      }
     };
 
-    const t = setTimeout(verifyAndRepair, 200);
-    return () => { canceled = true; clearTimeout(t); };
+    map.on('style.load', checkLayers);
+    // Initial check
+    const t = setTimeout(checkLayers, 500);
+    
+    return () => {
+      map.off('style.load', checkLayers);
+      clearTimeout(t);
+    };
   }, [map, loadPermitAreas, mode, options.mode]);
 
   // Rehydrate on style load externally via SpaceStager -> this hook exposes helpers
@@ -1693,17 +1748,17 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   const clearFocus = useCallback(() => {
     console.log('Clearing focus');
     
-    setFocusedArea(null);
-    setSubFocusArea(null);
-    setShowFocusInfo(false);
-    setShowOverlapSelector(false);
-    setInitialFocusZoom(null);
-    setMinAllowedZoom(null);
-    setIsCameraAnimating(false);
+    setFocusedArea(prev => prev === null ? prev : null);
+    setSubFocusArea(prev => prev === null ? prev : null);
+    setShowFocusInfo(prev => prev === false ? prev : false);
+    setShowOverlapSelector(prev => prev === false ? prev : false);
+    setInitialFocusZoom(prev => prev === null ? prev : null);
+    setMinAllowedZoom(prev => prev === null ? prev : null);
+    setIsCameraAnimating(prev => prev === false ? prev : false);
     showZoomBoundaryWarningRef.current = false; // Reset ref synchronously
-    setShowZoomBoundaryWarning(false);
-    setAllowUnrestrictedZoom(false);
-    setZoomBoundaryReady(false); // Reset boundary ready state
+    setShowZoomBoundaryWarning(prev => prev === false ? prev : false);
+    setAllowUnrestrictedZoom(prev => prev === false ? prev : false);
+    setZoomBoundaryReady(prev => prev === false ? prev : false); // Reset boundary ready state
     zoomBoundaryThreshold.current = null;
     prevZoomRef.current = null; // Reset zoom tracking
     isBouncingRef.current = false;
@@ -1795,7 +1850,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   // Search functionality using the service
   useEffect(() => {
     if (!searchQuery.trim() || searchQuery.length < 2) {
-      setSearchResults([]);
+      setSearchResults(prev => prev.length === 0 ? prev : []);
       return;
     }
 
@@ -1854,7 +1909,10 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
             })(),
             distributions: eventsDistributionsRef.current
           });
-          setTooltip(prev => ({ ...prev, visible: false }));
+          setTooltip(prev => {
+          if (prev.visible === false) return prev;
+          return { ...prev, visible: false };
+        });
         } catch (_) {}
         // already hidden above
         clearOverlapHighlights(map);
@@ -1938,7 +1996,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     }
   }, [clickedTooltip.visible]);
 
-  return {
+  return useMemo(() => ({
     permitAreas,
     searchQuery,
     setSearchQuery,
@@ -1977,5 +2035,40 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     handleZoomBoundaryConfirm,
     handleZoomBoundaryCancel,
     allowUnrestrictedZoom
-  };
+  }), [
+    permitAreas,
+    searchQuery,
+    searchResults,
+    isSearching,
+    focusedArea,
+    subFocusArea,
+    showFocusInfo,
+    tooltip,
+    clickedTooltip,
+    overlappingAreas,
+    selectedOverlapIndex,
+    showOverlapSelector,
+    clickPosition,
+    isLoading,
+    loadError,
+    mode,
+    focusOnPermitArea,
+    refocusActivePermitArea,
+    clearFocus,
+    setSubFocusPolygon,
+    clearSubFocusPolygon,
+    selectOverlappingArea,
+    clearOverlapSelector,
+    loadPermitAreas,
+    initialFocusZoom,
+    minAllowedZoom,
+    isCameraAnimating,
+    rehydrateActiveGeography,
+    dismissClickedTooltip,
+    focusClickedTooltipArea,
+    showZoomBoundaryWarning,
+    handleZoomBoundaryConfirm,
+    handleZoomBoundaryCancel,
+    allowUnrestrictedZoom
+  ]);
 };

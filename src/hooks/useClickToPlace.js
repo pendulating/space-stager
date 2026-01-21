@@ -1,9 +1,9 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useGlobalKeymap } from './useGlobalKeymap';
 import { PLACEABLE_OBJECTS } from '../constants/placeableObjects.js';
 import { quantizeToSlices } from '../utils/enhancedRenderingUtils.js';
 
-const DEBUG = false; // Set to true to enable click-to-place debug logs
+const DEBUG = true; // Set to true to enable click-to-place debug logs
 
 export const useClickToPlace = (map) => {
   const [droppedObjects, setDroppedObjects] = useState([]);
@@ -49,6 +49,7 @@ export const useClickToPlace = (map) => {
 
   // Handle map click for placement
   const handleMapClick = useCallback((e) => {
+    if (DEBUG) console.info('[useClickToPlace] Map click', e.clientX, e.clientY, !!placementMode);
     if (!placementMode || !map) return;
     
     e.preventDefault();
@@ -186,7 +187,7 @@ export const useClickToPlace = (map) => {
     });
   }, [map]);
 
-  return {
+  return useMemo(() => ({
     droppedObjects,
     placementMode,
     cursorPosition,
@@ -202,5 +203,21 @@ export const useClickToPlace = (map) => {
     clearDroppedObjects,
     cancelPlacementMode,
     rotatePlacementModeBy
-  };
+  }), [
+    droppedObjects,
+    placementMode,
+    cursorPosition,
+    objectUpdateTrigger,
+    setDroppedObjects,
+    handleMapMouseMove,
+    handleMapClick,
+    activatePlacementMode,
+    removeDroppedObject,
+    updateDroppedObject,
+    setDroppedObjectNote,
+    getObjectStyle,
+    clearDroppedObjects,
+    cancelPlacementMode,
+    rotatePlacementModeBy
+  ]);
 }; 
