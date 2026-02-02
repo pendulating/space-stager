@@ -10,18 +10,24 @@ export const MAP_CONFIG = {
 
 export const BASEMAP_OPTIONS = {
   arcgis: {
-    name: 'NYC',
+    name: 'Detailed',
+    description: 'Full street map with labels',
+    icon: '🏙️',
     type: 'style',
     url: 'https://tiles.arcgis.com/tiles/yG5s3afENB5iO9fj/arcgis/rest/services/NYC_Basemap_v3/VectorTileServer/resources/styles/root.json'
   },
   carto: {
-    name: 'Paper',
+    name: 'Minimal',
+    description: 'Clean, simple view',
+    icon: '📄',
     type: 'style',
     url: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
     darkUrl: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
   },
   satellite: {
-    name: 'Satellite',
+    name: 'Aerial',
+    description: 'Satellite imagery',
+    icon: '🛰️',
     type: 'custom',
     basemapType: '2022'
   }

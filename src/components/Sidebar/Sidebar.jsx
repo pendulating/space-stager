@@ -44,7 +44,7 @@ const Sidebar = ({
     }
   });
   return (
-    <div className={`${isSitePlanMode ? 'w-80' : 'w-96'} bg-white dark:bg-gray-800 dark:text-gray-100 shadow-lg z-10 flex flex-col transition-all duration-300 h-full relative`}>
+    <div className={`${isSitePlanMode ? 'w-80' : 'w-96'} bg-white/90 dark:bg-gray-900/90 backdrop-blur-md dark:text-gray-100 shadow-lg z-10 flex flex-col transition-all duration-300 h-full relative border-r border-gray-200/50 dark:border-gray-700/50`}>
       <div className="relative">
         <BasemapToggle 
           map={map}
@@ -55,7 +55,7 @@ const Sidebar = ({
           type="button"
           onClick={onCollapse}
           aria-label="Collapse sidebar"
-          className="absolute -right-3 -bottom-4 z-20 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-r px-1 py-2 shadow hover:bg-gray-50 dark:hover:bg-gray-700"
+          className="absolute -right-3 -bottom-4 z-20 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200/60 dark:border-gray-700/60 rounded-r px-1 py-2 shadow-sm hover:bg-gray-100/90 dark:hover:bg-gray-700/90"
           title="Hide sidebar"
         >
           <ChevronLeft className="w-4 h-4 text-gray-700" />
@@ -122,8 +122,8 @@ const Sidebar = ({
         />
       </div>
 
-      {/* Open Streets Events Panel - Only in SAPO modes, above Zone Creator */}
-      {['openStreets', 'plazas', 'intersections'].includes(geographyType) && (
+      {/* Open Streets Events Panel - Only in SAPO modes, hidden in design mode */}
+      {['openStreets', 'plazas', 'intersections'].includes(geographyType) && !focusedArea && (
         <div className="px-3 py-2">
           <OpenStreetsPanel focusedArea={focusedArea} />
         </div>

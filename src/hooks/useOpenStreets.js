@@ -374,6 +374,14 @@ export const useOpenStreets = (map, focusedArea) => {
       const feature = e.features[0];
       const coordinates = e.lngLat;
       
+      // Dispatch event for tutorial and other listeners
+      try {
+        const id = feature.properties?.object_id || feature.id;
+        window.dispatchEvent(new CustomEvent('openstreet:click', { 
+          detail: { properties: feature.properties, id } 
+        }));
+      } catch (_) {}
+      
       // Close hover popup
       if (hoverPopupRef.current) {
         hoverPopupRef.current.remove();

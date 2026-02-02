@@ -179,4 +179,3 @@ export function isObstructingOpenStreet(openStreetFeature, objectFeature) {
     return false;
   }
 }
-

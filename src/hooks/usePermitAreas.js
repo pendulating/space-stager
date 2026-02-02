@@ -83,7 +83,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
   const [clickPosition, setClickPosition] = useState({ x: 0, y: 0 });
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
-  const [mode, setMode] = useState(options.mode || 'parks');
+  const [mode, setMode] = useState(options.mode || 'intersections');
   const requestIdRef = useRef(0);
   const abortControllerRef = useRef(null);
   const cachedDataRef = useRef({}); // keyed by idPrefix -> GeoJSON
@@ -1744,6 +1744,20 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     // Note: Interaction restoration is handled by the useEffect watching showZoomBoundaryWarning
   }, []);
 
+  // Update the focused area's custom name
+  const updateFocusedAreaName = useCallback((newName) => {
+    setFocusedArea(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        properties: {
+          ...prev.properties,
+          name: newName
+        }
+      };
+    });
+  }, []);
+
   // Clear focus function
   const clearFocus = useCallback(() => {
     console.log('Clearing focus');
@@ -2019,6 +2033,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     focusOnPermitArea,
     refocusActivePermitArea,
     clearFocus,
+    updateFocusedAreaName,
     setSubFocusPolygon,
     clearSubFocusPolygon,
     effectiveFocusedArea: subFocusArea || focusedArea,
@@ -2055,6 +2070,7 @@ export const usePermitAreas = (map, mapLoaded, options = {}) => {
     focusOnPermitArea,
     refocusActivePermitArea,
     clearFocus,
+    updateFocusedAreaName,
     setSubFocusPolygon,
     clearSubFocusPolygon,
     selectOverlappingArea,

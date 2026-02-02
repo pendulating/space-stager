@@ -14,7 +14,7 @@ const PermitAreaSearch = ({
   onChangeMode = null,
   permitAreasLayer = null,
   onToggleLayer = null,
-  geographyType = 'parks',
+  geographyType = 'intersections',
   geoclientResults = [],
   geoclientLoading = false,
   geoclientStatus = null,
@@ -53,25 +53,25 @@ const PermitAreaSearch = ({
   };
 
   return (
-    <div className="p-4 border-b border-gray-200 dark:border-gray-800">
+    <div className="p-4 border-b border-gray-200/60 dark:border-gray-700/60 bg-gray-50/50 dark:bg-gray-800/30">
       {/* Zone Geometry Layer Toggle - Acts as Header */}
       {permitAreasLayer && onToggleLayer && (
-        <div className="mb-3 p-2.5 bg-gray-50 dark:bg-gray-900 rounded-lg">
+        <div className="mb-3 p-2.5 bg-gradient-to-r from-gray-100/60 to-white/40 dark:from-gray-800/50 dark:to-gray-900/30 rounded-xl border border-gray-200/40 dark:border-gray-700/40">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2.5 min-w-0 flex-1">
               <button
                 onClick={() => onToggleLayer('permitAreas')}
-                className="p-1 rounded flex-shrink-0 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700"
+                className="p-1.5 rounded-lg flex-shrink-0 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                 disabled={permitAreasLayer.loading}
               >
                 {permitAreasLayer.requested ? (
                   <Eye className="w-4 h-4 text-blue-600" />
                 ) : (
-                  <EyeOff className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                  <EyeOff className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                 )}
               </button>
-              <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: permitAreasLayer.color || '#f97316' }} />
-              <span className={`text-sm font-medium truncate ${
+              <div className="w-1 h-4 rounded-full bg-gradient-to-b from-orange-400 to-orange-600 flex-shrink-0" />
+              <span className={`text-sm font-semibold tracking-tight truncate ${
                 permitAreasLayer.requested ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'
               }`}>
                 {geographyType === 'plazas' ? 'Plazas' : geographyType === 'intersections' ? 'Intersections' : 'Parks'}
@@ -80,9 +80,12 @@ const PermitAreaSearch = ({
             <div className="flex items-center gap-1.5 flex-shrink-0">
               {permitAreasLayer.error && <AlertCircle className="w-4 h-4 text-red-500" title="Error loading" />}
               {permitAreasLayer.loading && <Loader2 className="w-4 h-4 text-blue-600 animate-spin" title="Loading" />}
-              {permitAreasLayer.requested && permitAreasLayer.loaded && permitAreasLayer.empty && <Circle className="w-4 h-4 text-gray-300" title="No data" />}
-              {permitAreasLayer.requested && permitAreasLayer.loaded && !permitAreasLayer.empty && <CheckCircle className="w-4 h-4 text-emerald-600" title="Loaded" />}
-              {!permitAreasLayer.requested && <Circle className="w-4 h-4 text-gray-400" title="Hidden" />}
+              {permitAreasLayer.requested && permitAreasLayer.loaded && permitAreasLayer.empty && (
+                <span className="text-[9px] text-gray-400 dark:text-gray-500 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">No data</span>
+              )}
+              {permitAreasLayer.requested && permitAreasLayer.loaded && !permitAreasLayer.empty && (
+                <CheckCircle className="w-4 h-4 text-emerald-500" title="Loaded" />
+              )}
             </div>
           </div>
         </div>
@@ -118,16 +121,16 @@ const PermitAreaSearch = ({
             }
           }}
           placeholder={placeholder}
-          className="block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+          className="block w-full pl-10 pr-3 py-2.5 border border-gray-200/60 dark:border-gray-700/60 rounded-xl shadow-sm placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 text-sm bg-white/70 dark:bg-gray-800/70 text-gray-900 dark:text-gray-100 transition-all"
         />
       </div>
 
-      {/* Mode switcher (previously in GeographyCompactSelector) */}
+      {/* Mode switcher */}
       {typeof onChangeMode === 'function' && (
         <div className="mt-2">
           <button
             onClick={onChangeMode}
-            className="w-full px-3 py-1.5 rounded text-xs border bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+            className="w-full px-3 py-2 rounded-lg text-xs font-medium border border-dashed border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-400 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
           >
             Wrong mode selected? Click here to switch.
           </button>

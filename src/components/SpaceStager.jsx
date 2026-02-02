@@ -30,6 +30,7 @@ import { useSafetyCompliance } from '../hooks/useSafetyCompliance';
 import { useGeography } from '../contexts/GeographyContext';
 import { useZoneCreatorContext } from '../contexts/ZoneCreatorContext';
 import { useTutorial } from '../contexts/TutorialContext';
+import { useTutorialProgress } from '../hooks/useTutorialProgress';
 import GeographySelector from './Modals/GeographySelector';
 import EventInfoModal from './Modals/EventInfoModal';
 import ExportOptionsModal from './Modals/ExportOptionsModal';
@@ -87,6 +88,7 @@ const SpaceStager = () => {
   
   const { geographyType, isGeographyChosen, selectGeography } = useGeography();
   const { isTutorialActive, showWelcome } = useTutorial();
+  
   // Allow forcing the geography selector modal open via a UI event
   const [showGeoSelectorOverride, setShowGeoSelectorOverride] = useState(false);
   const [showEventInfo, setShowEventInfo] = useState(false);
@@ -165,9 +167,19 @@ const SpaceStager = () => {
   const clickToPlaceMemo = useMemo(() => clickToPlace, [clickToPlace.droppedObjects, clickToPlace.placementMode, clickToPlace.cursorPosition, clickToPlace.objectUpdateTrigger]);
 
   const { isSitePlanMode, updateSitePlanMode } = useSitePlan();
-  // Future: const dprMode = useDprMode(map, permitAreas.mode, drawTools);
 
-  // DPR-specific event staging logic
+  const { complianceStatus, setComplianceStatus, selectedNodes, previewActive } = useZoneCreatorContext();
+
+  // Tutorial Progress Monitoring
+  useTutorialProgress(map, { 
+    permitAreas, 
+    openStreets, 
+    clickToPlace,
+    layers,
+    complianceStatus,
+    selectedNodes,
+    previewActive
+  });
 
   useEffect(() => {
     setLayers(prev => ({
@@ -784,8 +796,6 @@ const SpaceStager = () => {
     } catch (_) {}
   }, [customShapes]);
 
-  const { complianceStatus, setComplianceStatus } = useZoneCreatorContext();
-
   const compliance = useSafetyCompliance(
     drawTools?.draw?.current,
     clickToPlace.droppedObjects,
@@ -907,7 +917,14 @@ const SpaceStager = () => {
       
       {/* Tutorial Components */}
       <WelcomeOverlay />
-      <TutorialTooltip />
+      <TutorialTooltip 
+        map={map} 
+        permitAreas={permitAreas}
+        openStreets={openStreets}
+        clickToPlace={clickToPlace}
+        layers={layers}
+        complianceStatus={complianceStatus}
+      />
       
       {showInfo && <InfoPanel showInfo={showInfo} onClose={() => setShowInfo(false)} />}
       <EventInfoModal isOpen={showEventInfo} onClose={() => setShowEventInfo(false)} value={eventInfo} onChange={setEventInfo} />
@@ -1069,4 +1086,4 @@ const SpaceStager = () => {
   );
 };
 
-export default SpaceStager; 
+export default SpaceStager;

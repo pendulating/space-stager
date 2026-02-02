@@ -25,22 +25,24 @@ const DroppedObjectsList = ({
   }, [selectedObjectId]);
 
   return (
-    <div className="p-0 bg-transparent">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-700">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Placed (<span>{objects.length}</span>)</h4>
-      </div>
-      <div className="px-2 pb-2">
-        <div className="grid grid-cols-3 gap-3 max-h-48 overflow-y-auto pr-1">
+    <div className="dropped-objects-list">
+      <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
         {objects.map(obj => {
           const objectType = placeableObjects.find(p => p.id === obj.type);
           const candidates = objectType ? getCandidateSrcs(objectType, 315, 'isometric') : [];
           const src = candidates[0] || objectType?.imageUrl || null;
           const bg = (src && objectType?.color) ? `${objectType.color}E6` : null;
+          const isSelected = selectedObjectId === obj.id;
+          
           return (
             <div
               key={obj.id}
               ref={(el) => { if (el) itemRefs.current.set(obj.id, el); else itemRefs.current.delete(obj.id); }}
-              className={`relative group bg-white dark:bg-gray-800 rounded-xl transition m-3 ${selectedObjectId === obj.id ? 'border-transparent ring-4 ring-blue-500 ring-offset-0 ring-offset-white dark:ring-offset-gray-800' : 'border-gray-200/70 dark:border-gray-700/60'}`}
+              className={`relative group rounded-xl border-2 transition-all cursor-pointer overflow-hidden ${
+                isSelected 
+                  ? 'border-blue-500 ring-2 ring-blue-500/30 shadow-md' 
+                  : 'border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600'
+              }`}
               onMouseEnter={() => { setHoverLabel(objectType?.name || obj.name || ''); try { hover(obj.id, 'point'); } catch (_) {} }}
               onMouseLeave={() => { setHoverLabel(''); try { clearHover(); } catch (_) {} }}
               onClick={(e) => {
@@ -50,40 +52,60 @@ const DroppedObjectsList = ({
                   select(obj.id, kind);
                 } catch (_) {}
               }}
-              title={objectType?.name || obj.name}
+              title={`${objectType?.name || obj.name} - Click to select on map`}
+              role="button"
+              tabIndex={0}
+              aria-pressed={isSelected}
+              aria-label={`${objectType?.name || obj.name}${isSelected ? ' - selected' : ''}`}
             >
-              <span aria-hidden="true" className="block pb-[100%]" />
-              <div className="absolute inset-0 rounded-xl flex items-center justify-center" style={{ backgroundColor: bg || 'rgba(255,255,255,0.9)' }}>
-                {src ? (
-                  <img
-                    src={src}
-                    alt={objectType?.name}
-                    className="w-[90%] h-[90%] object-contain"
-                    draggable={false}
-                    onError={(e) => { try { e.currentTarget.style.display = 'none'; } catch (_) {} }}
-                  />
-                ) : (
-                  <div 
-                    className="w-full h-full flex items-center justify-center text-white text-sm rounded-lg"
-                    style={{ backgroundColor: objectType?.color || '#64748b' }}
-                  >
-                    {objectType?.icon}
-                  </div>
-                )}
+              {/* Object image */}
+              <div className="w-full aspect-square p-1">
+                <div className="w-full h-full rounded-lg flex items-center justify-center" style={{ backgroundColor: bg || 'rgba(255,255,255,0.9)' }}>
+                  {src ? (
+                    <img
+                      src={src}
+                      alt={objectType?.name}
+                      className="w-[85%] h-[85%] object-contain"
+                      draggable={false}
+                      onError={(e) => { try { e.currentTarget.style.display = 'none'; } catch (_) {} }}
+                    />
+                  ) : (
+                    <div 
+                      className="w-full h-full flex items-center justify-center text-white text-sm rounded-lg"
+                      style={{ backgroundColor: objectType?.color || '#64748b' }}
+                    >
+                      {objectType?.icon}
+                    </div>
+                  )}
+                </div>
               </div>
+              
+              {/* Object name */}
+              <div className="px-1 pb-1 text-center">
+                <span className="text-[10px] font-medium text-gray-600 dark:text-gray-400 line-clamp-1">
+                  {objectType?.name || obj.name}
+                </span>
+              </div>
+              
+              {/* Remove button */}
               {onRemove && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onRemove(obj.id); }}
-                  className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity text-white bg-red-500 hover:bg-red-600 rounded-full p-0.5 shadow"
-                  title="Remove object"
+                  className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity text-white bg-red-500 hover:bg-red-600 rounded-full p-1 shadow-sm"
+                  title="Remove this item from the map"
+                  aria-label={`Remove ${objectType?.name || obj.name} from map`}
                 >
                   <X className="w-3 h-3" />
                 </button>
               )}
+              
+              {/* Selected indicator */}
+              {isSelected && (
+                <div className="absolute top-0.5 left-0.5 w-2 h-2 bg-blue-500 rounded-full" />
+              )}
             </div>
           );
         })}
-        </div>
       </div>
     </div>
   );

@@ -85,7 +85,7 @@ const detectBasemapKey = (map) => {
 export const exportPlan = (map, draw, droppedObjects, layers, customShapes, options = {}) => {
   if (!map || !draw) return;
 
-  const { geographyType = 'parks', focusedArea = null, appVersion = undefined, eventInfo = undefined, subFocusArea = undefined } = options || {};
+  const { geographyType = 'intersections', focusedArea = null, appVersion = undefined, eventInfo = undefined, subFocusArea = undefined } = options || {};
 
   const nowIso = new Date().toISOString();
   const center = map.getCenter();

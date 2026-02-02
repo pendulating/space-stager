@@ -1,6 +1,6 @@
 // components/Sidebar/LayersPanel.jsx
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Eye, EyeOff, X, Layers, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Loader2, CheckCircle, AlertCircle, Circle, FileText, Download, Minus } from 'lucide-react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { Eye, EyeOff, X, Layers, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Loader2, CheckCircle, AlertCircle, Circle, FileText, Download, Minus, Pencil, Check } from 'lucide-react';
 import { LAYER_GROUPS, DISABLED_INFRASTRUCTURE_LAYERS, NON_RECOMMENDED_INFRASTRUCTURE_LAYERS } from '../../constants/layers';
 import { INFRASTRUCTURE_ICONS, svgToDataUrl } from '../../utils/iconUtils';
 import { getCandidateSrcs, preloadChain, firstReadyInChain } from '../../utils/spriteResolver';
@@ -33,12 +33,65 @@ const LayersPanel = ({
   // State for infrastructure section collapse - expanded only when focused
   const [infrastructureExpanded, setInfrastructureExpanded] = useState(false);
   
+  // State for safety compliance section collapse - collapsed by default
+  const [safetyComplianceExpanded, setSafetyComplianceExpanded] = useState(false);
+  
+  // State for editing the zone name
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState('');
+  const nameInputRef = useRef(null);
+  
   // Auto-expand infrastructure when a focused area is selected
   useEffect(() => {
     if (focusedArea && !infrastructureExpanded) {
       setInfrastructureExpanded(true);
     }
   }, [focusedArea]);
+  
+  // Focus the input when editing starts
+  useEffect(() => {
+    if (isEditingName && nameInputRef.current) {
+      nameInputRef.current.focus();
+      nameInputRef.current.select();
+    }
+  }, [isEditingName]);
+  
+  // Get the current display name
+  const getDisplayName = () => {
+    return focusedArea?.properties?.name || 
+      [focusedArea?.properties?.FSN_1, focusedArea?.properties?.FSN_2, focusedArea?.properties?.FSN_3, focusedArea?.properties?.FSN_4].filter(Boolean).join(' & ') || 
+      'Unnamed Area';
+  };
+  
+  // Start editing the name
+  const handleStartEditName = () => {
+    setEditedName(getDisplayName());
+    setIsEditingName(true);
+  };
+  
+  // Save the edited name
+  const handleSaveName = () => {
+    const trimmedName = editedName.trim();
+    if (trimmedName && permitAreas?.updateFocusedAreaName) {
+      permitAreas.updateFocusedAreaName(trimmedName);
+    }
+    setIsEditingName(false);
+  };
+  
+  // Cancel editing
+  const handleCancelEdit = () => {
+    setIsEditingName(false);
+    setEditedName('');
+  };
+  
+  // Handle key presses in the input
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      handleSaveName();
+    } else if (e.key === 'Escape') {
+      handleCancelEdit();
+    }
+  };
 
   // Check if all recommended layers are currently requested
   const allLayersActive = useMemo(() => {
@@ -286,44 +339,48 @@ const LayersPanel = ({
     return (
       <div key={groupId} className="mb-2">
         <div
-          className={`flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800/50 rounded-lg cursor-pointer transition-colors ${
-            isEnabled ? 'hover:bg-gray-100 dark:hover:bg-gray-700/50' : 'opacity-50 cursor-not-allowed'
+          className={`flex items-center justify-between p-3 bg-white/80 dark:bg-gray-800/60 rounded-xl border-2 transition-all ${
+            isEnabled 
+              ? 'border-gray-200/60 dark:border-gray-700/60 hover:border-gray-300 dark:hover:border-gray-600 cursor-pointer' 
+              : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
           }`}
           onClick={() => isEnabled && toggleGroupExpansion(groupId)}
         >
-          <div className="flex items-center space-x-2">
-            {isExpanded ? (
-              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-300" />
-            ) : (
-              <ChevronRight className="w-4 h-4 text-gray-600 dark:text-gray-300" />
-            )}
-            <span className="text-sm">{group.icon}</span>
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{group.name}</span>
-            <span className="text-[11px] text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded-full">
-              {effective.length}
-            </span>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-8 h-8">
+              {isExpanded ? (
+                <ChevronDown className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+              ) : (
+                <ChevronRight className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+              )}
+            </div>
+            <span className="text-lg">{group.icon}</span>
+            <div>
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{group.name}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{effective.length} layers</p>
+            </div>
           </div>
           <button
             onClick={(e) => {
               e.stopPropagation();
               if (isEnabled) handleGroupToggle(groupId);
             }}
-            className={`p-1 rounded ${
-              isEnabled ? 'cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-600' : 'cursor-not-allowed'
+            className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all active:scale-95 ${
+              !isEnabled 
+                ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed' 
+                : isActive 
+                  ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm' 
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600'
             }`}
             disabled={!isEnabled}
-            title={!isEnabled ? "Select a permit area first" : `${isActive ? 'Hide' : 'Show'} all ${group.name.toLowerCase()}`}
+            aria-label={!isEnabled ? "Select an area first" : isActive ? "Hide all" : "Show all"}
           >
-            {isActive ? (
-              <Eye className={`w-4 h-4 ${isEnabled ? 'text-blue-600' : 'text-gray-400 dark:text-gray-500'}`} />
-            ) : (
-              <EyeOff className={`w-4 h-4 ${isEnabled ? 'text-gray-600 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'}`} />
-            )}
+            {isActive ? 'On' : 'Off'}
           </button>
         </div>
         
         {isExpanded && (
-          <div className="ml-4 mt-1 space-y-1">
+          <div className="ml-4 mt-2 space-y-1.5 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
             {effective.map(layerId => {
               const config = layers[layerId];
               return config ? renderLayerItem(layerId, config, true) : null;
@@ -368,50 +425,58 @@ const LayersPanel = ({
     return (
       <div
         key={layerId}
-        className={`flex items-center justify-between ${isInGroup ? 'p-2 bg-white dark:bg-gray-800/50' : 'p-2.5 bg-gray-50 dark:bg-gray-900'} rounded-lg ${
+        className={`flex items-center justify-between ${isInGroup ? 'p-2.5 bg-white/60 dark:bg-gray-800/40' : 'p-3 bg-gray-50/80 dark:bg-gray-900/50'} rounded-xl border border-gray-200/40 dark:border-gray-700/40 ${
           isEnabled ? '' : 'opacity-50 cursor-not-allowed'
         }`}
       >
-        <div className="flex items-center space-x-2.5 min-w-0 flex-1">
-          {/* Eye button for subway entrances (or main layer) */}
-          <button
-            onClick={() => isEnabled && !config.disabled && onToggleLayer(layerId)}
-            className={`p-1 rounded flex-shrink-0 ${
-              isEnabled ? 'cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700' : 'cursor-not-allowed'
-            }`}
-            disabled={!isEnabled || isLoading}
-            title={isSubwayEntrances ? "Toggle subway entrances" : undefined}
-          >
-            {isRequested ? (
-              <Eye className={`w-4 h-4 ${isEnabled ? 'text-blue-600' : 'text-gray-400 dark:text-gray-500'}`} />
-            ) : (
-              <EyeOff className={`w-4 h-4 ${isEnabled ? 'text-gray-600 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'}`} />
-            )}
-          </button>
-          
-          {/* Line button for subway lines (only shown for subway entrances) */}
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          {renderLayerIcon(layerId, config)}
+          <div className="min-w-0 flex-1">
+            <p className={`text-sm font-medium truncate ${
+              isRequested && isEnabled ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'
+            }`}>
+              {layerId === 'permitAreas' ? (geographyType === 'plazas' ? 'Plazas' : geographyType === 'intersections' ? 'Intersections' : 'Parks') : (config.name)}
+            </p>
+            {/* Status indicator text */}
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              {isLoading ? 'Loading...' : isError ? 'Error' : isRequested && isLoaded && isEmpty ? 'No data' : isRequested && isLoaded ? 'Loaded' : 'Hidden'}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Subway lines toggle (only for subway entrances) */}
           {isSubwayEntrances && onToggleSubwayLines && (
             <button
               onClick={() => subwayLinesEnabled && !subwayLinesConfig?.disabled && onToggleSubwayLines('subwayLines')}
-              className={`p-1 rounded flex-shrink-0 ${
-                subwayLinesEnabled ? 'cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700' : 'cursor-not-allowed'
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                !subwayLinesEnabled 
+                  ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed' 
+                  : subwayLinesRequested 
+                    ? 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800' 
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-600'
               }`}
               disabled={!subwayLinesEnabled || subwayLinesLoading}
-              title="Toggle subway lines"
+              aria-label="Toggle subway lines"
             >
-              <Minus className={`w-4 h-4 ${subwayLinesEnabled ? (subwayLinesRequested ? 'text-blue-600' : 'text-gray-600 dark:text-gray-300') : 'text-gray-400 dark:text-gray-500'}`} />
+              Lines
             </button>
           )}
           
-          {renderLayerIcon(layerId, config)}
-          <span className={`text-sm font-medium truncate ${
-            isRequested && isEnabled ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'
-          }`}>
-            {layerId === 'permitAreas' ? (geographyType === 'plazas' ? 'Plazas' : geographyType === 'intersections' ? 'Intersections' : 'Parks') : (config.name)}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          {renderStatusIcon()}
+          {/* Main toggle button */}
+          <button
+            onClick={() => isEnabled && !config.disabled && onToggleLayer(layerId)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all active:scale-95 ${
+              !isEnabled 
+                ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed' 
+                : isRequested 
+                  ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600'
+            }`}
+            disabled={!isEnabled || isLoading}
+            aria-label={isRequested ? "Hide layer" : "Show layer"}
+          >
+            {isRequested ? 'On' : 'Off'}
+          </button>
         </div>
       </div>
     );
@@ -427,56 +492,90 @@ const LayersPanel = ({
   });
   
   // Find ungrouped layers (should be none with current setup, but good for safety)
+  // Also exclude disabled layers from showing in the "Other" section
   const ungroupedLayers = Object.entries(layers).filter(([layerId]) => 
-    layerId !== 'permitAreas' && !groupedLayerIds.has(layerId)
+    layerId !== 'permitAreas' && 
+    !groupedLayerIds.has(layerId) && 
+    !DISABLED_INFRASTRUCTURE_LAYERS.has(layerId)
   );
 
   return (
     <div className="h-full flex flex-col layers-panel">
       {/* Compact Header Section */}
-      <div className="bg-white dark:bg-gray-900 p-3 space-y-2">
+      <div className="bg-white/50 dark:bg-gray-900/50 p-3 space-y-2">
         {/* Focused Area Info - Concentric Pill Design */}
         {focusedArea && (
           <div className="relative">
             {/* Outer ring label */}
             <div className="bg-blue-600 dark:bg-blue-700 text-white text-[12px] font-medium px-2 py-0.5 rounded-t-lg">
-              Designing a {geographyType === 'parks' ? 'Parks' : 'SAPO / Open Streets'} site plan for:
+              Designing a {geographyType === 'intersections' ? 'SAPO / Open Streets' : 'Parks'} site plan for:
             </div>
             {/* Inner content pill */}
             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 p-2 rounded-b-lg border border-t-0 border-blue-600 dark:border-blue-700">
               <div className="flex flex-col gap-2">
-                {/* Zone name - Full width */}
-                <div className="flex items-center gap-1.5">
+                {/* Zone name - Editable in place */}
+                <div className="flex items-center gap-2">
                   <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse flex-shrink-0"></div>
-                  <p className="text-sm font-medium text-blue-800 dark:text-blue-200" title={(focusedArea.properties.name || [focusedArea.properties.FSN_1, focusedArea.properties.FSN_2, focusedArea.properties.FSN_3, focusedArea.properties.FSN_4].filter(Boolean).join(' & ') || 'Unnamed Area')}>
-                    {focusedArea.properties.name || [focusedArea.properties.FSN_1, focusedArea.properties.FSN_2, focusedArea.properties.FSN_3, focusedArea.properties.FSN_4].filter(Boolean).join(' & ') || 'Unnamed Area'}
-                  </p>
+                  {isEditingName ? (
+                    <div className="flex-1 flex items-center gap-1.5">
+                      <input
+                        ref={nameInputRef}
+                        type="text"
+                        value={editedName}
+                        onChange={(e) => setEditedName(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        onBlur={handleSaveName}
+                        className="flex-1 px-2 py-1 text-sm font-medium text-blue-800 dark:text-blue-200 bg-white dark:bg-gray-800 border-2 border-blue-400 dark:border-blue-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Enter zone name..."
+                        aria-label="Edit zone name"
+                      />
+                      <button
+                        onClick={handleSaveName}
+                        className="p-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                        aria-label="Save name"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleStartEditName}
+                      className="flex-1 flex items-center gap-2 group text-left hover:bg-blue-100/50 dark:hover:bg-blue-900/30 rounded-lg px-2 py-1 -mx-2 -my-1 transition-colors"
+                      title="Click to edit zone name"
+                      aria-label="Click to edit zone name"
+                    >
+                      <p className="text-sm font-medium text-blue-800 dark:text-blue-200 truncate">
+                        {getDisplayName()}
+                      </p>
+                      <Pencil className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                    </button>
+                  )}
                 </div>
                 
-                {/* Buttons rows */}
+                {/* Action Buttons - Larger touch targets */}
                 <div className="flex flex-col gap-2">
-                  {/* First row: Event Info and Plan Options */}
-                  <div className="flex items-center gap-2">
+                  {/* Primary Actions Row */}
+                  <div className="flex items-stretch gap-2">
                     <button
                       type="button"
                       onClick={() => window.dispatchEvent(new CustomEvent('ui:show-event-info'))}
-                      className="flex-1 text-[11px] px-2 py-1 rounded bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors whitespace-nowrap flex items-center justify-center gap-1"
-                      title="Event Information"
+                      className="flex-1 px-3 py-2 rounded-xl bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 dark:hover:bg-blue-600 transition-all active:scale-95 shadow-sm flex flex-col items-center justify-center leading-tight"
+                      aria-label="Open event information form"
                     >
-                      <FileText className="w-3 h-3" />
-                      Event Info
+                      <span className="text-sm font-medium">Event</span>
+                      <span className="text-sm font-medium">Info</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => window.dispatchEvent(new CustomEvent('ui:show-export-options'))}
-                      className="flex-1 text-[11px] px-2 py-1 rounded bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors whitespace-nowrap flex items-center justify-center gap-1"
-                      title="Plan Options"
+                      className="flex-1 px-3 py-2 rounded-xl bg-indigo-600 dark:bg-indigo-700 text-white hover:bg-indigo-700 dark:hover:bg-indigo-600 transition-all active:scale-95 shadow-sm flex flex-col items-center justify-center leading-tight"
+                      aria-label="Open plan export options"
                     >
-                      <Download className="w-3 h-3" />
-                      Plan Options
+                      <span className="text-sm font-medium">Export</span>
+                      <span className="text-sm font-medium">Options</span>
                     </button>
                   </div>
-                  {/* Second row: Sub-focus and Refocus buttons */}
+                  {/* Secondary Actions Row */}
                   <div className="flex items-center gap-2">
                     {/* Sub-focus button */}
                     {onBeginSubFocus && !hasSubFocus && (
@@ -488,37 +587,32 @@ const LayersPanel = ({
                           } catch (_) {}
                           onBeginSubFocus();
                         }}
-                        className="flex-1 text-[11px] px-2 py-1 rounded bg-blue-600 dark:bg-blue-700 text-white hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors whitespace-nowrap"
-                        title="Draw sub-area to focus"
+                        className="flex-1 px-3 py-2 rounded-xl bg-white/80 dark:bg-gray-800/80 border-2 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-all active:scale-95 text-sm font-medium flex flex-col items-center leading-tight"
+                        aria-label="Draw a sub-area to focus on"
                       >
-                        Define Sub-Area
+                        <span>Define</span>
+                        <span>Sub-Area</span>
                       </button>
                     )}
                     {/* Refocus button */}
                     {focusedArea && (
                       <button
                         onClick={() => {
-                          console.log('[REFOCUS DEBUG] Refocus button clicked', {
-                            permitAreas,
-                            hasRefocusFunc: !!permitAreas?.refocusActivePermitArea,
-                            focusedArea,
-                            allowUnrestrictedZoom: permitAreas?.allowUnrestrictedZoom
-                          });
                           try { 
                             permitAreas?.refocusActivePermitArea?.(); 
                           } catch (error) {
-                            console.error('[REFOCUS DEBUG] Error calling refocus:', error);
+                            console.error('[REFOCUS] Error:', error);
                           }
                         }}
                         disabled={!permitAreas?.allowUnrestrictedZoom}
-                        className={`flex-1 text-[11px] px-2 py-1 rounded transition-colors whitespace-nowrap ${
+                        className={`flex-1 px-3 py-2 rounded-xl transition-all text-sm font-medium ${
                           permitAreas?.allowUnrestrictedZoom
-                            ? 'bg-indigo-600 dark:bg-indigo-700 text-white hover:bg-indigo-700 dark:hover:bg-indigo-600 cursor-pointer'
-                            : 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed opacity-50'
+                            ? 'bg-white/80 dark:bg-gray-800/80 border-2 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 active:scale-95'
+                            : 'bg-gray-100 dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
                         }`}
-                        title={permitAreas?.allowUnrestrictedZoom ? "Recenter to the focused permit area" : "Zoom out past boundary first to enable refocus"}
+                        aria-label={permitAreas?.allowUnrestrictedZoom ? "Recenter map to focused area" : "Zoom out first to enable refocus"}
                       >
-                        Refocus
+                        Recenter Map
                       </button>
                     )}
                     {onClearSubFocus && hasSubFocus && (
@@ -530,88 +624,174 @@ const LayersPanel = ({
                           } catch (_) {}
                           onClearSubFocus();
                         }}
-                        className="flex-1 text-[11px] px-2 py-1 rounded bg-emerald-600 dark:bg-emerald-700 text-white hover:bg-emerald-700 dark:hover:bg-emerald-600 transition-colors whitespace-nowrap"
-                        title="Clear sub-area focus"
+                        className="flex-1 px-3 py-2 rounded-xl bg-white/80 dark:bg-gray-800/80 border-2 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition-all active:scale-95 text-sm font-medium"
+                        aria-label="Clear sub-area selection"
                       >
                         Clear Sub-Area
                       </button>
                     )}
                   </div>
                   
-                  {/* Second row: Exit without Saving - Full width, softer red */}
+                  {/* Exit Button - Clear danger styling */}
                   <button 
                     onClick={onClearFocus}
-                    className="w-full flex items-center justify-center gap-1 bg-rose-500 dark:bg-rose-600 hover:bg-rose-600 dark:hover:bg-rose-700 text-white px-2.5 py-1.5 rounded font-medium transition-colors"
-                    title="Clear Focus"
+                    className="w-full flex items-center justify-center gap-2 bg-white/80 dark:bg-gray-800/80 border-2 border-rose-300 dark:border-rose-700 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 px-4 py-2.5 rounded-xl font-medium transition-all active:scale-95"
+                    aria-label="Exit design mode without saving"
                   >
-                    <X className="w-3.5 h-3.5" />
-                    <span className="text-[11px]">Exit without Saving</span>
+                    <X className="w-5 h-5" />
+                    <span className="text-sm">Exit Without Saving</span>
                   </button>
                 </div>
 
                 {/* Safety Compliance Section (SAPO specific) */}
                 {geographyType === 'intersections' && (
-                  <div className="mt-2 pt-2 border-t border-blue-200 dark:border-blue-800">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest flex items-center gap-1">
-                        Safety Compliance
-                      </span>
+                  <div className="mt-4 pt-4 border-t-2 border-blue-200 dark:border-blue-800">
+                    {/* Section Header with Overall Status - Clickable to expand/collapse */}
+                    <button
+                      type="button"
+                      onClick={() => setSafetyComplianceExpanded(!safetyComplianceExpanded)}
+                      className="w-full flex items-center justify-between gap-2 mb-3 p-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer group text-left overflow-hidden"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-1 h-6 rounded-full bg-gradient-to-b from-blue-500 to-indigo-600 flex-shrink-0" />
+                        {safetyComplianceExpanded ? (
+                          <ChevronDown className="w-4 h-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                        )}
+                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100 uppercase tracking-wide truncate">
+                          Safety
+                        </span>
+                      </div>
                       {complianceStatus.isLaneClear ? (
-                        <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-1.5 py-0.5 rounded-full">
-                          <ShieldCheck className="w-3 h-3" />
-                          VALID
+                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 flex-shrink-0">
+                          <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                          <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">VALID</span>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1 text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/20 px-1.5 py-0.5 rounded-full animate-pulse">
-                          <ShieldAlert className="w-3 h-3" />
-                          VIOLATION
+                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-rose-100 dark:bg-rose-900/30 border border-rose-200 dark:border-rose-800 animate-pulse flex-shrink-0">
+                          <ShieldAlert className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+                          <span className="text-xs font-bold text-rose-700 dark:text-rose-300">ISSUE</span>
+                        </div>
+                      )}
+                    </button>
+                    
+                    {/* Compliance Check Cards - Collapsible */}
+                    <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
+                      safetyComplianceExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
+                    }`}>
+                    <div className="space-y-2">
+                      {/* Access & Infrastructure Check */}
+                      <div className={`p-3 rounded-xl border-2 ${
+                        complianceStatus.isLaneClear 
+                          ? 'bg-white/80 dark:bg-gray-800/80 border-emerald-200 dark:border-emerald-800/50' 
+                          : 'bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-800/50'
+                      }`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                              complianceStatus.isLaneClear 
+                                ? 'bg-emerald-100 dark:bg-emerald-900/30' 
+                                : 'bg-rose-100 dark:bg-rose-900/30'
+                            }`}>
+                              {complianceStatus.isLaneClear ? (
+                                <CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                              ) : (
+                                <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400" />
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">Emergency Access</p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">Fire lanes & hydrants</p>
+                            </div>
+                          </div>
+                          <span className={`px-3 py-1 rounded-lg text-xs font-bold ${
+                            complianceStatus.isLaneClear 
+                              ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300' 
+                              : 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300'
+                          }`}>
+                            {complianceStatus.isLaneClear ? 'CLEAR' : 'BLOCKED'}
+                          </span>
+                        </div>
+                        
+                        {/* Obstruction Details */}
+                        {!complianceStatus.isLaneClear && complianceStatus.obstructions.length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-rose-200 dark:border-rose-800/50 space-y-2">
+                            <p className="text-xs font-semibold text-rose-700 dark:text-rose-300 mb-2">Issues Found:</p>
+                            {complianceStatus.obstructions.map((obs, idx) => (
+                              <div key={`${obs.id}-${idx}`} className="flex items-start gap-2 p-2 bg-rose-100/50 dark:bg-rose-900/20 rounded-lg">
+                                <AlertTriangle className="w-4 h-4 text-rose-500 flex-shrink-0 mt-0.5" />
+                                <p className="text-xs text-rose-700 dark:text-rose-300 leading-relaxed">
+                                  {obs.violation === 'emergency-lane' && <><strong>Emergency Lane:</strong> {obs.name} is obstructing access.</>}
+                                  {obs.violation === 'hydrant' && <><strong>Fire Hydrant:</strong> {obs.name} is within 5ft clearance zone.</>}
+                                  {obs.violation === 'bike-lane' && <><strong>Bike Lane:</strong> {obs.name} is blocking the cycle path.</>}
+                                  {obs.violation === 'transit-access' && <><strong>Transit Access:</strong> {obs.name} is blocking access.</>}
+                                  {obs.violation === 'sidewalk-clear-path' && <><strong>Sidewalk:</strong> {obs.name} may block pedestrian path.</>}
+                                  {!obs.violation && <><strong>Obstruction:</strong> {obs.name} is blocking access.</>}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Vehicle Turn Radius Check */}
+                      {safetyData?.turnAnalysis && (
+                        <div className={`p-3 rounded-xl border-2 ${
+                          safetyData.turnAnalysis.isValid 
+                            ? 'bg-white/80 dark:bg-gray-800/80 border-emerald-200 dark:border-emerald-800/50' 
+                            : 'bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-800/50'
+                        }`}>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                                safetyData.turnAnalysis.isValid 
+                                  ? 'bg-emerald-100 dark:bg-emerald-900/30' 
+                                  : 'bg-rose-100 dark:bg-rose-900/30'
+                              }`}>
+                                {safetyData.turnAnalysis.isValid ? (
+                                  <CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                                ) : (
+                                  <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400" />
+                                )}
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">Vehicle Turns</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">Fire truck swept path</p>
+                              </div>
+                            </div>
+                            <span className={`px-3 py-1 rounded-lg text-xs font-bold ${
+                              safetyData.turnAnalysis.isValid 
+                                ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300' 
+                                : 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300'
+                            }`}>
+                              {safetyData.turnAnalysis.isValid ? 'PASS' : 'FAIL'}
+                            </span>
+                          </div>
+                          
+                          {safetyData.turnAnalysis.isValid === false && (
+                            <div className="mt-3 pt-3 border-t border-rose-200 dark:border-rose-800/50">
+                              <div className="flex items-start gap-2 p-2 bg-rose-100/50 dark:bg-rose-900/20 rounded-lg">
+                                <AlertTriangle className="w-4 h-4 text-rose-500 flex-shrink-0 mt-0.5" />
+                                <p className="text-xs text-rose-700 dark:text-rose-300 leading-relaxed">
+                                  <strong>Turn Analysis Failed:</strong> Some turns may be too sharp for emergency vehicles. Consider widening the path.
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* Help Tip - Only show when there's a violation */}
+                      {(!complianceStatus.isLaneClear || safetyData?.turnAnalysis?.isValid === false) && (
+                        <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200/60 dark:border-amber-800/40">
+                          <span className="text-base">💡</span>
+                          <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+                            <strong>How to fix:</strong> Move or remove the items marked above. Fire lanes and hydrant areas must stay clear for safety approval.
+                          </p>
                         </div>
                       )}
                     </div>
-                    
-                    <div className="space-y-1.5">
-                      <div className={`flex items-center justify-between p-1.5 rounded text-[11px] ${complianceStatus.isLaneClear ? 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300' : 'bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-300'}`}>
-                        <div className="flex items-center gap-2">
-                          <div className={`w-1.5 h-1.5 rounded-full ${complianceStatus.isLaneClear ? 'bg-emerald-500' : 'bg-rose-500 animate-ping'}`} />
-                          Access & Infrastructure
-                        </div>
-                        <span className="font-bold">{complianceStatus.isLaneClear ? 'CLEAR' : 'BLOCKED'}</span>
-                      </div>
-                      
-                      {!complianceStatus.isLaneClear && (
-                        <div className="space-y-1 mt-1">
-                          {complianceStatus.obstructions.map((obs, idx) => (
-                            <div key={`${obs.id}-${idx}`} className="flex items-start gap-1.5 px-1.5 text-[10px] text-rose-600 dark:text-rose-400 leading-tight">
-                              <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                              <span>
-                                {obs.violation === 'emergency-lane' && `Emergency Lane: ${obs.name} is obstructing.`}
-                                {obs.violation === 'hydrant' && `Hydrant: ${obs.name} is within 5ft clearance.`}
-                                {obs.violation === 'bike-lane' && `Bike Lane: ${obs.name} is blocking cycle path.`}
-                                {obs.violation === 'transit-access' && `Transit: ${obs.name} is blocking access.`}
-                                {obs.violation === 'sidewalk-clear-path' && `Sidewalk: ${obs.name} may block clear path.`}
-                                {!obs.violation && `Obstruction: ${obs.name} is blocking access.`}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {safetyData?.turnAnalysis && (
-                        <div className={`flex items-center justify-between p-1.5 rounded text-[11px] ${safetyData.turnAnalysis.isValid ? 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300' : 'bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-300'}`}>
-                          <div className="flex items-center gap-2">
-                            <div className={`w-1.5 h-1.5 rounded-full ${safetyData.turnAnalysis.isValid ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                            Vehicle Turn Radius
-                          </div>
-                          <span className="font-bold">{safetyData.turnAnalysis.isValid ? 'PASS' : 'FAIL'}</span>
-                        </div>
-                      )}
-
-                      {safetyData?.turnAnalysis?.isValid === false && (
-                        <div className="flex items-start gap-1.5 px-1.5 text-[10px] text-rose-600 dark:text-rose-400 leading-tight">
-                          <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                          <span>Swept-path analysis failed. Some turns are too sharp for a standard fire truck.</span>
-                        </div>
-                      )}
                     </div>
                   </div>
                 )}
@@ -631,83 +811,99 @@ const LayersPanel = ({
       <div className="flex-1 overflow-y-auto min-h-0">
         <div className="p-3 pb-8">
           {/* Infrastructure Layers Header - Collapsible */}
-          <div 
-            className="mb-3 flex items-center justify-between cursor-pointer group"
+          <button 
+            type="button"
+            className="w-full mb-4 flex items-center justify-start gap-3 cursor-pointer group p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors text-left"
             onClick={() => setInfrastructureExpanded(!infrastructureExpanded)}
           >
-            <div className="flex items-center gap-2">
-              {infrastructureExpanded ? (
-                <ChevronDown className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-              ) : (
-                <ChevronRight className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-              )}
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">
-                Infrastructure Layers
-              </h3>
-            </div>
+            <div className="w-1.5 h-7 rounded-full bg-gradient-to-b from-emerald-500 to-teal-600 flex-shrink-0" />
+            {infrastructureExpanded ? (
+              <ChevronDown className="w-5 h-5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+            ) : (
+              <ChevronRight className="w-5 h-5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+            )}
+            <h3 className="text-base font-bold text-gray-900 dark:text-gray-100 uppercase tracking-wide">
+              Infrastructure Layers
+            </h3>
             {!infrastructureExpanded && (
-              <span className="text-[10px] text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300">
-                Click to expand
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-200 px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 ml-auto">
+                Expand
               </span>
             )}
-          </div>
+          </button>
           
           {/* Collapsible Infrastructure Content */}
           <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
             infrastructureExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'
           }`}>
-          <div className="space-y-2.5">
-            {/* All Recommended Toggle - Always visible, but shows different states */}
-            <div className={`mb-3 transition-all duration-300 ${!focusedArea ? 'opacity-60' : 'opacity-100'}`}>
-              <div className={`p-3 rounded-lg border ${
+          <div className="space-y-3">
+            {/* All Recommended Toggle - Card style with clear action */}
+            <div className={`transition-all duration-300 ${!focusedArea ? 'opacity-60' : 'opacity-100'}`}>
+              <div className={`p-4 rounded-2xl border-2 ${
                 focusedArea 
-                  ? 'bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800/50 dark:to-gray-900/50 border-blue-200 dark:border-gray-700'
-                  : 'bg-gray-50 dark:bg-gray-800/30 border-gray-200 dark:border-gray-700'
+                  ? 'bg-gradient-to-r from-blue-50/80 to-indigo-50/80 dark:from-gray-800/60 dark:to-gray-900/60 border-blue-200 dark:border-blue-800/50'
+                  : 'bg-gray-50/80 dark:bg-gray-800/30 border-gray-200 dark:border-gray-700'
               }`}>
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Layers className={`w-4 h-4 ${focusedArea ? 'text-blue-600' : 'text-gray-400'}`} />
-                    <span className={`text-sm font-medium ${focusedArea ? 'text-blue-900 dark:text-blue-300' : 'text-gray-500 dark:text-gray-400'}`}>
-                      All Recommended
-                    </span>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                      focusedArea ? 'bg-blue-100 dark:bg-blue-900/30' : 'bg-gray-100 dark:bg-gray-800'
+                    }`}>
+                      <Layers className={`w-5 h-5 ${focusedArea ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'}`} />
+                    </div>
+                    <div>
+                      <p className={`text-sm font-semibold ${focusedArea ? 'text-gray-800 dark:text-gray-200' : 'text-gray-500 dark:text-gray-400'}`}>
+                        Load All Layers
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Hydrants, bus stops, trees, etc.
+                      </p>
+                    </div>
                   </div>
                   <button
                     onClick={handleRecommendedToggle}
-                    className={`flex items-center space-x-1 transition-colors ${!focusedArea ? 'cursor-not-allowed' : 'cursor-pointer hover:opacity-80'}`}
+                    className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95 ${
+                      !focusedArea 
+                        ? 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed' 
+                        : allLayersActive 
+                          ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm' 
+                          : 'bg-white dark:bg-gray-800 border-2 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30'
+                    }`}
                     disabled={!focusedArea}
-                    title={!focusedArea ? "Select a permit area first to enable layer loading" : `${allLayersActive ? 'Hide' : 'Show'} all recommended layers`}
+                    aria-label={!focusedArea ? "Select an area first" : allLayersActive ? "Hide all layers" : "Show all layers"}
                   >
-                    {allLayersActive ? (
-                      <ToggleRight className="w-6 h-6 text-blue-600" />
-                    ) : (
-                      <ToggleLeft className={`w-6 h-6 ${focusedArea ? 'text-gray-400 dark:text-gray-500' : 'text-gray-300 dark:text-gray-600'}`} />
-                    )}
+                    {allLayersActive ? 'On' : 'Off'}
                   </button>
                 </div>
                 
                 {/* Helpful message when no focused area */}
                 {!focusedArea && (
-                  <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-2">
-                    Select a zone to enable infrastructure layers
-                  </p>
+                  <div className="mt-3 flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
+                    <span className="text-sm">💡</span>
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      Create a zone first, then you can load infrastructure layers
+                    </p>
+                  </div>
                 )}
                 
                 {/* Loading progress */}
                 {infrastructure && infrastructure.bulkLoading && (
-                  <div className="mt-3 space-y-1.5">
-                    <div className="text-[11px] text-blue-700 dark:text-blue-300 flex items-center justify-between">
-                      <span className="font-medium">Loading layers ({infrastructure.bulkProgress.completed}/{infrastructure.bulkProgress.total})</span>
+                  <div className="mt-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                        Loading... {infrastructure.bulkProgress.completed} of {infrastructure.bulkProgress.total}
+                      </p>
                       <button
                         type="button"
                         onClick={infrastructure.bulkCancelLoading}
-                        className="text-[11px] px-2 py-0.5 rounded border border-blue-300 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-gray-800 transition-colors"
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium border-2 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                       >
                         Cancel
                       </button>
                     </div>
-                    <div className="w-full h-2 bg-blue-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                    <div className="w-full h-3 bg-blue-100 dark:bg-gray-800 rounded-full overflow-hidden">
                       <div 
-                        className="h-2 bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-300 rounded-full" 
+                        className="h-3 bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-300 rounded-full" 
                         style={{ width: `${infrastructure.bulkProgress.total > 0 ? Math.round((infrastructure.bulkProgress.completed / infrastructure.bulkProgress.total) * 100) : 0}%` }} 
                       />
                     </div>
@@ -716,9 +912,9 @@ const LayersPanel = ({
                 
                 {/* Success state when all layers are active */}
                 {focusedArea && allLayersActive && !infrastructure?.bulkLoading && (
-                  <div className="mt-2 flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400">
-                    <CheckCircle className="w-3.5 h-3.5" />
-                    <span>All recommended layers loaded</span>
+                  <div className="mt-3 flex items-center gap-2 p-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-200/60 dark:border-emerald-800/40">
+                    <CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                    <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">All layers loaded!</p>
                   </div>
                 )}
               </div>
@@ -755,6 +951,14 @@ const LayersPanel = ({
               </button>
             </div>
           )}
+          
+          {/* Data Source Attribution */}
+          <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">
+            <p className="text-[9px] text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
+              <span className="inline-block w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
+              Data sources: NYC Open Data, OpenStreetMap
+            </p>
+          </div>
         </div>
       </div>
     </div>

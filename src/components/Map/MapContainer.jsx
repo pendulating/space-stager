@@ -79,6 +79,7 @@ const MapContainer = forwardRef(({
   const [dimensionsEditingObject, setDimensionsEditingObject] = useState(null);
   const [annotationsTrigger, setAnnotationsTrigger] = useState(0);
   const [rectMovingId, setRectMovingId] = useState(null);
+  const [showEdgeMarkers, setShowEdgeMarkers] = useState(true);
   const subFocusArmedRef = useRef(false);
   const derivedSourceId = 'annotations-derived';
   const arrowIconId = 'annotation-arrowhead';
@@ -869,6 +870,26 @@ const MapContainer = forwardRef(({
         <button className="bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 rounded-full w-12 h-12 flex items-center justify-center hover:scale-105 active:scale-95" style={{ pointerEvents: 'auto' }} title="Toggle projection (Top-down / Isometric)" onClick={handleToggleProjection}>
           <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">{(pitch > 15) ? 'ISO' : '2D'}</span>
         </button>
+        <button 
+          className={`shadow-lg border rounded-full w-12 h-12 flex items-center justify-center hover:scale-105 active:scale-95 transition-all ${
+            showEdgeMarkers 
+              ? 'bg-blue-500 border-blue-600 text-white' 
+              : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200'
+          }`} 
+          style={{ pointerEvents: 'auto' }} 
+          title={showEdgeMarkers ? 'Hide edge markers for nearby infrastructure' : 'Show edge markers for nearby infrastructure'} 
+          onClick={() => setShowEdgeMarkers(prev => !prev)}
+          aria-pressed={showEdgeMarkers}
+          aria-label="Toggle edge markers"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2L12 6" />
+            <path d="M12 18L12 22" />
+            <path d="M2 12L6 12" />
+            <path d="M18 12L22 12" />
+            <circle cx="12" cy="12" r="4" />
+          </svg>
+        </button>
       </div>
       
       <ActiveToolIndicator activeTool={activeTool} />
@@ -944,7 +965,7 @@ const MapContainer = forwardRef(({
       <ZoneCreatorEffect map={map} />
       <ZoneCreatorPills map={map} />
       <NudgeMarkers nudges={nudges} map={map} objectUpdateTrigger={clickToPlace.objectUpdateTrigger} onDismiss={onDismissNudge} highlightedIds={highlightedIds} />
-      <EdgeMarkers map={map} infrastructureData={infrastructure?.infrastructureData} categories={infrastructure?.edgeMarkerCategories} />
+      {showEdgeMarkers && <EdgeMarkers map={map} infrastructureData={infrastructure?.infrastructureData} categories={infrastructure?.edgeMarkerCategories} />}
       {!mapLoaded && <LoadingOverlay />}
       {drawTools?.activeTool && <ActiveToolIndicator tool={drawTools.activeTool} />}
       {!drawTools?.activeTool && !permitAreas.clickedTooltip?.visible && ( <MapTooltip tooltip={permitAreas.tooltip} /> )}

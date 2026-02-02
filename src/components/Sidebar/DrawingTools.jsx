@@ -1,5 +1,5 @@
 import React from 'react';
-import { Dot, Square, Type, ArrowRight } from 'lucide-react';
+import { Dot, Square, Type, ArrowRight, Loader2, AlertTriangle } from 'lucide-react';
 
 const DashedLineIcon = (props) => (
   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -11,20 +11,19 @@ const DashedLineIcon = (props) => (
 
 const DrawingTools = ({ activeTool, onToolSelect, selectedShape, onDelete, drawAvailable = true, onRetry, onHoverChange }) => {
   const tools = [
-    { id: 'point', icon: Dot, title: 'Point' },
-    { id: 'line', icon: DashedLineIcon, title: 'Line' },
-    { id: 'polygon', icon: Square, title: 'Polygon' }
+    { id: 'point', icon: Dot, title: 'Point', description: 'Mark a location' },
+    { id: 'line', icon: DashedLineIcon, title: 'Line', description: 'Draw a path' },
+    { id: 'polygon', icon: Square, title: 'Area', description: 'Draw a shape' }
   ];
 
   return (
-    <div className="p-2 drawing-tools">
+    <div className="drawing-tools">
       {!drawAvailable && (
-        <div className="mb-3 p-2 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded text-xs text-yellow-700 dark:text-yellow-300">
-          Drawing tools are initializing...
-          <br />
-          <small className="text-yellow-600 dark:text-yellow-300">
-            Status: {drawAvailable ? 'Ready' : 'Initializing'}
-          </small>
+        <div className="mb-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200/60 dark:border-amber-800/40 rounded-xl">
+          <div className="flex items-center gap-2 mb-2">
+            <Loader2 className="w-4 h-4 text-amber-600 dark:text-amber-400 animate-spin" />
+            <span className="text-sm font-medium text-amber-800 dark:text-amber-200">Loading drawing tools...</span>
+          </div>
           <button 
             onClick={() => {
               console.log('Manual re-initialization requested via retry button');
@@ -35,33 +34,49 @@ const DrawingTools = ({ activeTool, onToolSelect, selectedShape, onDelete, drawA
                 console.warn('onRetry function not available');
               }
             }}
-            className="ml-2 px-2 py-1 bg-yellow-200 dark:bg-yellow-800 hover:bg-yellow-300 dark:hover:bg-yellow-700 rounded text-xs"
+            className="w-full px-3 py-2 bg-amber-100 dark:bg-amber-800/50 hover:bg-amber-200 dark:hover:bg-amber-700/50 rounded-lg text-sm font-medium text-amber-800 dark:text-amber-200 transition-colors"
           >
-            Retry
+            Retry Loading
           </button>
         </div>
       )}
+      
       <div className="grid grid-cols-3 gap-2">
-        {tools.map(({ id, icon: Icon, title }) => (
-          <div key={id} className="relative group">
-            <span aria-hidden="true" className="block pb-[100%]" />
+        {tools.map(({ id, icon: Icon, title, description }) => {
+          const isActive = activeTool === id;
+          return (
             <button
-              onClick={() => onToolSelect(activeTool === id ? null : id)}
+              key={id}
+              onClick={() => onToolSelect(isActive ? null : id)}
               onMouseEnter={() => { try { onHoverChange && onHoverChange(title); } catch (_) {} }}
               onMouseLeave={() => { try { onHoverChange && onHoverChange(''); } catch (_) {} }}
-              className={`absolute inset-0 rounded-lg border transition ${
-                activeTool === id
-                  ? 'bg-blue-600 text-white border-blue-500 shadow-md'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 border-gray-200/70 dark:border-gray-700/60'
-              } ${!drawAvailable ? 'opacity-50 cursor-not-allowed' : ''} flex items-center justify-center`}
-              title={title}
+              className={`flex flex-col items-center justify-center gap-1 p-3 rounded-xl border-2 transition-all active:scale-95 ${
+                isActive
+                  ? 'bg-indigo-600 text-white border-indigo-500 shadow-md'
+                  : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 border-gray-200 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-700'
+              } ${!drawAvailable ? 'opacity-50 cursor-not-allowed' : ''}`}
+              title={description}
               disabled={!drawAvailable}
+              aria-pressed={isActive}
+              aria-label={`${title}: ${description}`}
             >
-              <Icon className="w-5 h-5" />
+              <Icon className="w-6 h-6" />
+              <span className="text-xs font-medium">{title}</span>
             </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
+      
+      {/* Active tool hint */}
+      {activeTool && drawAvailable && (
+        <div className="mt-3 p-2.5 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-200/60 dark:border-indigo-800/40">
+          <p className="text-xs text-indigo-700 dark:text-indigo-300 text-center">
+            {activeTool === 'point' && 'Click on the map to place a point'}
+            {activeTool === 'line' && 'Click points on the map, double-click to finish'}
+            {activeTool === 'polygon' && 'Click points to draw shape, click first point to close'}
+          </p>
+        </div>
+      )}
     </div>
   );
 };

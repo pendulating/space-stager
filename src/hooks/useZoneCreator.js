@@ -198,7 +198,8 @@ export function useZoneCreator(map, geographyType) {
   }, [map, setAvailableExtensions]);
 
   // Connectivity helper: Find valid next intersections using CSCL API
-  const findAvailableExtensions = useCallback(async (lastNode) => {
+  // Filters out previously selected nodes to prevent zone wrap-around
+  const findAvailableExtensions = useCallback(async (lastNode, alreadySelectedNodes = []) => {
     if (!map || !lastNode || !lastNode.coord) return [];
     try {
       const lastCoord = lastNode.coord;
@@ -232,6 +233,63 @@ export function useZoneCreator(map, geographyType) {
       // Filter out the current point and very close points
       const lastCoordKey = lastCoord.map(c => c.toFixed(5)).join(',');
       seenCoords.add(lastCoordKey);
+      
+      // IMPORTANT: Also filter out ALL previously selected nodes to prevent wrap-around zones
+      // This prevents the user from creating a zone that loops back on itself
+      const previouslySelectedCoordKeys = new Set();
+      const previouslySelectedIds = new Set();
+      alreadySelectedNodes.forEach(node => {
+        if (node) {
+          // Track by ID (most reliable)
+          if (node.id !== undefined && node.id !== null) {
+            previouslySelectedIds.add(String(node.id));
+          }
+          // Also track by coordinate key
+          if (node.coord) {
+            const key = node.coord.map(c => c.toFixed(5)).join(',');
+            seenCoords.add(key);
+            previouslySelectedCoordKeys.add(key);
+          }
+        }
+      });
+      console.log(`[ZoneCreator] Filtering out ${alreadySelectedNodes.length} previously selected nodes`);
+      console.log(`[ZoneCreator] Previously selected IDs:`, [...previouslySelectedIds]);
+      console.log(`[ZoneCreator] Previously selected coord keys:`, [...previouslySelectedCoordKeys]);
+      
+      // Helper to check if a coordinate is too close to any previously selected node
+      // Uses distance check (50m threshold) - this covers the typical block intersection radius
+      // NYC blocks are typically ~80m, so 50m ensures we catch the same intersection from any angle
+      const isTooCloseToSelectedNode = (coord) => {
+        if (alreadySelectedNodes.length === 0) {
+          return false; // No previously selected nodes to check against
+        }
+        
+        for (const node of alreadySelectedNodes) {
+          if (!node || !node.coord) {
+            console.log(`[ZoneCreator] Warning: invalid node in alreadySelectedNodes`, node);
+            continue;
+          }
+          
+          // Ensure coordinates are in the right format for turf
+          const coordArray = Array.isArray(coord) ? coord : [coord.lng || coord[0], coord.lat || coord[1]];
+          const nodeCoordArray = Array.isArray(node.coord) ? node.coord : [node.coord.lng || node.coord[0], node.coord.lat || node.coord[1]];
+          
+          const dist = turf.distance(coordArray, nodeCoordArray, { units: 'meters' });
+          console.log(`[ZoneCreator] Distance check: ext=${coordArray.map(c=>c.toFixed(5)).join(',')} vs prev=${nodeCoordArray.map(c=>c.toFixed(5)).join(',')} = ${dist.toFixed(1)}m`);
+          
+          if (dist < 50) { // 50m threshold to catch any intersection within the same junction
+            console.log(`[ZoneCreator] *** FILTERING extension - too close (${dist.toFixed(1)}m < 50m)`);
+            return true;
+          }
+        }
+        return false;
+      };
+      
+      // Helper to check if an ID matches a previously selected node
+      const isAlreadySelectedById = (physicalId) => {
+        if (!physicalId) return false;
+        return previouslySelectedIds.has(String(physicalId));
+      };
 
       features.forEach(f => {
         const geom = f.geometry || f.the_geom;
@@ -259,8 +317,20 @@ export function useZoneCreator(map, geographyType) {
           
           if (extCoord) {
             const key = extCoord.map(c => c.toFixed(5)).join(',');
-            if (!seenCoords.has(key)) {
+            const alreadySeen = seenCoords.has(key);
+            const tooClose = isTooCloseToSelectedNode(extCoord);
+            const idMatch = isAlreadySelectedById(props.physicalid);
+            
+            // Skip if coordinate matches a seen key OR is too close to a previously selected node OR ID matches
+            if (alreadySeen) {
+              console.log(`[ZoneCreator] Skipping extension at ${key} - already seen (exact match)`);
+            } else if (tooClose) {
+              // Already logged in isTooCloseToSelectedNode
+            } else if (idMatch) {
+              console.log(`[ZoneCreator] Skipping extension at ${key} - physicalid ${props.physicalid} matches previously selected`);
+            } else {
               seenCoords.add(key);
+              console.log(`[ZoneCreator] ALLOWING extension at ${key} for street: ${props.full_street_name || props.stname_label}`);
               allPossible.push({
                 id: `${props.physicalid || Math.random()}-${allPossible.length}`,
                 coord: extCoord,
@@ -333,10 +403,16 @@ export function useZoneCreator(map, geographyType) {
       if (workflowStep !== WORKFLOW_STEPS.EXTEND_ZONE) setWorkflowStep(WORKFLOW_STEPS.EXTEND_ZONE);
       
       const lastNode = selectedNodes[selectedNodes.length - 1];
+      // Pass all previously selected nodes (excluding the last one) to filter from extension candidates
+      const previouslySelected = selectedNodes.slice(0, -1);
+      
+      console.log(`[ZoneCreator] Extension effect running. selectedNodes.length=${selectedNodes.length}, selectedNodeIds.length=${selectedNodeIds.length}`);
+      console.log(`[ZoneCreator] Last node:`, lastNode?.coord);
+      console.log(`[ZoneCreator] Previously selected (${previouslySelected.length}):`, previouslySelected.map(n => n?.coord));
       
       // Async fetch extensions
       (async () => {
-        const extensions = await findAvailableExtensions(lastNode);
+        const extensions = await findAvailableExtensions(lastNode, previouslySelected);
         
         // Clear current extensions immediately to avoid "ghost" pills during pan
         setAvailableExtensions(prev => prev.length === 0 ? prev : []);

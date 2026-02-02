@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { Map, Loader2 } from 'lucide-react';
 import { switchBasemap } from '../../utils/mapUtils';
 import { BASEMAP_OPTIONS } from '../../constants/mapConfig';
 
 const BasemapToggle = ({ map, onStyleChange }) => {
   const [currentBasemap, setCurrentBasemap] = useState('arcgis');
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingKey, setLoadingKey] = useState(null);
 
   // Sync with actual map style when map loads
   useEffect(() => {
@@ -49,6 +51,7 @@ const BasemapToggle = ({ map, onStyleChange }) => {
     
     console.log(`Switching basemap from ${currentBasemap} to ${basemapKey}`);
     setIsLoading(true);
+    setLoadingKey(basemapKey);
     
     // Store the previous basemap for potential rollback
     const previousBasemap = currentBasemap;
@@ -63,28 +66,48 @@ const BasemapToggle = ({ map, onStyleChange }) => {
       setCurrentBasemap(previousBasemap);
     } finally {
       setIsLoading(false);
+      setLoadingKey(null);
     }
   };
 
   if (!map) return null;
 
   return (
-    <div className="p-4 border-b border-gray-200 dark:border-gray-800">
-      <div className="flex w-full h-10 gap-2">
-        {Object.entries(BASEMAP_OPTIONS).map(([key, basemap]) => (
-          <button
-            key={key}
-            onClick={() => handleBasemapChange(key)}
-            disabled={isLoading}
-            className={`flex-1 h-full text-sm rounded-md flex items-center justify-center transition-colors ${
-              currentBasemap === key
-                ? 'bg-blue-500 text-white'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700'
-            } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            {isLoading && currentBasemap !== key ? '...' : basemap.name}
-          </button>
-        ))}
+    <div className="px-3 py-2.5 border-b border-gray-200/60 dark:border-gray-700/60 bg-gradient-to-r from-gray-50/80 to-white/60 dark:from-gray-900/80 dark:to-gray-800/60">
+      {/* Header */}
+      <div className="flex items-center gap-2 mb-2">
+        <Map className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+        <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">Map Style</span>
+      </div>
+      
+      {/* Basemap Options */}
+      <div className="flex gap-1.5">
+        {Object.entries(BASEMAP_OPTIONS).map(([key, basemap]) => {
+          const isActive = currentBasemap === key;
+          const isLoadingThis = loadingKey === key;
+          
+          return (
+            <button
+              key={key}
+              onClick={() => handleBasemapChange(key)}
+              disabled={isLoading}
+              className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2 px-2 rounded-xl transition-all active:scale-95 ${
+                isActive
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'bg-white/80 dark:bg-gray-800/80 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200/60 dark:border-gray-700/60'
+              } ${isLoading && !isActive ? 'opacity-60 cursor-not-allowed' : ''}`}
+              aria-label={`Switch to ${basemap.name} map style`}
+              title={basemap.description}
+            >
+              {isLoadingThis ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <span className="text-base leading-none">{basemap.icon}</span>
+              )}
+              <span className="text-xs font-medium">{basemap.name}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

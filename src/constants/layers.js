@@ -43,7 +43,8 @@ export const LAYER_GROUPS = {
 // Central toggle for disabling infrastructure layers without removing code
 // Any layer id in this set will be hidden from UI and prevented from fetching.
 export const DISABLED_INFRASTRUCTURE_LAYERS = new Set([
-  'pedestrianRamps'
+  'pedestrianRamps',
+  'openStreets' // Handled by dedicated OpenStreetsPanel, not infrastructure layers
 ]);
 
 // Layers excluded from "All Recommended" bulk toggle (still usable individually)
@@ -66,7 +67,7 @@ export const INITIAL_LAYERS = {
     color: '#f97316', 
     loading: true, 
     loaded: false,
-    id: 'permit-areas' 
+    id: 'intersections' 
   },
   bikeLanes: { 
     visible: false, 

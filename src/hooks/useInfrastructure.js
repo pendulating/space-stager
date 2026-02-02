@@ -544,6 +544,92 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
     };
   }, [map, view?.bearing, view?.viewType, view?.pitch, focusedArea]);
 
+  // Force sprite update when camera animation completes (permit:focus-ready event)
+  // This ensures icons are correctly oriented after the camera settles to its final position
+  useEffect(() => {
+    if (!map) return;
+    
+    const handleFocusReady = () => {
+      // Clear the camera bucket cache to force recalculation with final camera position
+      try { lastCameraBucketRef.current = {}; } catch (_) {}
+      try { if (!lastViewTypeRef.current) lastViewTypeRef.current = {}; Object.keys(lastViewTypeRef.current).forEach(k => delete lastViewTypeRef.current[k]); } catch (_) {}
+      
+      // Get fresh camera state after animation
+      const freshState = {
+        bearing: (map && typeof map.getBearing === 'function') ? map.getBearing() : 0,
+        pitch: (map && typeof map.getPitch === 'function') ? map.getPitch() : 0,
+        viewType: getMapViewType((map && typeof map.getPitch === 'function') ? map.getPitch() : 0)
+      };
+      
+      // Update sprites with fresh camera state
+      try {
+        Object.entries(layersRef.current || {}).forEach(([layerId, cfg]) => {
+          if (!cfg?.requested || !cfg?.enhancedRendering?.enabled) return;
+          const data = infraDataRef.current?.[layerId];
+          if (!data || !Array.isArray(data.features) || data.features.length === 0) return;
+          
+          const areaGeom = (() => { try {
+            return (focusedArea?.properties?.__subFocus ? focusedArea : null)?.geometry || (focusedArea?.geometry);
+          } catch (_) { return null; } })();
+          
+          let changed = false;
+          const newFeatures = data.features.map((f) => {
+            if (!f || f.geometry?.type !== 'Point') return f;
+            const p = f.properties || {};
+            const spriteBase = cfg?.enhancedRendering?.spriteBase;
+            const baseAngle = (typeof p.icon_base_bearing === 'number') ? p.icon_base_bearing : 0;
+            const zeroOffset = (cfg?.enhancedRendering?.zeroOffsetDegByView?.[freshState.viewType])
+              ?? (cfg?.enhancedRendering?.zeroOffsetDeg)
+              ?? 0;
+            const displayAngle = (typeof p.icon_display_bearing === 'number') ? p.icon_display_bearing : undefined;
+            const transform = computeSpriteTransform({
+              map,
+              view: freshState,
+              cameraState: freshState,
+              spriteBase,
+              baseAngleDeg: baseAngle,
+              displayAngleDeg: displayAngle,
+              zeroOffsetDeg: zeroOffset,
+              areaGeom,
+              facingMode: cfg?.enhancedRendering?.facingMode,
+              side: p.icon_side || null
+            });
+            const nextImage = transform.imageId || (spriteBase ? `${spriteBase}_000` : p.icon_image);
+            const nextRotate = transform.iconRotate || 0;
+            const baseRotation = displayAngle !== undefined ? ((displayAngle % 360) + 360) % 360 : nextRotate;
+            if (p.icon_image !== nextImage || (p.icon_rotate || 0) !== nextRotate || (p.icon_base_rotation !== baseRotation)) {
+              changed = true;
+              return { ...f, properties: { ...p, icon_image: nextImage, icon_rotate: nextRotate, icon_base_rotation: baseRotation } };
+            }
+            return f;
+          });
+          
+          if (changed) {
+            const updated = { ...data, features: newFeatures };
+            try {
+              const srcId = `source-${layerId}`;
+              const src = map && typeof map.getSource === 'function' ? map.getSource(srcId) : null;
+              if (src && typeof src.setData === 'function') src.setData(updated);
+            } catch (_) {}
+            infraDataRef.current = { ...infraDataRef.current, [layerId]: updated };
+            setInfrastructureData((prev) => ({ ...prev, [layerId]: updated }));
+          }
+          
+          // Update bucket cache with fresh bearing
+          const freshBucket = computeCameraBucket({ cameraState: freshState, bucketPrecisionDeg: 45, slices: 8 });
+          lastCameraBucketRef.current[layerId] = freshBucket;
+          if (!lastViewTypeRef.current) lastViewTypeRef.current = {};
+          lastViewTypeRef.current[layerId] = freshState.viewType;
+        });
+      } catch (_) {}
+    };
+    
+    try { window.addEventListener('permit:focus-ready', handleFocusReady); } catch (_) {}
+    return () => {
+      try { window.removeEventListener('permit:focus-ready', handleFocusReady); } catch (_) {}
+    };
+  }, [map, focusedArea]);
+
   // Add infrastructure layer to map - move this before loadInfrastructureLayer
   const addInfrastructureLayerToMap = useCallback((layerId, data) => {
     if (!map) return;
@@ -734,11 +820,11 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
           layerConfig.layout = {
             ...(layerConfig.layout || {}),
             'symbol-placement': 'point',
-            // 'map' alignment = icons are FIXED in world space, rotate WITH the map (like basemap features)
-            // No JavaScript rotation updates needed - MapLibre handles it natively on the GPU
+            // Use 'map' alignment for world-space rotation
+            // icon_base_rotation contains the world-space bearing from CSCL street alignment
             'icon-rotation-alignment': 'map',
             'icon-pitch-alignment': 'map',
-            'icon-rotate': ['coalesce', ['get', 'icon_base_rotation'], ['coalesce', ['get', 'icon_rotate'], 0]],
+            'icon-rotate': ['get', 'icon_base_rotation'],
             'icon-anchor': 'center',
             'icon-offset': [0, 0]
           };
@@ -748,6 +834,24 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
       if (DEBUG_INFRA) console.log(`[DEBUG] Adding point layer: ${pointLayerId} with config:`, layerConfig);
       
       map.addLayer(layerConfig, beforeId);
+      
+      // Force source refresh after layer is added to ensure MapLibre properly evaluates icon-rotate
+      // This fixes an issue where properties aren't read correctly on initial render
+      try {
+        const refreshSource = () => {
+          try {
+            const src = map.getSource(sourceId);
+            if (src && typeof src.setData === 'function' && data) {
+              console.log(`[addLayer] ${layerId}: forcing source refresh to fix icon rotation`);
+              src.setData(data);
+            }
+          } catch (_) {}
+        };
+        // Use requestAnimationFrame to ensure the layer is fully initialized first
+        requestAnimationFrame(() => {
+          requestAnimationFrame(refreshSource);
+        });
+      } catch (_) {}
       
       try {
         const H = map.__infraHandlers || (map.__infraHandlers = new Map());
@@ -1082,7 +1186,17 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
                 });
               }
               
-              return { ...f, properties: { ...p, icon_image: img, icon_sprite_base: cfg.enhancedRendering.spriteBase, icon_base_bearing: baseBearing, icon_side: side, icon_base_bearing_source: baseSource, icon_display_bearing: normalizedDisplayBearing, icon_base_rotation: normalizedDisplayBearing } };
+              // Compute camera-adjusted icon_rotate for viewport alignment
+              // icon_rotate = display_bearing - camera_bearing
+              const currentCameraBearing = (map && typeof map.getBearing === 'function') ? map.getBearing() : (view?.bearing || 0);
+              const iconRotate = ((normalizedDisplayBearing - currentCameraBearing) % 360 + 360) % 360;
+              
+              // Log first few features for debugging
+              if (featureIdx < 2) {
+                console.log(`[Annotation] ${layerId}[${featureIdx}]: cameraBearing=${currentCameraBearing.toFixed(1)}, displayBearing=${normalizedDisplayBearing.toFixed(1)}, iconRotate=${iconRotate.toFixed(1)}`);
+              }
+              
+              return { ...f, properties: { ...p, icon_image: img, icon_sprite_base: cfg.enhancedRendering.spriteBase, icon_base_bearing: baseBearing, icon_side: side, icon_base_bearing_source: baseSource, icon_display_bearing: normalizedDisplayBearing, icon_base_rotation: normalizedDisplayBearing, icon_rotate: iconRotate } };
             })
           };
           
@@ -1107,6 +1221,8 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
         ...prev,
         [layerId]: filteredData
       }));
+      // Also update ref immediately so confirmReady can access it
+      infraDataRef.current = { ...infraDataRef.current, [layerId]: filteredData };
 
       // Determine if dataset is empty up front
       const isEmpty = !filteredData?.features || filteredData.features.length === 0;
@@ -1145,6 +1261,89 @@ export const useInfrastructure = (map, focusedArea, layers, setLayers, options =
               }
             }));
             try { if (stillRequested) toggleInfrastructureLayerVisibility(layerId, true).catch(() => {}); } catch (_) {}
+            
+            // Force sprite update with fresh camera state after layer is loaded
+            // This ensures correct orientation even if camera settled before/during load
+            try {
+              const cfg = layersRef.current?.[layerId];
+              console.log(`[confirmReady] ${layerId}: checking for sprite update, enhancedRendering=${cfg?.enhancedRendering?.enabled}`);
+              if (cfg?.enhancedRendering?.enabled) {
+                const data = infraDataRef.current?.[layerId];
+                console.log(`[confirmReady] ${layerId}: data features count=${data?.features?.length || 0}`);
+                if (data && Array.isArray(data.features) && data.features.length > 0) {
+                  const freshState = {
+                    bearing: (map && typeof map.getBearing === 'function') ? map.getBearing() : 0,
+                    pitch: (map && typeof map.getPitch === 'function') ? map.getPitch() : 0,
+                    viewType: getMapViewType((map && typeof map.getPitch === 'function') ? map.getPitch() : 0)
+                  };
+                  console.log(`[confirmReady] ${layerId}: freshState bearing=${freshState.bearing.toFixed(1)}, viewType=${freshState.viewType}`);
+                  
+                  const areaGeom = (() => { try {
+                    return (focusedArea?.properties?.__subFocus ? focusedArea : null)?.geometry || (focusedArea?.geometry);
+                  } catch (_) { return null; } })();
+                  
+                  let changed = false;
+                  const newFeatures = data.features.map((f) => {
+                    if (!f || f.geometry?.type !== 'Point') return f;
+                    const p = f.properties || {};
+                    const spriteBase = cfg?.enhancedRendering?.spriteBase;
+                    const baseAngle = (typeof p.icon_base_bearing === 'number') ? p.icon_base_bearing : 0;
+                    const zeroOffset = (cfg?.enhancedRendering?.zeroOffsetDegByView?.[freshState.viewType])
+                      ?? (cfg?.enhancedRendering?.zeroOffsetDeg)
+                      ?? 0;
+                    const displayAngle = (typeof p.icon_display_bearing === 'number') ? p.icon_display_bearing : undefined;
+                    const transform = computeSpriteTransform({
+                      map,
+                      view: freshState,
+                      cameraState: freshState,
+                      spriteBase,
+                      baseAngleDeg: baseAngle,
+                      displayAngleDeg: displayAngle,
+                      zeroOffsetDeg: zeroOffset,
+                      areaGeom,
+                      facingMode: cfg?.enhancedRendering?.facingMode,
+                      side: p.icon_side || null
+                    });
+                    const nextImage = transform.imageId || (spriteBase ? `${spriteBase}_000` : p.icon_image);
+                    const nextRotate = transform.iconRotate || 0;
+                    const baseRotation = displayAngle !== undefined ? ((displayAngle % 360) + 360) % 360 : nextRotate;
+                    if (p.icon_image !== nextImage || (p.icon_rotate || 0) !== nextRotate || (p.icon_base_rotation !== baseRotation)) {
+                      changed = true;
+                      return { ...f, properties: { ...p, icon_image: nextImage, icon_rotate: nextRotate, icon_base_rotation: baseRotation } };
+                    }
+                    return f;
+                  });
+                  
+                  console.log(`[confirmReady] ${layerId}: changed=${changed}, features processed`);
+                  if (changed) {
+                    const updated = { ...data, features: newFeatures };
+                    // Log sample rotation values
+                    const sample = newFeatures.slice(0, 2).map(f => ({
+                      icon_rotate: f.properties?.icon_rotate,
+                      icon_base_rotation: f.properties?.icon_base_rotation,
+                      icon_display_bearing: f.properties?.icon_display_bearing
+                    }));
+                    console.log(`[confirmReady] ${layerId}: updated rotations sample:`, JSON.stringify(sample));
+                    try {
+                      const srcId = `source-${layerId}`;
+                      const src = map && typeof map.getSource === 'function' ? map.getSource(srcId) : null;
+                      if (src && typeof src.setData === 'function') {
+                        src.setData(updated);
+                        console.log(`[confirmReady] ${layerId}: setData called`);
+                      }
+                    } catch (_) {}
+                    infraDataRef.current = { ...infraDataRef.current, [layerId]: updated };
+                    setInfrastructureData((prev) => ({ ...prev, [layerId]: updated }));
+                  }
+                  
+                  // Update bucket cache
+                  const freshBucket = computeCameraBucket({ cameraState: freshState, bucketPrecisionDeg: 45, slices: 8 });
+                  lastCameraBucketRef.current[layerId] = freshBucket;
+                  if (!lastViewTypeRef.current) lastViewTypeRef.current = {};
+                  lastViewTypeRef.current[layerId] = freshState.viewType;
+                }
+              }
+            } catch (_) {}
           } catch (_) {}
         };
 
